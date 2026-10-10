@@ -1,7 +1,17 @@
 """Fail if a file contains what looks like key material.
 
-Flags a run of 32+ hex characters, or a 16-byte colon-separated hex string.
-A line containing ``# secret-scan: allow`` is skipped (for public spec test vectors).
+Flags (case-insensitive):
+
+- a run of 32+ hex characters;
+- 16 hex byte pairs with one consistent single-space or colon separator
+  (``aa bb cc ...``, ``aa:bb:cc:...``); a trailing hex digit does not prevent
+  a match, so two keys glued together are still caught;
+- a ``fromhex("...")`` / ``unhex("...")`` literal holding 32+ hex digits once
+  whitespace is removed (catches irregular spacing).
+
+Best-effort heuristics, not a guarantee. A line containing ``# secret-scan: allow``
+is skipped (for public spec test vectors and obvious dummies); the marker must be
+on the flagged line itself.
 Usage: ``check_secrets.py FILE...``; binary and unreadable files are skipped.
 """
 
@@ -12,9 +22,23 @@ import sys
 from pathlib import Path
 
 ALLOW_MARKER = "secret-scan: allow"
+MIN_HEX_DIGITS = 32  # 16 bytes / 128-bit key
 HEX_RUN = re.compile(r"(?i)(?<![0-9a-f])[0-9a-f]{32,}(?![0-9a-f])")
-COLON_16 = re.compile(r"(?i)(?<![0-9a-f:])(?:[0-9a-f]{2}:){15}[0-9a-f]{2}(?![0-9a-f:])")
+SEPARATED_16 = re.compile(r"(?i)(?<![0-9a-f])[0-9a-f]{2}([ :])(?:[0-9a-f]{2}\1){14}[0-9a-f]{2}")
+HEX_LITERAL = re.compile(r"""(?i)\b(?:fromhex|unhex)\(\s*[rb]?(["'])([0-9a-f\s:]*)\1""")
+WHITESPACE = re.compile(r"[\s:]")
 SELF = Path(__file__).resolve()
+
+
+def suspicious(line: str) -> bool:
+    """True if ``line`` looks like it holds 16+ bytes of hex key material."""
+    if ALLOW_MARKER in line:
+        return False
+    if HEX_RUN.search(line) or SEPARATED_16.search(line):
+        return True
+    return any(
+        len(WHITESPACE.sub("", m.group(2))) >= MIN_HEX_DIGITS for m in HEX_LITERAL.finditer(line)
+    )
 
 
 def scan(path: Path) -> list[int]:
@@ -23,11 +47,7 @@ def scan(path: Path) -> list[int]:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
-    return [
-        n
-        for n, line in enumerate(text.splitlines(), start=1)
-        if ALLOW_MARKER not in line and (HEX_RUN.search(line) or COLON_16.search(line))
-    ]
+    return [n for n, line in enumerate(text.splitlines(), start=1) if suspicious(line)]
 
 
 def main(argv: list[str]) -> int:
