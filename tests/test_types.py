@@ -108,7 +108,7 @@ def test_generate_rejects_bad_rng() -> None:
 
 
 def test_secret_redaction_everywhere(caplog: pytest.LogCaptureFixture) -> None:
-    secret = SecretBytes(bytes.fromhex("aabbccddeeff00112233445566778899"))
+    secret = SecretBytes(bytes.fromhex("aabbccddeeff00112233445566778899"))  # secret-scan: allow
     marker = "SecretBytes(<redacted>)"
     assert repr(secret) == marker
     assert str(secret) == marker
