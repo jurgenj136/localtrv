@@ -23,9 +23,20 @@ Algorithm (BUILD_SPEC A4):
 3. otherwise test *every* offset 8..17 (relative to the NWK payload after the
    NWK header) as a bare ZDO payload (``seq ‖ ...``) or ZCL frame, validated
    structurally with the expected kind's strict decoder;
-4. if several offsets validate with *different* results the match is
+4. if several candidates validate with *different* results the match is
    ambiguous and rejected; identical results are accepted (first offset
    reported, all offsets kept for diagnostics).
+
+Trailing bytes: live research frames reportedly carried extra bytes including
+a 4-byte frame counter (handover section 6), so a trailing MIC-32 may follow
+the real payload. Each candidate (the standard APS payload and every scanned
+offset) is first decoded up to the exact end; only if that fails is it retried
+with exactly 4 bytes (one MIC-32) trimmed. No other trim length is tried, so 1-3
+or 5+ stray bytes still fail. ``max_trailing`` caps the trim (``0`` disables
+it); the match records the trim in ``trailing``. Ambiguity rule 4 applies
+across all (offset, trim) candidates. A trimmed match is weaker evidence: a
+lenient payload (e.g. a ZCL attribute list) can sometimes absorb 4 stray bytes
+in the exact decode instead, which is why exact always wins per offset.
 
 ZCL validation cannot check the cluster id on scanned candidates (the APS
 cluster field is exactly what is unreliable); it is checked on the standard
@@ -65,6 +76,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 SCAN_OFFSETS = range(8, 18)
+MIC_TRIM = 4  # ENC-MIC-32; the only trailing length the scan tolerates
 
 type ZdoResponse = (
     ActiveEpRsp | SimpleDescRsp | MatchDescRsp | MgmtLqiRsp | IeeeAddrRsp | NwkAddrRsp
@@ -114,7 +126,8 @@ class ScanMatch:
     """A validated response.
 
     ``offset`` is None when the standard APS decode succeeded (``aps`` set);
-    otherwise the payload offset where the fallback found it.
+    otherwise the payload offset where the fallback found it. ``trailing`` is
+    the number of bytes ignored at the end (0, or 4 for a presumed MIC-32).
     """
 
     response: ScanResponse
@@ -122,6 +135,7 @@ class ScanMatch:
     zcl_header: ZclHeader | None = None
     aps: ApsDataFrame | None = None
     candidate_offsets: tuple[int, ...] = ()
+    trailing: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,7 +182,26 @@ def _validate(candidate: bytes, expected: Expected, *, scanned: bool) -> _Decode
     return _validate_zcl(candidate, expected)
 
 
-def _standard(nwk_payload: bytes, expected: Expected) -> tuple[ScanMatch | None, int | None]:
+def _trims(max_trailing: int) -> tuple[int, ...]:
+    return (0, MIC_TRIM) if max_trailing >= MIC_TRIM else (0,)
+
+
+def _validate_trimmed(
+    candidate: bytes, expected: Expected, *, scanned: bool, trims: tuple[int, ...]
+) -> tuple[int, _Decoded] | None:
+    """Exact end first; then each allowed trim. Returns (trailing, decoded)."""
+    for trim in trims:
+        if trim and len(candidate) <= trim:
+            break
+        decoded = _validate(candidate[: len(candidate) - trim], expected, scanned=scanned)
+        if decoded is not None:
+            return trim, decoded
+    return None
+
+
+def _standard(
+    nwk_payload: bytes, expected: Expected, trims: tuple[int, ...]
+) -> tuple[ScanMatch | None, int | None]:
     """Standard decode: (match or None, payload offset of a well-formed APS frame or None)."""
     try:
         aps = ApsDataFrame.decode(nwk_payload)
@@ -184,42 +217,53 @@ def _standard(nwk_payload: bytes, expected: Expected) -> tuple[ScanMatch | None,
             return None, payload_offset
     elif expected.cluster_id is not None and aps.cluster_id != expected.cluster_id:
         return None, payload_offset
-    decoded = _validate(aps.payload, expected, scanned=False)
-    if decoded is None:
+    result = _validate_trimmed(aps.payload, expected, scanned=False, trims=trims)
+    if result is None:
         return None, payload_offset
-    header, response = decoded
-    return ScanMatch(response=response, zcl_header=header, aps=aps), payload_offset
+    trailing, (header, response) = result
+    return (
+        ScanMatch(response=response, zcl_header=header, aps=aps, trailing=trailing),
+        payload_offset,
+    )
 
 
 def scan_for_response(
-    nwk_payload: bytes, expected: Expected, *, src_short: int
+    nwk_payload: bytes, expected: Expected, *, src_short: int, max_trailing: int = MIC_TRIM
 ) -> ScanMatch | ScanFailure:
     """Find the expected response in an NWK payload (see module docstring).
 
     ``src_short`` is the NWK source of the received frame; it must equal
-    ``expected.src_short``.
+    ``expected.src_short``. ``max_trailing`` bounds the tolerated trailing
+    bytes; only a 4-byte MIC-32 trim is ever tried, so values below 4 disable it.
     """
+    if max_trailing < 0:
+        raise ValueError("max_trailing must be >= 0")
     if src_short != expected.src_short:
         return ScanFailure(
             f"source 0x{src_short:04X} is not the expected 0x{expected.src_short:04X}"
         )
-    standard, judged_offset = _standard(nwk_payload, expected)
+    trims = _trims(max_trailing)
+    standard, judged_offset = _standard(nwk_payload, expected, trims)
     if standard is not None:
         return standard
-    found: list[tuple[int, _Decoded]] = []
+    found: list[tuple[int, int, _Decoded]] = []
     for offset in SCAN_OFFSETS:
         if offset == judged_offset:
             continue  # already rejected together with its real APS header
-        decoded = _validate(nwk_payload[offset:], expected, scanned=True)
-        if decoded is not None:
-            found.append((offset, decoded))
-    offsets = tuple(off for off, _ in found)
+        result = _validate_trimmed(nwk_payload[offset:], expected, scanned=True, trims=trims)
+        if result is not None:
+            found.append((offset, *result))
+    offsets = tuple(off for off, _, _ in found)
     if not found:
         return ScanFailure(f"no offset in {SCAN_OFFSETS.start}..{SCAN_OFFSETS.stop - 1} validated")
-    first_offset, first = found[0]
-    if any(decoded != first for _, decoded in found[1:]):
+    first_offset, first_trailing, first = found[0]
+    if any(decoded != first for _, _, decoded in found[1:]):
         return ScanFailure(f"ambiguous: offsets {offsets} decode to different results", offsets)
     header, response = first
     return ScanMatch(
-        response=response, offset=first_offset, zcl_header=header, candidate_offsets=offsets
+        response=response,
+        offset=first_offset,
+        zcl_header=header,
+        candidate_offsets=offsets,
+        trailing=first_trailing,
     )

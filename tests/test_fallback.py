@@ -196,3 +196,84 @@ def test_standard_zdo_header_mismatch_or_bad_payload() -> None:
     assert isinstance(scan_for_response(wrong_cluster, expected, src_short=SRC), ScanFailure)
     bad_payload = ApsDataFrame(ZdoCluster.ACTIVE_EP_RSP, 0, h("42 00 114A 05")).encode()
     assert isinstance(scan_for_response(bad_payload, expected, src_short=SRC), ScanFailure)
+
+
+MIC = h("DE AD BE EF")  # dummy 4-byte trailer (presumed MIC-32 / frame counter)
+EXPECT_EP = ExpectedZdo(SRC, ZdoCluster.ACTIVE_EP_RSP, 0x42)
+
+
+def test_exact_match_preferred_over_trim() -> None:
+    result = scan_for_response(
+        quirk(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode()), EXPECT_EP, src_short=SRC
+    )
+    assert isinstance(result, ScanMatch)
+    assert result.trailing == 0
+
+
+def test_exact_wins_when_trim_would_also_validate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lenient decoder accepts both the exact and the trimmed candidate: exact is reported."""
+    seen: list[bytes] = []
+
+    def lenient(data: bytes) -> ActiveEpRsp:
+        seen.append(data)
+        return ACTIVE_EP
+
+    monkeypatch.setattr(
+        fallback, "ZDO_RESPONSE_DECODERS", MappingProxyType({ZdoCluster.ACTIVE_EP_RSP: lenient})
+    )
+    payload = SOURCE_ROUTE + bytes(8) + ACTIVE_EP.encode() + MIC
+    result = scan_for_response(payload, EXPECT_EP, src_short=SRC)
+    assert isinstance(result, ScanMatch)
+    assert result.trailing == 0
+    assert seen == [ACTIVE_EP.encode() + MIC]  # trimmed variant never tried
+
+
+def test_four_trailing_bytes_accepted_on_scan() -> None:
+    payload = quirk(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode()) + MIC
+    result = scan_for_response(payload, EXPECT_EP, src_short=SRC)
+    assert isinstance(result, ScanMatch)
+    assert result.offset == 12
+    assert result.trailing == 4
+    assert result.response == ACTIVE_EP
+
+
+def test_four_trailing_bytes_accepted_on_standard_path() -> None:
+    payload = ApsDataFrame(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode() + MIC).encode()
+    result = scan_for_response(payload, EXPECT_EP, src_short=SRC)
+    assert isinstance(result, ScanMatch)
+    assert result.offset is None
+    assert result.aps is not None
+    assert result.trailing == 4
+    assert result.response == ACTIVE_EP
+
+
+@pytest.mark.parametrize("extra", [h("AA"), h("AA BB"), h("AA BB CC"), h("AA BB CC DD EE")])
+def test_non_mic_trailing_lengths_rejected(extra: bytes) -> None:
+    payload = quirk(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode()) + extra
+    assert isinstance(scan_for_response(payload, EXPECT_EP, src_short=SRC), ScanFailure)
+
+
+@pytest.mark.parametrize("max_trailing", [0, 3])
+def test_max_trailing_below_mic_disables_trim(max_trailing: int) -> None:
+    payload = quirk(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode()) + MIC
+    result = scan_for_response(payload, EXPECT_EP, src_short=SRC, max_trailing=max_trailing)
+    assert isinstance(result, ScanFailure)
+    standard = ApsDataFrame(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode() + MIC).encode()
+    result = scan_for_response(standard, EXPECT_EP, src_short=SRC, max_trailing=max_trailing)
+    assert isinstance(result, ScanFailure)
+
+
+def test_trimmed_candidates_count_for_ambiguity() -> None:
+    # Same bytes as the plain ambiguity test plus a MIC: both offsets 8 and 10 now
+    # validate only after trimming 4 bytes, with different results.
+    payload = h("01 00 00 00 00 00 00 00") + h("07 00 07 00 03 05 01 09") + MIC
+    expected = ExpectedZdo(SRC, ZdoCluster.ACTIVE_EP_RSP, 0x07)
+    result = scan_for_response(payload, expected, src_short=SRC)
+    assert isinstance(result, ScanFailure)
+    assert "ambiguous" in result.reason
+    assert result.candidate_offsets == (8, 10)
+
+
+def test_negative_max_trailing_rejected() -> None:
+    with pytest.raises(ValueError, match="max_trailing"):
+        scan_for_response(b"", EXPECT_EP, src_short=SRC, max_trailing=-1)
