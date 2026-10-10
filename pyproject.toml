@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vicare-direct"
+version = "0.1.0.dev0"
+description = "Local Zigbee Direct (BLE) client for Viessmann ZK03840 radiator valves."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "jurgenj136" }]
+keywords = ["zigbee", "zigbee-direct", "ble", "viessmann", "home-assistant"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Home Automation",
+    "Typing :: Typed",
+]
+dependencies = [
+    "cryptography>=42",
+    "bleak>=0.22",
+]
+
+[project.scripts]
+vicare-direct = "vicare_direct.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.0",
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pre-commit>=4.6.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vicare_direct"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "S", "C4", "PIE", "PT", "RET", "TC"]
+ignore = ["PLR2004"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"scripts/**" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--cov=vicare_direct --cov-report=term-missing --cov-fail-under=90"
+
+[tool.coverage.run]
+branch = true
+omit = [
+    "*/vicare_direct/zigbee_direct/transport.py",
+    "*/vicare_direct/zigbee_direct/node.py",
+    "*/vicare_direct/cli.py",
+    "*/vicare_direct/valves.py",
+]
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
