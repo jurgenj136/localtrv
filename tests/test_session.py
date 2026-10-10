@@ -48,12 +48,14 @@ BOB_PRIV = SecretBytes(b"BobBobBobBobBobBobBobBobBobBobBo")
 ALICE_EUI = Eui64.from_wire(unhex("AA 00 A0 A0 0A 0A A0 A0"))
 BOB_EUI = Eui64.from_wire(unhex("BB 00 B0 B0 0B 0B B0 B0"))
 ALICE_Q = unhex(
-    "BA BB C4 D7 85 6A BF 56 1B B4 37 8F D9 FD 24 92C1 EA 16 02 1B 90 D6 1F CE 3A 96 5B 04 1C A2 59"
+    "BA BB C4 D7 85 6A BF 56 1B B4 37 8F D9 FD 24 92 "  # secret-scan: allow
+    "C1 EA 16 02 1B 90 D6 1F CE 3A 96 5B 04 1C A2 59"  # secret-scan: allow
 )
 BOB_Q = unhex(
-    "47 7D C0 5F F5 42 AC 83 AD DF 2B 87 87 11 92 DC6C 59 6A C5 40 C8 D3 5A FB 7E C7 25 9A 71 5B 6C"
+    "47 7D C0 5F F5 42 AC 83 AD DF 2B 87 87 11 92 DC "  # secret-scan: allow
+    "6C 59 6A C5 40 C8 D3 5A FB 7E C7 25 9A 71 5B 6C"  # secret-scan: allow
 )
-LINK_KEY_1 = unhex("25 47 F3 AF 96 39 1E 1E BF F2 A3 B7 6D 6A 29 29")
+LINK_KEY_1 = unhex("25 47 F3 AF 96 39 1E 1E BF F2 A3 B7 6D 6A 29 29")  # secret-scan: allow
 
 PSK = zc.WELL_KNOWN_PSK
 SECRET_TYPE = zc.SecretType.ANONYMOUS_WELL_KNOWN

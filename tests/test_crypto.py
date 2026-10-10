@@ -22,23 +22,27 @@ def unhex(s: str) -> bytes:
 
 # --- R23 Annex C.7.1 test vector #1 (PSK = apscWellKnownPSK) -------------------------------
 G_1 = unhex(
-    "90 2B 44 85 C8 4E C4 A0 59 44 AB 34 42 92 68 7890 2B 44 85 C8 4E C4 A0 59 44 AB 34 42 92 68 78"
+    "90 2B 44 85 C8 4E C4 A0 59 44 AB 34 42 92 68 78 "  # secret-scan: allow
+    "90 2B 44 85 C8 4E C4 A0 59 44 AB 34 42 92 68 78"  # secret-scan: allow
 )
 ALICE_PRIV = SecretBytes(b"AliceAliceAliceAliceAliceAliceAl")
 BOB_PRIV = SecretBytes(b"BobBobBobBobBobBobBobBobBobBobBo")
 ALICE_EUI = Eui64.from_wire(unhex("AA 00 A0 A0 0A 0A A0 A0"))
 BOB_EUI = Eui64.from_wire(unhex("BB 00 B0 B0 0B 0B B0 B0"))
 ALICE_Q = unhex(
-    "BA BB C4 D7 85 6A BF 56 1B B4 37 8F D9 FD 24 92C1 EA 16 02 1B 90 D6 1F CE 3A 96 5B 04 1C A2 59"
+    "BA BB C4 D7 85 6A BF 56 1B B4 37 8F D9 FD 24 92 "  # secret-scan: allow
+    "C1 EA 16 02 1B 90 D6 1F CE 3A 96 5B 04 1C A2 59"  # secret-scan: allow
 )
 BOB_Q = unhex(
-    "47 7D C0 5F F5 42 AC 83 AD DF 2B 87 87 11 92 DC6C 59 6A C5 40 C8 D3 5A FB 7E C7 25 9A 71 5B 6C"
+    "47 7D C0 5F F5 42 AC 83 AD DF 2B 87 87 11 92 DC "  # secret-scan: allow
+    "6C 59 6A C5 40 C8 D3 5A FB 7E C7 25 9A 71 5B 6C"  # secret-scan: allow
 )
 XK = unhex(
-    "FB 9C 3C 7A 2E 49 03 CD D2 36 DA 82 CD 0B 71 81B1 61 7D 99 67 4C 4E A8 A3 F5 D4 60 31 DD A7 09"
+    "FB 9C 3C 7A 2E 49 03 CD D2 36 DA 82 CD 0B 71 81 "  # secret-scan: allow
+    "B1 61 7D 99 67 4C 4E A8 A3 F5 D4 60 31 DD A7 09"  # secret-scan: allow
 )
-S_1 = unhex("AE 46 6B 75 30 9D 5C 2D 71 5F 7E 44 31 DF 04 7A")
-LINK_KEY_1 = unhex("25 47 F3 AF 96 39 1E 1E BF F2 A3 B7 6D 6A 29 29")
+S_1 = unhex("AE 46 6B 75 30 9D 5C 2D 71 5F 7E 44 31 DF 04 7A")  # secret-scan: allow
+LINK_KEY_1 = unhex("25 47 F3 AF 96 39 1E 1E BF F2 A3 B7 6D 6A 29 29")  # secret-scan: allow
 
 # Dummy identities for CCM tests (not real devices).
 ZVD = Eui64.from_wire(bytes(range(1, 9)))
