@@ -221,6 +221,9 @@ def test_simple_desc_rsp_error_and_empty() -> None:
         SimpleDescRsp(8, 0, SHORT_A).encode()
     with pytest.raises(EncodeError):
         SimpleDescRsp(8, 0x82, SHORT_A, DESC).encode()
+    huge = SimpleDescriptor(1, 0x0104, 0x0301, in_clusters=tuple(range(130)))
+    with pytest.raises(EncodeError, match="too long"):
+        SimpleDescRsp(8, 0, SHORT_A, huge).encode()
 
 
 @pytest.mark.parametrize(
