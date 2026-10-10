@@ -253,11 +253,30 @@ parse failed.
   (`scripts/extract_npdu_fixtures.py`) before removing the fallback.
 - **Fallback decoder** (`codec/fallback.py`, `scan_for_response`): tries the standard decode first,
   then tests every offset 8..17 of the payload after the corrected NWK header, validating
-  structurally against the expected kind plus ZDO seq or ZCL tsn/command. Source short must match.
-  Returns the first valid match with its offset; if several offsets validate to different results
-  the answer is ambiguous and returns a failure with a reason. Headerless `Active_EP_rsp` and
-  `Simple_Desc_rsp` are indistinguishable, so the caller must state which kind it expects for that
-  seq. Scanned ZCL candidates cannot check the cluster id.
+  structurally against the expected kind plus ZDO seq or ZCL tsn/command/manufacturer code. Source
+  short must match. Returns the first valid match with its offset; if several offsets validate to
+  different results the answer is ambiguous and returns a failure with a reason. Headerless
+  `Active_EP_rsp` and `Simple_Desc_rsp` are indistinguishable, so the caller must state which kind
+  it expects for that seq.
+- **Recovered APS headers:** any APS data header parseable before a candidate whose payload starts
+  exactly at that candidate must match the expected cluster/profile/endpoint (same rule as the
+  standard path). Only truly headerless candidates skip the cluster check.
+- **Strict by default, two opt-in flags:**
+  - `allow_secured_aps=False`: if the standard decode raises `UnsupportedFrameError` (APS
+    security, extended header/fragmentation, ACK, command, inter-PAN), or a secured/extended APS
+    header ends exactly at a candidate, nothing inside it is scanned (it may be ciphertext or a
+    fragment). A recoverable `ApsDecodeError` (truncation, reserved delivery mode) still allows the
+    scan. Setting `True` permits it and marks the match `aps_secured=True`. Rationale for keeping
+    the option: research `tools/zvd_tunnel.py:348-387` had a secured-APS path and handover §6
+    mentions a 4-byte frame counter, so ZDD-delivered frames may carry an APS security header with a
+    plaintext payload (hypothesis; verify with phase-2 fixtures). Caveat: the 1-relay
+    source-route prefix starts with `0x01`, an APS *command* frame control, so that hypothesised
+    layout also needs the flag.
+  - `max_trailing=0`: no trailing bytes are tolerated. With `max_trailing>=4`, each candidate is
+    retried with exactly 4 bytes (presumed MIC-32) trimmed after the exact decode fails. No capture
+    proves those bytes are a MIC, and trimming can turn a malformed response into a success, so
+    enable it only for a capture-backed quirk.
+- `ScanMatch.aps` is excluded from the repr (its raw payload may hold a KEY128).
 
 ## 9. ZCL to the valves
 
