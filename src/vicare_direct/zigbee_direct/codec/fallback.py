@@ -5,65 +5,47 @@ did not decode as a standard APS frame at offset 0 of the (research-parsed)
 NWK payload; the ZDO/ZCL payload was found 12 bytes in instead of 8. The
 research client scanned offsets 8..17 for something that looked right
 (tools/zvd_client.py:750-761 ``_scan_zdo``, :855-868 for ZCL, :876-892 for
-ZDO). That ZDO loop ``break``s on the first offset whose first byte is not a
-pending sequence number (:882-883) and after the first parse attempt that
-succeeds (:892), so in practice it mostly tested offset 8 only.
+ZDO). Hypothesis (unverified): the extra 4 bytes were an NWK source-route
+subframe the research NWK parser did not skip; ``nwk.py`` now strips it, so
+the standard decode may simply work. Phase-2 fixtures must confirm.
 
-Hypothesis (unverified): the extra 4 bytes are an NWK source-route subframe
-(relay_count, relay_index, one 2-byte relay) that the research NWK parser did
-not skip. ``nwk.py`` now parses that subframe, so the standard APS decode
-should succeed and this fallback may become unnecessary. Phase-2 fixtures
-must confirm before it is removed.
-
-Algorithm (BUILD_SPEC A4):
+Rule. The NWK payload handed in always starts with the real APS frame control
+at offset 0 (``nwk.py`` strips multicast/source-route subframes; no other
+prefix exists). Hence:
 
 1. reject frames from an unexpected source short;
-2. try the standard APS decode at offset 0 and validate it against the
-   expected kind (header cluster/profile/endpoint, then payload);
-3. otherwise test *every* offset 8..17 (relative to the NWK payload after the
-   NWK header) as a bare ZDO payload (``seq ‖ ...``) or ZCL frame, validated
-   structurally with the expected kind's strict decoder;
-4. if several candidates validate with *different* results the match is
-   ambiguous and rejected; identical results are accepted (first offset
-   reported, all offsets kept for diagnostics).
+2. strict APS decode at offset 0, checked against the expected header (ZDO:
+   profile 0, response cluster, dst endpoint 0; ZCL: cluster if given) and
+   payload -> match with ``offset=None`` and ``cluster_verified=True``;
+3. otherwise classify only the offset-0 frame control (R23 2.2.5.1.1). A
+   non-data frame, the reserved delivery mode 0b01, APS security or an
+   extended header (fragmentation) means the payload may be ciphertext or a
+   fragment: refuse (BUILD_SPEC A2) unless ``allow_unsupported_aps=True``.
+   The opt-in exists because research tools/zvd_tunnel.py:348-387 had a
+   secured-APS path and handover section 6 mentions a 4-byte frame counter
+   (hypothesis); such matches carry ``aps_unsupported=True``;
+4. scan every offset 8..17 as a bare ZDO payload (``seq ...``) or ZCL frame,
+   validated strictly against the expected kind (seq / tsn, command,
+   manufacturer code, exact decode). The offset where a successful step-2
+   decode put the payload is skipped: it was already judged together with its
+   real header. Nothing else is inferred from bytes before a candidate;
+5. several candidates with *different* results are ambiguous and rejected;
+   identical results are accepted (first offset reported, all kept).
 
-APS security (review finding 1). The standard decode distinguishes a
-recoverable framing error (``ApsDecodeError``: truncation, reserved delivery
-mode -- the kind of quirk the scan exists for) from ``UnsupportedFrameError``
-(APS security, extended header / fragmentation, ACK, command or inter-PAN
-frame). By default the scan never runs inside an unsupported frame, because
-its payload may be ciphertext or a fragment. This applies to the frame at
-offset 0 and to any APS header recoverable *before* a candidate whose secured
-or extended payload starts exactly at that candidate. Note that a 1-relay
-source-route prefix starts with ``0x01``, which reads as an APS command frame
-control, so the hypothesised layout below is refused by default too.
+The APS cluster/profile/endpoint cannot be verified in scan mode -- those
+header bytes are exactly what the quirk garbles -- so scan matches have
+``cluster_verified=False``.
 
-``allow_secured_aps=True`` lifts the block. Rationale: research
-tools/zvd_tunnel.py:348-387 had a secured-APS path and handover section 6
-mentions "a 4-byte frame counter", so live ZDD-delivered frames *may* carry an
-APS security header with a plaintext payload. That is a hypothesis to verify
-with phase-2 fixtures; a match found this way has ``aps_secured=True``.
+Residual risk: behind a plain unsecured data frame control, a crafted or
+garbled frame may yield a false match. Mitigation is correlation on
+(src_short, seq/tsn, command, exact length). The definitive fix is an explicit,
+fixture-backed quirk-layout decoder in phase 2 that replaces this scan.
 
-Recovered headers (review finding 4). For each candidate offset, every APS
-header that can be parsed at an earlier position and whose payload starts
-exactly at the candidate is checked against the expected cluster/profile/
-endpoint (the same rule as the standard path); one mismatch rejects the
-candidate. Headerless candidates cannot be checked. When the standard decode
-at offset 0 yields a well-formed but non-matching APS data frame, its payload
-offset is skipped entirely.
-
-Trailing bytes (review finding 2). Off by default: ``max_trailing=0``. Only
-with an explicit ``max_trailing >= 4`` is each candidate (standard payload and
-scanned offsets) retried with exactly 4 bytes (one presumed MIC-32) trimmed,
-after the exact decode failed. No framing evidence yet shows these bytes are a
-MIC, and a trim can turn a malformed response into a success, so it must be
-an explicit, capture-backed choice. The match records the trim in
-``trailing``; ambiguity rule 4 applies across all (offset, trim) candidates.
-
-ZCL matching includes the manufacturer code (``ExpectedZcl.manufacturer_code``,
-None for standard attributes). ZDO candidates rely on the strict decoders,
-which enforce the exact R23 failure layouts (a lone status byte never
-validates).
+Trailing bytes: strict by default (``max_trailing=0``). Only with
+``max_trailing >= 4`` is each candidate retried with exactly 4 bytes (presumed
+MIC-32) trimmed after the exact decode failed; no capture yet proves those
+bytes are a MIC. The trim is recorded in ``trailing``; rule 5 applies across
+all (offset, trim) candidates.
 """
 
 from __future__ import annotations
@@ -75,7 +57,6 @@ from typing import TYPE_CHECKING
 from vicare_direct.zigbee_direct.codec.aps import (
     ZDO_PROFILE_ID,
     ApsDataFrame,
-    ApsDeliveryMode,
     ApsFrameControl,
     ApsFrameType,
 )
@@ -94,7 +75,7 @@ from vicare_direct.zigbee_direct.codec.zdo import (
     ZdoCluster,
 )
 from vicare_direct.zigbee_direct.codec.zdo_mgmt import MgmtLqiRsp
-from vicare_direct.zigbee_direct.errors import DecodeError, UnsupportedFrameError
+from vicare_direct.zigbee_direct.errors import DecodeError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -155,11 +136,12 @@ class ScanMatch:
     """A validated response.
 
     ``offset`` is None when the standard APS decode succeeded (``aps`` set);
-    otherwise the payload offset where the fallback found it. ``trailing`` is
-    the number of bytes ignored at the end (0, or 4 with opt-in trimming).
-    ``aps_secured`` is True when the match was only reachable through
-    ``allow_secured_aps`` (APS security, extended header or non-data frame).
-    ``aps`` is excluded from the repr: its raw payload may hold key material.
+    otherwise the payload offset where the scan found it. ``trailing`` is the
+    number of bytes ignored at the end (0, or 4 with opt-in trimming).
+    ``cluster_verified`` is True only on the standard path (scan mode cannot
+    check the APS header). ``aps_unsupported`` is True when the match was only
+    reachable through ``allow_unsupported_aps``. ``aps`` is excluded from the
+    repr: its raw payload may hold key material.
     """
 
     response: ScanResponse
@@ -168,7 +150,8 @@ class ScanMatch:
     aps: ApsDataFrame | None = field(default=None, repr=False)
     candidate_offsets: tuple[int, ...] = ()
     trailing: int = 0
-    aps_secured: bool = False
+    cluster_verified: bool = False
+    aps_unsupported: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,54 +165,19 @@ class ScanFailure:
 type _Decoded = tuple[ZclHeader | None, ScanResponse]
 
 
-@dataclass(frozen=True, slots=True)
-class _ApsHeader:
-    """APS addressing fields recovered at some position, plus where its payload starts."""
-
-    cluster_id: int
-    profile_id: int
-    dst_endpoint: int | None
-    unsupported: bool  # secured or extended header: payload is not known plaintext
-    payload_start: int
-
-
-_SEC_EXT_NONCE = 0x20
-_KEY_ID_NETWORK = 1
-
-
-def _header_at(data: bytes, pos: int) -> _ApsHeader | None:
-    """Parse an APS data header (R23 2.2.5.1) at ``pos``, incl. extended/aux headers."""
-    if pos >= len(data):
-        return None
-    fc = ApsFrameControl.from_byte(data[pos])
-    if fc.frame_type is not ApsFrameType.DATA or fc.delivery_mode == 1:
-        return None
-    i = pos + 1
-    dst_endpoint: int | None = None
-    if fc.delivery_mode == ApsDeliveryMode.GROUP:
-        i += 2
-    elif i < len(data):
-        dst_endpoint = data[i]
-        i += 1
-    if i + 6 > len(data):
-        return None
-    cluster = int.from_bytes(data[i : i + 2], "little")
-    profile = int.from_bytes(data[i + 2 : i + 4], "little")
-    i += 6  # cluster, profile, src endpoint, APS counter
-    if fc.extended_header:
-        if i >= len(data):
-            return None
-        i += 2 if data[i] & 0x03 else 1  # ext FC (+ block number when fragmented)
+def _unsupported_fc(fc_byte: int) -> str | None:
+    """Why the offset-0 APS frame control rules out scanning, or None (plain data)."""
+    fc = ApsFrameControl.from_byte(fc_byte)
+    reasons = []
+    if fc.frame_type is not ApsFrameType.DATA:
+        reasons.append(f"a {fc.frame_type.name} frame")
+    if fc.delivery_mode == 1:
+        reasons.append("reserved delivery mode 0b01")
     if fc.security:
-        if i >= len(data):
-            return None
-        sec = data[i]
-        i += 5 + (8 if sec & _SEC_EXT_NONCE else 0)  # sec ctrl + frame counter [+ source]
-        i += 1 if (sec >> 3) & 0x03 == _KEY_ID_NETWORK else 0  # key sequence number
-    if i > len(data):
-        return None
-    unsupported = fc.security or fc.extended_header
-    return _ApsHeader(cluster, profile, dst_endpoint, unsupported, i)
+        reasons.append("APS-secured")
+    if fc.extended_header:
+        reasons.append("extended header (fragmentation)")
+    return ", ".join(reasons) or None
 
 
 def _header_matches(
@@ -290,29 +238,25 @@ def _validate_trimmed(
     return None
 
 
-@dataclass(frozen=True, slots=True)
-class _Standard:
-    match: ScanMatch | None = None
-    judged_offset: int | None = None  # payload offset of a well-formed APS frame
-    unsupported: str | None = None  # UnsupportedFrameError message, if raised
-
-
-def _standard(nwk_payload: bytes, expected: Expected, trims: tuple[int, ...]) -> _Standard:
+def _standard(
+    nwk_payload: bytes, expected: Expected, trims: tuple[int, ...]
+) -> tuple[ScanMatch | None, int | None]:
+    """Strict decode at offset 0: (match, payload offset of a well-formed frame)."""
     try:
         aps = ApsDataFrame.decode(nwk_payload)
-    except UnsupportedFrameError as exc:  # must precede DecodeError (its base class)
-        return _Standard(unsupported=str(exc))
-    except DecodeError:
-        return _Standard()  # recoverable framing error: the scan may run
+    except DecodeError:  # incl. UnsupportedFrameError; classified by the caller
+        return None, None
     payload_offset = len(nwk_payload) - len(aps.payload)
     if not _header_matches(aps.cluster_id, aps.profile_id, aps.dst_endpoint, expected):
-        return _Standard(judged_offset=payload_offset)
+        return None, payload_offset
     result = _validate_trimmed(aps.payload, expected, trims)
     if result is None:
-        return _Standard(judged_offset=payload_offset)
+        return None, payload_offset
     trailing, (header, response) = result
-    match = ScanMatch(response=response, zcl_header=header, aps=aps, trailing=trailing)
-    return _Standard(match=match, judged_offset=payload_offset)
+    match = ScanMatch(
+        response=response, zcl_header=header, aps=aps, trailing=trailing, cluster_verified=True
+    )
+    return match, payload_offset
 
 
 def scan_for_response(
@@ -321,15 +265,16 @@ def scan_for_response(
     *,
     src_short: int,
     max_trailing: int = 0,
-    allow_secured_aps: bool = False,
+    allow_unsupported_aps: bool = False,
 ) -> ScanMatch | ScanFailure:
     """Find the expected response in an NWK payload (see module docstring).
 
     ``src_short`` is the NWK source of the received frame; it must equal
     ``expected.src_short``. ``max_trailing`` (default 0: strict) bounds the
     tolerated trailing bytes; only a 4-byte MIC-32 trim is ever tried, so
-    values below 4 disable it. ``allow_secured_aps`` permits scanning inside
-    APS frames the strict decoder refuses as unsupported (hypothesis only).
+    values below 4 disable it. ``allow_unsupported_aps`` permits scanning when
+    the offset-0 APS frame control is not a plain unsecured data frame
+    (hypothesis only).
     """
     if max_trailing < 0:
         raise ValueError("max_trailing must be >= 0")
@@ -337,48 +282,28 @@ def scan_for_response(
         return ScanFailure(
             f"source 0x{src_short:04X} is not the expected 0x{expected.src_short:04X}"
         )
+    if not nwk_payload:
+        return ScanFailure("empty NWK payload")
     trims = _trims(max_trailing)
-    standard = _standard(nwk_payload, expected, trims)
-    if standard.match is not None:
-        return standard.match
-    if standard.unsupported is not None and not allow_secured_aps:
+    standard, judged_offset = _standard(nwk_payload, expected, trims)
+    if standard is not None:
+        return standard
+    unsupported = _unsupported_fc(nwk_payload[0])
+    if unsupported is not None and not allow_unsupported_aps:
         return ScanFailure(
-            f"standard APS decode: {standard.unsupported}; unsupported frame not scanned"
+            f"offset-0 APS frame control 0x{nwk_payload[0]:02X} is {unsupported}; not scanned"
         )
-    found: list[tuple[int, int, _Decoded, bool]] = []
-    blocked: list[int] = []
-    mismatched: list[int] = []
-    for offset in SCAN_OFFSETS:
-        if offset == standard.judged_offset:
-            continue  # already rejected together with its real APS header
-        headers = [
-            hdr
-            for pos in range(offset)
-            if (hdr := _header_at(nwk_payload, pos)) is not None and hdr.payload_start == offset
-        ]
-        secured = standard.unsupported is not None or any(hdr.unsupported for hdr in headers)
-        if secured and not allow_secured_aps:
-            blocked.append(offset)
-            continue
-        if not all(
-            _header_matches(hdr.cluster_id, hdr.profile_id, hdr.dst_endpoint, expected)
-            for hdr in headers
-        ):
-            mismatched.append(offset)
-            continue
-        result = _validate_trimmed(nwk_payload[offset:], expected, trims)
-        if result is not None:
-            found.append((offset, *result, secured))
-    offsets = tuple(off for off, _, _, _ in found)
+    found = [
+        (offset, *result)
+        for offset in SCAN_OFFSETS
+        if offset != judged_offset
+        and (result := _validate_trimmed(nwk_payload[offset:], expected, trims)) is not None
+    ]
+    offsets = tuple(off for off, _, _ in found)
     if not found:
-        reason = f"no offset in {SCAN_OFFSETS.start}..{SCAN_OFFSETS.stop - 1} validated"
-        if blocked:
-            reason += f"; offsets {tuple(blocked)} start an unsupported (secured) APS payload"
-        if mismatched:
-            reason += f"; recovered APS header mismatch at offsets {tuple(mismatched)}"
-        return ScanFailure(reason)
-    first_offset, first_trailing, first, _ = found[0]
-    if any(decoded != first for _, _, decoded, _ in found[1:]):
+        return ScanFailure(f"no offset in {SCAN_OFFSETS.start}..{SCAN_OFFSETS.stop - 1} validated")
+    first_offset, first_trailing, first = found[0]
+    if any(decoded != first for _, _, decoded in found[1:]):
         return ScanFailure(f"ambiguous: offsets {offsets} decode to different results", offsets)
     header, response = first
     return ScanMatch(
@@ -387,5 +312,5 @@ def scan_for_response(
         zcl_header=header,
         candidate_offsets=offsets,
         trailing=first_trailing,
-        aps_secured=any(sec for _, _, _, sec in found),
+        aps_unsupported=unsupported is not None,
     )

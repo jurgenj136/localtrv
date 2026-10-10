@@ -37,14 +37,13 @@ def h(text: str) -> bytes:
     return bytes.fromhex(text.replace(" ", ""))
 
 
-# 4 leading bytes as hypothesised (1-relay source-route subframe). Its first byte
-# 0x01 reads as an APS *command* frame control, which the standard decode refuses
-# as unsupported -- so scanning behind it needs ``allow_secured_aps=True``.
+# 4 leading bytes whose first byte 0x00 is a plain unsecured unicast APS data frame
+# control, so the scan runs. ``04 80`` would read as an extended-header data frame at
+# offset 3 -- the overlapping interpretation that used to veto offset 12 (Codex).
+PREFIX = h("00 04 04 80")
+# Hypothesised 1-relay source-route subframe: 0x01 reads as an APS *command* FC.
 SOURCE_ROUTE = h("01 00 225B")
-# A 4-byte prefix whose first byte (0x04: data frame, reserved delivery mode) is a
-# recoverable APS framing error, so the scan runs by default.
-PREFIX = h("04 00 225B")
-FILL = 0x04  # filler byte that never starts an APS data header
+FILL = 0x00  # plain unsecured unicast data FC at offset 0; never a ZDO seq/ZCL FC used here
 
 
 def fill(n: int) -> bytes:
@@ -77,6 +76,7 @@ def test_standard_aps_path_reports_no_offset() -> None:
     assert isinstance(result, ScanMatch)
     assert result.offset is None
     assert result.aps is not None
+    assert result.cluster_verified
     assert result.response == ACTIVE_EP
 
 
@@ -90,6 +90,7 @@ def test_valid_after_invalid_offsets_zdo() -> None:
     assert result.candidate_offsets == (12,)
     assert result.response == ACTIVE_EP
     assert result.aps is None
+    assert not result.cluster_verified  # header fields are what the quirk garbles
 
 
 def test_valid_after_invalid_offsets_zcl() -> None:
@@ -141,7 +142,7 @@ def test_wrong_source_fails() -> None:
 
 
 def test_active_ep_vs_simple_desc_by_expected_kind() -> None:
-    """The recovered APS header (offset 4) tells the two apart (review finding 4)."""
+    """In scan mode only the expected kind tells the two apart (handover section 6)."""
     desc = SimpleDescriptor(1, HA_PROFILE_ID, 0x0301, 1, (0x0000, 0x0201), ())
     simple = SimpleDescRsp(seq=0x42, status=0, nwk_addr=SRC, descriptor=desc)
     simple_payload = quirk(ZdoCluster.SIMPLE_DESC_RSP, 0, simple.encode())
@@ -153,16 +154,12 @@ def test_active_ep_vs_simple_desc_by_expected_kind() -> None:
     assert isinstance(match, ScanMatch)
     assert match.response == simple
     # The payload alone is also a structurally valid Active_EP_rsp (length byte read
-    # as endpoint count), but its recoverable APS header says cluster 0x8004.
+    # as endpoint count); the cluster cannot be verified in scan mode.
     misread = scan_for_response(simple_payload, as_active, src_short=SRC)
-    assert isinstance(misread, ScanFailure)
-    assert "header mismatch" in misread.reason
-    # Headerless, only the expected kind tells them apart (handover section 6).
-    headerless = fill(12) + simple.encode()
-    misread = scan_for_response(headerless, as_active, src_short=SRC)
     assert isinstance(misread, ScanMatch)
     assert isinstance(misread.response, ActiveEpRsp)
     assert misread.response.endpoints == tuple(desc.encode())
+    assert not misread.cluster_verified
 
     match = scan_for_response(active_payload, as_active, src_short=SRC)
     assert isinstance(match, ScanMatch)
@@ -171,15 +168,15 @@ def test_active_ep_vs_simple_desc_by_expected_kind() -> None:
 
 
 def test_multiple_offsets_with_different_results_are_ambiguous() -> None:
-    # At offset 8: Active_EP_rsp nwk=0x0007, endpoints (05, 01, 09).
-    # At offset 10: Active_EP_rsp nwk=0x0503, endpoints (09,). Both strictly valid.
-    payload = fill(8) + h("07 00 07 00 03 05 01 09")
+    # At offset 10: Active_EP_rsp nwk=0x0007, endpoints (05, 01, 09).
+    # At offset 12: Active_EP_rsp nwk=0x0503, endpoints (09,). Both strictly valid.
+    payload = fill(10) + h("07 00 07 00 03 05 01 09")
     result = scan_for_response(
         payload, ExpectedZdo(SRC, ZdoCluster.ACTIVE_EP_RSP, 0x07), src_short=SRC
     )
     assert isinstance(result, ScanFailure)
     assert "ambiguous" in result.reason
-    assert result.candidate_offsets == (8, 10)
+    assert result.candidate_offsets == (10, 12)
 
 
 def test_multiple_offsets_with_same_result_are_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -305,14 +302,14 @@ def test_trim_is_opt_in_by_default() -> None:
 
 
 def test_trimmed_candidates_count_for_ambiguity() -> None:
-    # Same bytes as the plain ambiguity test plus a MIC: both offsets 8 and 10 now
+    # Same bytes as the plain ambiguity test plus a MIC: both offsets 10 and 12 now
     # validate only after trimming 4 bytes, with different results.
-    payload = fill(8) + h("07 00 07 00 03 05 01 09") + MIC
+    payload = fill(10) + h("07 00 07 00 03 05 01 09") + MIC
     expected = ExpectedZdo(SRC, ZdoCluster.ACTIVE_EP_RSP, 0x07)
     result = scan_for_response(payload, expected, src_short=SRC, max_trailing=4)
     assert isinstance(result, ScanFailure)
     assert "ambiguous" in result.reason
-    assert result.candidate_offsets == (8, 10)
+    assert result.candidate_offsets == (10, 12)
 
 
 def test_negative_max_trailing_rejected() -> None:
@@ -332,48 +329,118 @@ def test_secured_aps_frame_not_scanned_by_default() -> None:
     assert payload.index(h("18 80 04 00")) == 13
     result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC)
     assert isinstance(result, ScanFailure)
-    assert "unsupported" in result.reason
+    assert "offset-0 APS frame control 0x20" in result.reason
+    assert "APS-secured" in result.reason
 
 
 def test_secured_aps_frame_scanned_when_opted_in() -> None:
     payload = secured(0x0201, HA_PROFILE_ID, h("18 80 04 00"))
-    result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC, allow_secured_aps=True)
+    result = scan_for_response(
+        payload, WRITE_OK_EXPECTED, src_short=SRC, allow_unsupported_aps=True
+    )
     assert isinstance(result, ScanMatch)
     assert result.offset == 13
-    assert result.aps_secured
+    assert result.aps_unsupported
+    assert not result.cluster_verified
     assert result.response == WRITE_OK
+    # The header cluster is not trusted in scan mode: a 0x0006 frame matches too.
     wrong = secured(0x0006, HA_PROFILE_ID, h("18 80 04 00"))
-    result = scan_for_response(wrong, WRITE_OK_EXPECTED, src_short=SRC, allow_secured_aps=True)
-    assert isinstance(result, ScanFailure)
-
-
-def test_secured_aps_frame_behind_prefix_not_scanned_by_default() -> None:
-    payload = PREFIX + secured(0x0201, HA_PROFILE_ID, h("18 80 04 00"))
-    result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC)
-    assert isinstance(result, ScanFailure)
-    assert "unsupported" in result.reason
-    result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC, allow_secured_aps=True)
+    result = scan_for_response(wrong, WRITE_OK_EXPECTED, src_short=SRC, allow_unsupported_aps=True)
     assert isinstance(result, ScanMatch)
-    assert result.offset == 17
-    assert result.aps_secured
+    assert not result.cluster_verified
 
 
-def test_command_frame_control_prefix_needs_opt_in() -> None:
-    """The source-route hypothesis prefix starts with 0x01 = APS command FC: refused by default."""
-    payload = quirk(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode(), prefix=SOURCE_ROUTE)
-    assert isinstance(scan_for_response(payload, EXPECT_EP, src_short=SRC), ScanFailure)
-    result = scan_for_response(payload, EXPECT_EP, src_short=SRC, allow_secured_aps=True)
+def test_reserved_delivery_mode_prefix_refused_by_default() -> None:
+    """Codex probe: ``04 04 04 80`` + valid APS response. 0x04 = reserved delivery mode."""
+    payload = quirk(0x0201, HA_PROFILE_ID, ZCL_RSP, counter=0x80, prefix=h("04 04 04 80"))
+    expected = ExpectedZcl(SRC, tsn=0x80, command_id=0x01, cluster_id=0x0201)
+    result = scan_for_response(payload, expected, src_short=SRC)
+    assert isinstance(result, ScanFailure)
+    assert "offset-0 APS frame control 0x04" in result.reason
+    assert "reserved delivery mode" in result.reason
+    result = scan_for_response(payload, expected, src_short=SRC, allow_unsupported_aps=True)
     assert isinstance(result, ScanMatch)
     assert result.offset == 12
-    assert result.aps_secured
+    assert result.aps_unsupported
+
+
+def test_overlapping_header_interpretation_does_not_veto() -> None:
+    """Codex regression: ``80`` at offset 3 must not veto the real response at offset 12."""
+    payload = quirk(0x0201, HA_PROFILE_ID, ZCL_RSP, counter=0x80, prefix=h("00 04 04 80"))
+    expected = ExpectedZcl(SRC, tsn=0x80, command_id=0x01, cluster_id=0x0201)
+    result = scan_for_response(payload, expected, src_short=SRC)
+    assert isinstance(result, ScanMatch)
+    assert result.offset == 12
+    assert result.candidate_offsets == (12,)
+    assert not result.aps_unsupported
+
+
+def test_prefixed_secured_frame_with_ff_refused_by_default() -> None:
+    """Codex probe: ``ff 18 80 04 00`` at offset 15 inside a secured frame behind a prefix."""
+    payload = h("FF 00") + secured(0x0201, HA_PROFILE_ID, h("FF 18 80 04 00"))
+    assert payload.index(h("FF 18 80 04 00")) == 15
+    result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC)
+    assert isinstance(result, ScanFailure)
+    assert "offset-0 APS frame control 0xFF" in result.reason
+    result = scan_for_response(
+        payload, WRITE_OK_EXPECTED, src_short=SRC, allow_unsupported_aps=True
+    )
+    assert isinstance(result, ScanMatch)
+    assert result.offset == 16
+    assert result.aps_unsupported
+
+
+def test_residual_risk_plain_data_fc_scans_inner_bytes() -> None:
+    """Documented residual risk: behind a plain data FC at offset 0, bytes are scanned as-is.
+
+    Mitigation is (src_short, tsn, command, exact length) correlation; the phase-2
+    quirk-layout decoder replaces the scan.
+    """
+    payload = PREFIX + secured(0x0201, HA_PROFILE_ID, h("18 80 04 00"))
+    result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC)
+    assert isinstance(result, ScanMatch)
+    assert result.offset == 17
+    assert not result.cluster_verified
+
+
+def test_command_frame_control_needs_opt_in() -> None:
+    """The source-route hypothesis prefix starts with 0x01 = APS command FC: refused by default."""
+    payload = quirk(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode(), prefix=SOURCE_ROUTE)
+    result = scan_for_response(payload, EXPECT_EP, src_short=SRC)
+    assert isinstance(result, ScanFailure)
+    assert "COMMAND" in result.reason
+    result = scan_for_response(payload, EXPECT_EP, src_short=SRC, allow_unsupported_aps=True)
+    assert isinstance(result, ScanMatch)
+    assert result.offset == 12
+    assert result.aps_unsupported
     assert result.response == ACTIVE_EP
 
 
-def test_unsecured_match_reports_not_secured() -> None:
+def test_unsecured_match_reports_supported() -> None:
     payload = quirk(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode())
-    result = scan_for_response(payload, EXPECT_EP, src_short=SRC, allow_secured_aps=True)
+    result = scan_for_response(payload, EXPECT_EP, src_short=SRC, allow_unsupported_aps=True)
     assert isinstance(result, ScanMatch)
-    assert not result.aps_secured
+    assert not result.aps_unsupported
+
+
+def test_fragmented_aps_frame_not_scanned_by_default() -> None:
+    # FC 0x80: data, extended header; ext FC 0x01 (first fragment) + block number 0.
+    payload = h("80 01 0102 0401 01 80") + h("01 00") + h("00 00") + h("18 80 04 00")
+    assert payload.index(h("18 80 04 00")) == 12
+    result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC)
+    assert isinstance(result, ScanFailure)
+    assert "extended header" in result.reason
+    result = scan_for_response(
+        payload, WRITE_OK_EXPECTED, src_short=SRC, allow_unsupported_aps=True
+    )
+    assert isinstance(result, ScanMatch)
+    assert result.aps_unsupported
+
+
+def test_empty_payload_fails_cleanly() -> None:
+    result = scan_for_response(b"", EXPECT_EP, src_short=SRC)
+    assert isinstance(result, ScanFailure)
+    assert "empty" in result.reason
 
 
 def test_trailing_bytes_never_turn_malformed_into_success_by_default() -> None:
@@ -400,23 +467,18 @@ def test_key128_never_in_match_repr() -> None:
         assert "a0a1a2" not in text.lower()
 
 
-def test_wrong_cluster_on_fallback_path_rejected() -> None:
-    """Review finding 4: the recoverable APS header at offset 4 is checked before offset 12."""
+def test_cluster_not_verified_on_fallback_path() -> None:
+    """The scan cannot check the APS cluster/profile/endpoint: callers see cluster_verified."""
     payload = quirk(0x0006, HA_PROFILE_ID, ZCL_RSP, counter=0x80)
     expected = ExpectedZcl(SRC, tsn=0x80, command_id=0x01, cluster_id=0x0201)
     result = scan_for_response(payload, expected, src_short=SRC)
-    assert isinstance(result, ScanFailure)
-    assert "header mismatch" in result.reason
-    any_cluster = ExpectedZcl(SRC, tsn=0x80, command_id=0x01)
-    assert isinstance(scan_for_response(payload, any_cluster, src_short=SRC), ScanMatch)
-
-
-def test_wrong_zdo_profile_or_endpoint_on_fallback_path_rejected() -> None:
+    assert isinstance(result, ScanMatch)
+    assert result.offset == 12
+    assert not result.cluster_verified
     wrong_profile = quirk(ZdoCluster.ACTIVE_EP_RSP, HA_PROFILE_ID, ACTIVE_EP.encode())
-    assert isinstance(scan_for_response(wrong_profile, EXPECT_EP, src_short=SRC), ScanFailure)
-    aps = ApsDataFrame(ZdoCluster.ACTIVE_EP_RSP, 0, ACTIVE_EP.encode(), dst_endpoint=1)
-    wrong_ep = PREFIX + aps.encode()
-    assert isinstance(scan_for_response(wrong_ep, EXPECT_EP, src_short=SRC), ScanFailure)
+    result = scan_for_response(wrong_profile, EXPECT_EP, src_short=SRC)
+    assert isinstance(result, ScanMatch)
+    assert not result.cluster_verified
 
 
 MS_WRITE_OK = h("1c 34 12 80 04 00")  # manufacturer 0x1234, global Write Attributes Response
@@ -436,35 +498,3 @@ def test_manufacturer_code_must_match() -> None:
     assert isinstance(scan_for_response(payload, other, src_short=SRC), ScanFailure)
     standard = ApsDataFrame(0x0201, HA_PROFILE_ID, h("18 80 04 00"), dst_endpoint=1).encode()
     assert isinstance(scan_for_response(standard, ms, src_short=SRC), ScanFailure)
-
-
-def test_fragmented_aps_frame_behind_prefix_not_scanned_by_default() -> None:
-    # FC 0x80: data, extended header; ext FC 0x01 (first fragment) + block number 0.
-    frame = h("80 01 0102 0401 01 80") + h("01 00") + h("18 80 04 00")
-    payload = PREFIX + frame
-    assert payload.index(h("18 80 04 00")) == 14
-    result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC)
-    assert isinstance(result, ScanFailure)
-    assert "unsupported" in result.reason
-    result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC, allow_secured_aps=True)
-    assert isinstance(result, ScanMatch)
-    assert result.aps_secured
-
-
-@pytest.mark.parametrize(
-    ("data", "start"),
-    [
-        ("", None),
-        ("00 01 0102", None),  # truncated addressing
-        ("80 01 0102 0401 01 80", None),  # extended header missing
-        ("20 01 0102 0401 01 80", None),  # aux header missing
-        ("20 01 0102 0401 01 80 00 0100", None),  # aux header truncated
-        ("20 01 0102 0401 01 80 08 01000000 00", 14),  # network key: + key seq
-        ("20 01 0102 0401 01 80 20 01000000" + " 00" * 8, 21),  # extended nonce
-        ("0C 3412 0102 0401 01 80", 9),  # group delivery: no dst endpoint
-        ("80 01 0102 0401 01 80 00", 9),  # extended header, not fragmented
-    ],
-)
-def test_header_at_layouts(data: str, start: int | None) -> None:
-    hdr = fallback._header_at(h(data), 0)
-    assert (hdr.payload_start if hdr else None) == start
