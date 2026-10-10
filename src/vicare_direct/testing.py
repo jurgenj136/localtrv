@@ -1,0 +1,191 @@
+"""Public test helpers for consumers of this library (e.g. ha-vicare-direct).
+
+``FakeZdd`` emulates the responder (Zigbee Direct Device) side of the SPEKE
+session establishment and then the session-frame crypto, so integrations can
+be tested without hardware. It uses the same crypto primitives as the
+initiator but with the roles spelled out explicitly, so a responder/initiator
+mix-up in the library fails the tests instead of cancelling itself out.
+
+Phase 2 will add a scripted NWK/ZCL peer behind the tunnel characteristic.
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Final
+
+from vicare_direct.zigbee_direct.crypto import (
+    LABEL_KC_2_U,
+    LABEL_KC_2_V,
+    POINT_SIZE,
+    TAG_SIZE,
+    KeyNegotiationMethod,
+    SecretType,
+    confirmation_tag,
+    generate_private_key,
+    speke_base_point,
+    speke_derive_link_key,
+    speke_public_point,
+    speke_session_secret,
+    speke_shared_point,
+    tags_equal,
+)
+from vicare_direct.zigbee_direct.errors import HandshakeError
+from vicare_direct.zigbee_direct.session import (
+    OPCODE_SE1,
+    OPCODE_SE2,
+    OPCODE_SE3,
+    OPCODE_SE4,
+    TLV_C25519_POINT,
+    TLV_MAC_TAG,
+    TLV_SELECTED_METHOD,
+    SessionCipher,
+    encode_handshake_tlv,
+    parse_handshake_message,
+)
+from vicare_direct.zigbee_direct.types import Eui64, SecretBytes
+
+#: ATT error the live ZDD returned for a rejected SE3 (research handover section 3.2).
+GATT_ERROR_REJECTED: Final = 0x80
+
+_EUI_SIZE: Final = 8
+
+
+class FakeGattError(Exception):
+    """Emulates a GATT error response from the ZDD (e.g. ATT error 0x80)."""
+
+    def __init__(self, message: str, *, code: int = GATT_ERROR_REJECTED) -> None:
+        super().__init__(f"{message} (GATT error 0x{code:02x})")
+        self.code = code
+
+
+class _State(Enum):
+    AWAIT_SE1 = "await_se1"
+    AWAIT_SE3 = "await_se3"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class FakeZdd:
+    """Responder side of SE1-SE4 plus its own ``SessionCipher`` (own EUI = ZDD).
+
+    ``handle_se1`` returns SE2; ``handle_se3`` returns SE4 or raises
+    ``FakeGattError(code=0x80)`` on a bad tag, like the live ZDD. Any malformed
+    or out-of-order message also raises ``FakeGattError`` and is terminal.
+    """
+
+    def __init__(
+        self, *, eui: Eui64, psk: SecretBytes, private_key: SecretBytes | None = None
+    ) -> None:
+        self._eui = eui
+        self._psk = psk
+        self._private_key = private_key
+        self._state = _State.AWAIT_SE1
+        self._base_point: SecretBytes | None = None
+        self._own_q = b""
+        self._peer_eui: Eui64 | None = None
+        self._peer_q = b""
+        self._session_key: SecretBytes | None = None
+        self._secret_type: SecretType | None = None
+        self._cipher: SessionCipher | None = None
+
+    @property
+    def eui(self) -> Eui64:
+        return self._eui
+
+    @property
+    def secret_type(self) -> SecretType | None:
+        """Secret type requested in SE1 (``None`` before SE1)."""
+        return self._secret_type
+
+    @property
+    def cipher(self) -> SessionCipher:
+        """The ZDD's session cipher; only available after a successful SE3."""
+        if self._cipher is None:
+            raise RuntimeError("FakeZdd session not established")
+        return self._cipher
+
+    def __repr__(self) -> str:
+        return f"FakeZdd(eui={self._eui}, state={self._state.name})"
+
+    def handle_se1(self, se1: bytes) -> bytes:
+        """Process SE1 and return SE2 (``0x02 | TLV(0x02, ZDD_EUI || ZDD_Q)``)."""
+        self._expect(_State.AWAIT_SE1)
+        try:
+            tlvs = parse_handshake_message(
+                se1,
+                opcode=OPCODE_SE1,
+                known={TLV_SELECTED_METHOD: 2, TLV_C25519_POINT: _EUI_SIZE + POINT_SIZE},
+            )
+            method, point = tlvs.get(TLV_SELECTED_METHOD), tlvs.get(TLV_C25519_POINT)
+            if method is None or point is None:
+                raise HandshakeError("SE1 lacks a required TLV")
+            if method[0] != KeyNegotiationMethod.CURVE25519_AESMMO128:
+                raise HandshakeError("unsupported key negotiation method")
+            secret_type = SecretType(method[1])
+            if self._private_key is None:
+                self._private_key = generate_private_key()
+            self._base_point = speke_base_point(self._psk)
+            self._own_q = speke_public_point(self._private_key, self._base_point)
+            self._peer_eui = Eui64.from_wire(point[:_EUI_SIZE])
+            self._peer_q = point[_EUI_SIZE:]
+            xk = speke_shared_point(self._private_key, self._peer_q)
+            secret = speke_session_secret(
+                xk,
+                initiator_eui=self._peer_eui,
+                initiator_q=self._peer_q,
+                responder_eui=self._eui,
+                responder_q=self._own_q,
+                base_point=self._base_point,
+            )
+        except (HandshakeError, ValueError) as exc:
+            self._state = _State.FAILED
+            raise FakeGattError(f"SE1 rejected: {exc}") from exc
+        self._secret_type = secret_type
+        self._session_key = speke_derive_link_key(secret)
+        self._state = _State.AWAIT_SE3
+        return bytes([OPCODE_SE2]) + encode_handshake_tlv(
+            TLV_C25519_POINT, self._eui.wire + self._own_q
+        )
+
+    def handle_se3(self, se3: bytes) -> bytes:
+        """Verify the initiator's KC_2_U tag and return SE4 (KC_2_V tag)."""
+        self._expect(_State.AWAIT_SE3)
+        try:
+            tlvs = parse_handshake_message(se3, opcode=OPCODE_SE3, known={TLV_MAC_TAG: TAG_SIZE})
+        except HandshakeError as exc:
+            self._state = _State.FAILED
+            raise FakeGattError(f"SE3 rejected: {exc}") from exc
+        tag = tlvs.get(TLV_MAC_TAG)
+        if tag is None or not tags_equal(tag, self._tag(LABEL_KC_2_U)):
+            self._state = _State.FAILED
+            raise FakeGattError("SE3 confirmation tag rejected")
+        se4 = bytes([OPCODE_SE4]) + encode_handshake_tlv(TLV_MAC_TAG, self._tag(LABEL_KC_2_V))
+        if self._session_key is None or self._peer_eui is None:  # pragma: no cover
+            raise RuntimeError("FakeZdd internal state lost")
+        self._cipher = SessionCipher(
+            session_key=self._session_key, own_eui=self._eui, peer_eui=self._peer_eui
+        )
+        self._state = _State.DONE
+        return se4
+
+    def _expect(self, state: _State) -> None:
+        if self._state is not state:
+            current = self._state
+            self._state = _State.FAILED
+            raise FakeGattError(f"unexpected message in state {current.name}")
+
+    def _tag(self, label: bytes) -> bytes:
+        if self._session_key is None or self._peer_eui is None:  # pragma: no cover
+            raise RuntimeError("FakeZdd internal state lost")
+        return confirmation_tag(
+            self._session_key,
+            label,
+            responder_eui=self._eui,
+            responder_q=self._own_q,
+            initiator_eui=self._peer_eui,
+            initiator_q=self._peer_q,
+        )
+
+
+__all__ = ["GATT_ERROR_REJECTED", "FakeGattError", "FakeZdd"]
