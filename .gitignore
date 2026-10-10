@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.uv-cache/
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+# Secrets and captures (never commit)
+.viessmann-local/
+*.key
+*.hex
+*identity*.json
+*.pcap
+*.pcapng
+captures/
+*.capture
+.env
+.env.*
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
