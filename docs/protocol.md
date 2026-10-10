@@ -251,31 +251,33 @@ parse failed.
   (`relay_count=1, relay_index, relay(2)` = 4 B). `NwkFrame` now parses the subframe, so the
   standard APS decode may simply work. Confirm with real fixtures
   (`scripts/extract_npdu_fixtures.py`) before removing the fallback.
-- **Fallback decoder** (`codec/fallback.py`, `scan_for_response`): tries the standard decode first,
-  then tests every offset 8..17 of the payload after the corrected NWK header, validating
-  structurally against the expected kind plus ZDO seq or ZCL tsn/command/manufacturer code. Source
-  short must match. Returns the first valid match with its offset; if several offsets validate to
-  different results the answer is ambiguous and returns a failure with a reason. Headerless
-  `Active_EP_rsp` and `Simple_Desc_rsp` are indistinguishable, so the caller must state which kind
-  it expects for that seq.
-- **Recovered APS headers:** any APS data header parseable before a candidate whose payload starts
-  exactly at that candidate must match the expected cluster/profile/endpoint (same rule as the
-  standard path). Only truly headerless candidates skip the cluster check.
-- **Strict by default, two opt-in flags:**
-  - `allow_secured_aps=False`: if the standard decode raises `UnsupportedFrameError` (APS
-    security, extended header/fragmentation, ACK, command, inter-PAN), or a secured/extended APS
-    header ends exactly at a candidate, nothing inside it is scanned (it may be ciphertext or a
-    fragment). A recoverable `ApsDecodeError` (truncation, reserved delivery mode) still allows the
-    scan. Setting `True` permits it and marks the match `aps_secured=True`. Rationale for keeping
-    the option: research `tools/zvd_tunnel.py:348-387` had a secured-APS path and handover §6
-    mentions a 4-byte frame counter, so ZDD-delivered frames may carry an APS security header with a
-    plaintext payload (hypothesis; verify with phase-2 fixtures). Caveat: the 1-relay
-    source-route prefix starts with `0x01`, an APS *command* frame control, so that hypothesised
-    layout also needs the flag.
-  - `max_trailing=0`: no trailing bytes are tolerated. With `max_trailing>=4`, each candidate is
-    retried with exactly 4 bytes (presumed MIC-32) trimmed after the exact decode fails. No capture
-    proves those bytes are a MIC, and trimming can turn a malformed response into a success, so
-    enable it only for a capture-backed quirk.
+- **Root fact:** the NWK payload handed to the fallback starts with the real APS frame control at
+  offset 0 (`NwkFrame` strips multicast/source-route subframes; no other prefix exists).
+- **Fallback decoder** (`codec/fallback.py`, `scan_for_response`). Source short must match, then:
+  1. Strict APS decode at offset 0, checked against the expected header (ZDO: profile 0, response
+     cluster, dst endpoint 0; ZCL: cluster if given) and payload. Match has `offset=None`,
+     `cluster_verified=True`.
+  2. Otherwise classify only the offset-0 frame control. Non-data frame, reserved delivery mode
+     `0b01`, APS security or extended header (fragmentation) → refused with a reason (payload may
+     be ciphertext or a fragment), unless `allow_unsupported_aps=True`; such matches carry
+     `aps_unsupported=True`. The opt-in exists because research `tools/zvd_tunnel.py:348-387` had
+     a secured-APS path and handover §6 mentions a 4-byte frame counter (hypothesis; verify with
+     phase-2 fixtures).
+  3. Scan every offset 8..17 as a bare ZDO payload or ZCL frame, validated strictly against the
+     expected kind (ZDO seq; ZCL tsn/command/manufacturer code; exact decode). The payload offset
+     already judged by a well-formed step-1 decode is skipped. Nothing else is inferred from bytes
+     before a candidate (no speculative header recovery).
+  4. Several offsets validating to different results → ambiguous → failure with a reason.
+- **Cluster not verifiable in scan mode:** the APS header bytes are what the quirk garbles, so scan
+  matches have `cluster_verified=False`. Headerless `Active_EP_rsp` and `Simple_Desc_rsp` are
+  indistinguishable; the caller must state which kind it expects for that seq.
+- **Residual risk:** behind a plain unsecured data frame control, a crafted or garbled frame may
+  yield a false match. Mitigation: correlation on (src_short, seq/tsn, command, exact length). The
+  definitive fix is an explicit, fixture-backed quirk-layout decoder in phase 2 replacing the scan.
+- **Trailing bytes:** `max_trailing=0` tolerates none. With `max_trailing>=4`, each candidate is
+  retried with exactly 4 bytes (presumed MIC-32) trimmed after the exact decode fails. No capture
+  proves those bytes are a MIC, and trimming can turn a malformed response into a success, so enable
+  it only for a capture-backed quirk.
 - `ScanMatch.aps` is excluded from the repr (its raw payload may hold a KEY128).
 
 ## 9. ZCL to the valves
