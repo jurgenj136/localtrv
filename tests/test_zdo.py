@@ -85,14 +85,22 @@ def test_nwk_addr_req_and_rsp() -> None:
     assert NwkAddrRsp.decode(rsp.encode()) == rsp
 
 
-def test_addr_rsp_non_success_is_short() -> None:
-    rsp = NwkAddrRsp.decode(h("04 81"))
-    assert rsp.status == ZdoStatus.DEVICE_NOT_FOUND
-    assert rsp.ieee is None
-    assert rsp.nwk_addr is None
-    # some stacks still append the addresses; tolerated and ignored
-    assert NwkAddrRsp.decode(h("04 81") + bytes(10)).ieee is None
-    assert NwkAddrRsp(4, 0x81).encode() == h("04 81")
+def test_addr_rsp_non_success_layout() -> None:
+    """R23 2.4.4.2.1/2.4.4.2.2: IEEE and NWK fields are present on failure too."""
+    wire = h("04 81") + bytes(EUI_B) + h("FFFF")
+    rsp = NwkAddrRsp.decode(wire)
+    assert rsp == NwkAddrRsp(4, ZdoStatus.DEVICE_NOT_FOUND, EUI_B, 0xFFFF)
+    assert rsp.encode() == wire
+
+
+@pytest.mark.parametrize(
+    "tail", ["", "0B000000000000", "0B00000000000002 FF", "0B00000000000002 FFFF 00"]
+)
+def test_addr_rsp_non_success_rejects_bad_lengths(tail: str) -> None:
+    with pytest.raises(ZdoDecodeError):
+        NwkAddrRsp.decode(h("04 81" + tail))
+    with pytest.raises(ZdoDecodeError):
+        IeeeAddrRsp.decode(h("04 81" + tail))
 
 
 def test_addr_rsp_extended_form_unsupported() -> None:
@@ -103,7 +111,7 @@ def test_addr_rsp_extended_form_unsupported() -> None:
 
 def test_addr_rsp_success_requires_fields() -> None:
     with pytest.raises(EncodeError):
-        IeeeAddrRsp(3, 0).encode()
+        IeeeAddrRsp(3, 0, EUI_A, 0x10000).encode()
     with pytest.raises(ZdoDecodeError):
         IeeeAddrRsp.decode(h("03 00 0A000000"))
 
@@ -126,13 +134,23 @@ def test_active_ep_rsp_length_consistency(wire: str) -> None:
         ActiveEpRsp.decode(h(wire))
 
 
-def test_active_ep_rsp_error_forms() -> None:
-    assert ActiveEpRsp.decode(h("07 81")) == ActiveEpRsp(7, 0x81)
+def test_active_ep_rsp_error_form() -> None:
+    """R23 2.4.4.2.6.1: failure = status ‖ NWKAddrOfInterest ‖ ActiveEPCount 0."""
     assert ActiveEpRsp.decode(h("07 81 114A 00")) == ActiveEpRsp(7, 0x81, SHORT_A)
-    assert ActiveEpRsp(7, 0x81).encode() == h("07 81")
     assert ActiveEpRsp(7, 0x81, SHORT_A).encode() == h("07 81 114A 00")
     with pytest.raises(EncodeError):
-        ActiveEpRsp(7, 0).encode()
+        ActiveEpRsp(7, 0x81, SHORT_A, (1,)).encode()
+
+
+@pytest.mark.parametrize(
+    "wire",
+    ["42 81", "42 81 11", "42 81 114A", "42 81 114A ff", "42 81 114A 01 ff", "42 81 114A 00 00"],
+)
+def test_endpoint_rsp_error_form_is_exact(wire: str) -> None:
+    with pytest.raises(ZdoDecodeError):
+        ActiveEpRsp.decode(h(wire))
+    with pytest.raises(ZdoDecodeError):
+        MatchDescRsp.decode(h(wire))
 
 
 def test_match_desc_req_rsp() -> None:
@@ -141,6 +159,11 @@ def test_match_desc_req_rsp() -> None:
     assert MatchDescReq.decode(req.encode()) == req
     rsp = MatchDescRsp(seq=9, status=0, nwk_addr=SHORT_B, endpoints=(1,))
     assert MatchDescRsp.decode(rsp.encode()) == rsp
+    no_match = MatchDescRsp(seq=9, status=0, nwk_addr=SHORT_B)
+    assert MatchDescRsp.decode(no_match.encode()) == no_match
+    failed = MatchDescRsp(seq=9, status=ZdoStatus.NOT_SUPPORTED, nwk_addr=SHORT_B)
+    assert failed.encode() == h("09 84 225B 00")
+    assert MatchDescRsp.decode(failed.encode()) == failed
     with pytest.raises(ZdoDecodeError):
         MatchDescReq.decode(h("09 FDFF 0401 02 0102 00"))
 
@@ -189,16 +212,23 @@ def test_simple_desc_rsp_length_mismatch(delta: int) -> None:
 
 
 def test_simple_desc_rsp_error_and_empty() -> None:
+    """R23 2.4.4.2.5.1: failure = status ‖ NWKAddrOfInterest ‖ Length 0."""
     assert SimpleDescRsp.decode(h("08 82 114A 00")) == SimpleDescRsp(8, 0x82, SHORT_A)
-    assert SimpleDescRsp.decode(h("08 82")) == SimpleDescRsp(8, 0x82)
     assert SimpleDescRsp(8, 0x82, SHORT_A).encode() == h("08 82 114A 00")
-    assert SimpleDescRsp(8, 0x82).encode() == h("08 82")
     with pytest.raises(ZdoDecodeError, match="empty"):
         SimpleDescRsp.decode(h("08 00 114A 00"))
     with pytest.raises(EncodeError):
         SimpleDescRsp(8, 0, SHORT_A).encode()
     with pytest.raises(EncodeError):
-        SimpleDescRsp(8, 0).encode()
+        SimpleDescRsp(8, 0x82, SHORT_A, DESC).encode()
+
+
+@pytest.mark.parametrize(
+    "wire", ["08 82", "08 82 11", "08 82 114A", "08 82 114A 01 05", "08 82 114A 00 00"]
+)
+def test_simple_desc_rsp_error_form_is_exact(wire: str) -> None:
+    with pytest.raises(ZdoDecodeError):
+        SimpleDescRsp.decode(h(wire))
 
 
 def test_active_ep_and_simple_desc_are_ambiguous_headerless() -> None:
@@ -285,6 +315,8 @@ def test_mgmt_lqi_count_consistency(mutation: str) -> None:
 def test_mgmt_lqi_rsp_error_and_encode_guard() -> None:
     assert MgmtLqiRsp.decode(h("0A 84")) == MgmtLqiRsp(10, 0x84)
     assert MgmtLqiRsp(10, 0x84).encode() == h("0A 84")
+    with pytest.raises(ZdoDecodeError):
+        MgmtLqiRsp.decode(h("0A 84 00"))
     with pytest.raises(EncodeError):
         MgmtLqiRsp(10, 0, 0, 0, (NB,)).encode()
     with pytest.raises(EncodeError):

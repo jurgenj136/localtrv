@@ -188,7 +188,9 @@ def test_write_attributes_response_encode_guards() -> None:
         WriteAttributesResponse((WriteAttributeStatus(0x87),)).encode()
 
 
-@pytest.mark.parametrize("wire", ["001200", "00 1200 87 1300", "87 1200 00 1300", "00 1200 00 1300"])
+@pytest.mark.parametrize(
+    "wire", ["001200", "00 1200 87 1300", "87 1200 00 1300", "00 1200 00 1300"]
+)
 def test_write_attributes_response_rejects_success_records_in_list(wire: str) -> None:
     """Successful attributes are omitted from a failure list; all-success is exactly ``00``."""
     with pytest.raises(ZclDecodeError, match="SUCCESS"):

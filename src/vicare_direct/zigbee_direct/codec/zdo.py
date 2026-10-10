@@ -4,11 +4,20 @@ A ZDO frame is ``seq ‖ payload`` carried in an APS data frame on endpoint 0,
 profile 0x0000, with the cluster id identifying the command. Every class here
 encodes/decodes that ``seq ‖ payload`` part only.
 
-Decoding is strict: success responses must have exactly the length implied by
-their count/length fields. Non-success responses may legitimately be short
-(R23 2.4.4: on error only the status is guaranteed), so for them only the
-status (and, where present, the NWK address of interest) is decoded and any
-remaining bytes are ignored. Mgmt_Lqi lives in ``zdo_mgmt.py``.
+Decoding is strict for every status: each response has an exact,
+status-dependent layout (R23 2.4.4.2.x) and any missing, inconsistent or
+trailing byte raises ZdoDecodeError:
+
+* NWK_addr_rsp / IEEE_addr_rsp (2.4.4.2.1-2): ``status ‖ IEEE ‖ NWK`` on success
+  and failure alike (single-device form; the device fills in the address
+  fields it was asked about);
+* Active_EP_rsp / Match_Desc_rsp (2.4.4.2.6-7): ``status ‖ NWKAddrOfInterest ‖
+  count ‖ list``; on failure the count is 0 and the list absent;
+* Simple_Desc_rsp (2.4.4.2.5): ``status ‖ NWKAddrOfInterest ‖ length ‖ desc``;
+  on failure the length is 0 and the descriptor absent.
+
+There is no short "status only" compatibility mode. Mgmt_Lqi lives in
+``zdo_mgmt.py``.
 """
 
 from __future__ import annotations
@@ -185,36 +194,32 @@ class IeeeAddrReq:
 class _AddrRsp:
     """Shared body of NWK_addr_rsp / IEEE_addr_rsp, single-device form only.
 
-    Success: seq ‖ status ‖ IEEE ‖ NWK addr (exactly 12 bytes). The extended
-    form (associated device list) raises UnsupportedFrameError.
+    seq ‖ status ‖ IEEE ‖ NWK addr: exactly 12 bytes for every status. On
+    success, trailing bytes are the extended form (associated device list) and
+    raise UnsupportedFrameError; on failure they are malformed (ZdoDecodeError).
     """
 
     NAME: ClassVar[str] = "addr_rsp"
 
     seq: int
     status: int
-    ieee: Eui64 | None = None
-    nwk_addr: int | None = None
+    ieee: Eui64
+    nwk_addr: int
 
     def encode(self) -> bytes:
         check_uint(self.seq, 8, "seq")
         check_uint(self.status, 8, "status")
-        out = bytes([self.seq, self.status])
-        if self.status != ZdoStatus.SUCCESS:
-            return out
-        if self.ieee is None or self.nwk_addr is None:
-            raise EncodeError(f"{self.NAME}: success needs ieee and nwk_addr")
-        return out + bytes(self.ieee) + _short(self.nwk_addr, "nwk_addr").to_bytes(2, "little")
+        addr = _short(self.nwk_addr, "nwk_addr").to_bytes(2, "little")
+        return bytes([self.seq, self.status]) + bytes(self.ieee) + addr
 
     @classmethod
     def decode(cls, data: bytes) -> Self:
         cur = _cursor(data, cls.NAME)
         seq, status = cur.u8("seq"), cur.u8("status")
-        if status != ZdoStatus.SUCCESS:
-            return cls(seq, status)
         ieee, nwk = cur.eui("IEEE"), cur.u16("nwk addr")
-        if cur.remaining():
+        if cur.remaining() and status == ZdoStatus.SUCCESS:
             raise UnsupportedFrameError(f"{cls.NAME}: extended (associated list) form")
+        cur.expect_end()
         return cls(seq, status, ieee, nwk)
 
 
@@ -260,35 +265,34 @@ class ActiveEpReq:
 
 @dataclass(frozen=True, slots=True)
 class _EndpointListRsp:
-    """seq ‖ status ‖ NWK addr ‖ count ‖ endpoints (Active_EP_rsp / Match_Desc_rsp)."""
+    """seq ‖ status ‖ NWK addr ‖ count ‖ endpoints (Active_EP_rsp / Match_Desc_rsp).
+
+    On failure the count must be 0 (R23 2.4.4.2.6.1, 2.4.4.2.7.1).
+    """
 
     NAME: ClassVar[str] = "endpoint_rsp"
 
     seq: int
     status: int
-    nwk_addr: int | None = None
+    nwk_addr: int
     endpoints: tuple[int, ...] = ()
 
     def encode(self) -> bytes:
         check_uint(self.seq, 8, "seq")
         check_uint(self.status, 8, "status")
+        if self.status != ZdoStatus.SUCCESS and self.endpoints:
+            raise EncodeError(f"{self.NAME}: a failure response carries no endpoints")
         out = bytes([self.seq, self.status])
-        if self.nwk_addr is None:
-            if self.status == ZdoStatus.SUCCESS:
-                raise EncodeError(f"{self.NAME}: success needs nwk_addr")
-            return out
         out += _short(self.nwk_addr, "nwk_addr").to_bytes(2, "little")
         return out + _u8_list(self.endpoints, "endpoints")
 
     @classmethod
     def decode(cls, data: bytes) -> Self:
         cur = _cursor(data, cls.NAME)
-        seq, status = cur.u8("seq"), cur.u8("status")
-        if status != ZdoStatus.SUCCESS:
-            nwk = cur.u16("nwk addr") if cur.remaining() >= 2 else None
-            return cls(seq, status, nwk)
-        nwk = cur.u16("nwk addr")
+        seq, status, nwk = cur.u8("seq"), cur.u8("status"), cur.u16("nwk addr")
         count = cur.u8("endpoint count")
+        if status != ZdoStatus.SUCCESS and count:
+            raise cur.fail(f"failure status 0x{status:02X} with endpoint count {count}")
         endpoints = tuple(cur.take(count, "endpoint list"))
         cur.expect_end()
         return cls(seq, status, nwk, endpoints)
@@ -410,28 +414,25 @@ class SimpleDescReq:
 class SimpleDescRsp:
     """Simple_Desc_rsp (0x8004): seq ‖ status ‖ NWK addr ‖ length ‖ descriptor.
 
-    On success the length byte must equal the descriptor's encoded size exactly.
+    On success the length byte must equal the descriptor's encoded size exactly;
+    on failure it must be 0 with no descriptor (R23 2.4.4.2.5.1).
     """
 
     CLUSTER_ID: ClassVar[ZdoCluster] = ZdoCluster.SIMPLE_DESC_RSP
 
     seq: int
     status: int
-    nwk_addr: int | None = None
+    nwk_addr: int
     descriptor: SimpleDescriptor | None = None
 
     def encode(self) -> bytes:
         check_uint(self.seq, 8, "seq")
         check_uint(self.status, 8, "status")
         out = bytes([self.seq, self.status])
-        if self.nwk_addr is None:
-            if self.status == ZdoStatus.SUCCESS:
-                raise EncodeError("Simple_Desc_rsp: success needs nwk_addr")
-            return out
         out += _short(self.nwk_addr, "nwk_addr").to_bytes(2, "little")
+        if (self.status == ZdoStatus.SUCCESS) != (self.descriptor is not None):
+            raise EncodeError("Simple_Desc_rsp: descriptor present iff status is SUCCESS")
         if self.descriptor is None:
-            if self.status == ZdoStatus.SUCCESS:
-                raise EncodeError("Simple_Desc_rsp: success needs a descriptor")
             return out + b"\x00"
         desc = self.descriptor.encode()
         if len(desc) > 0xFF:
@@ -441,12 +442,13 @@ class SimpleDescRsp:
     @classmethod
     def decode(cls, data: bytes) -> Self:
         cur = _cursor(data, "Simple_Desc_rsp")
-        seq, status = cur.u8("seq"), cur.u8("status")
-        if status != ZdoStatus.SUCCESS:
-            nwk = cur.u16("nwk addr") if cur.remaining() >= 2 else None
-            return cls(seq, status, nwk)
-        nwk = cur.u16("nwk addr")
+        seq, status, nwk = cur.u8("seq"), cur.u8("status"), cur.u16("nwk addr")
         length = cur.u8("descriptor length")
+        if status != ZdoStatus.SUCCESS:
+            if length:
+                raise cur.fail(f"failure status 0x{status:02X} with descriptor length {length}")
+            cur.expect_end()
+            return cls(seq, status, nwk)
         if length == 0:
             raise cur.fail("success response with empty descriptor")
         desc_bytes = cur.take(length, "simple descriptor")

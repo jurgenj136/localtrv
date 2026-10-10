@@ -172,11 +172,11 @@ def test_multiple_offsets_with_same_result_are_accepted(monkeypatch: pytest.Monk
 
 def test_scanned_non_success_must_be_canonical() -> None:
     expected = ExpectedZdo(SRC, ZdoCluster.ACTIVE_EP_RSP, 0x42)
-    canonical = SOURCE_ROUTE + bytes(8) + h("42 81")
+    canonical = SOURCE_ROUTE + bytes(8) + h("42 81 114A 00")
     match = scan_for_response(canonical, expected, src_short=SRC)
     assert isinstance(match, ScanMatch)
-    assert match.response == ActiveEpRsp(0x42, 0x81)
-    padded = SOURCE_ROUTE + bytes(8) + h("42 81 11")
+    assert match.response == ActiveEpRsp(0x42, 0x81, SRC)
+    padded = SOURCE_ROUTE + bytes(8) + h("42 81 114A 00 11")
     assert isinstance(scan_for_response(padded, expected, src_short=SRC), ScanFailure)
 
 

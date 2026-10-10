@@ -123,6 +123,8 @@ class MgmtLqiRsp:
     """Mgmt_Lqi_rsp (0x8031): seq ‖ status ‖ entries ‖ start ‖ count ‖ count x 22-byte records.
 
     On success, ``len == 5 + 22 * count`` exactly and ``start + count <= entries``.
+    On failure only ``seq ‖ status`` (exactly 2 bytes) is accepted; R23 2.4.4.4
+    (Mgmt_Lqi_rsp) does not define the remaining fields for a non-success status.
     """
 
     CLUSTER_ID: ClassVar[ZdoCluster] = ZdoCluster.MGMT_LQI_RSP
@@ -150,6 +152,7 @@ class MgmtLqiRsp:
         cur = Cursor(data, ZdoDecodeError, "Mgmt_Lqi_rsp")
         seq, status = cur.u8("seq"), cur.u8("status")
         if status != ZdoStatus.SUCCESS:
+            cur.expect_end()
             return cls(seq, status)
         entries, start, count = cur.u8("entries"), cur.u8("start index"), cur.u8("count")
         if start + count > entries:
