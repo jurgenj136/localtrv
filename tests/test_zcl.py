@@ -103,9 +103,19 @@ def test_header_manufacturer_specific_roundtrip() -> None:
         frame.global_command()
 
 
-def test_manufacturer_specific_global_unsupported() -> None:
-    frame = ZclFrame(ZclHeader(1, 0x00, manufacturer_code=0x1234), h("0000"))
-    with pytest.raises(UnsupportedFrameError, match="manufacturer"):
+def test_manufacturer_specific_global_command_decodes() -> None:
+    """MS bit on a global command scopes the attributes, not the command id (ZCL 2.4.1.1.2)."""
+    frame = ZclFrame.decode(h("1c 34 12 80 04 00"))
+    assert frame.header.manufacturer_code == 0x1234
+    assert frame.header.frame_type is ZclFrameType.GLOBAL
+    assert frame.global_command() == WriteAttributesResponse((WriteAttributeStatus(0),))
+    read = ZclFrame(ZclHeader(1, 0x00, manufacturer_code=0x1234), h("0000"))
+    assert read.global_command() == ReadAttributes((0x0000,))
+
+
+def test_manufacturer_specific_unknown_global_still_unsupported() -> None:
+    frame = ZclFrame(ZclHeader(1, 0x0D, manufacturer_code=0x1234), b"")
+    with pytest.raises(UnsupportedFrameError):
         frame.global_command()
 
 
@@ -176,6 +186,28 @@ def test_write_attributes_response_encode_guards() -> None:
         WriteAttributesResponse(()).encode()
     with pytest.raises(EncodeError):
         WriteAttributesResponse((WriteAttributeStatus(0x87),)).encode()
+
+
+@pytest.mark.parametrize("wire", ["001200", "00 1200 87 1300", "87 1200 00 1300", "00 1200 00 1300"])
+def test_write_attributes_response_rejects_success_records_in_list(wire: str) -> None:
+    """Successful attributes are omitted from a failure list; all-success is exactly ``00``."""
+    with pytest.raises(ZclDecodeError, match="SUCCESS"):
+        WriteAttributesResponse.decode(h(wire))
+
+
+@pytest.mark.parametrize(
+    "records",
+    [
+        (WriteAttributeStatus(0, 0x0012),),
+        (WriteAttributeStatus(0x87, 0x0012), WriteAttributeStatus(0, 0x0013)),
+        (WriteAttributeStatus(0), WriteAttributeStatus(0x87, 0x0012)),
+    ],
+)
+def test_write_attributes_response_encode_rejects_success_records_in_list(
+    records: tuple[WriteAttributeStatus, ...],
+) -> None:
+    with pytest.raises(EncodeError):
+        WriteAttributesResponse(records).encode()
 
 
 def test_write_and_report_require_records() -> None:

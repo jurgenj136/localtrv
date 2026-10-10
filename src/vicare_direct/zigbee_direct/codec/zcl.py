@@ -265,7 +265,9 @@ class WriteAttributesResponse:
     """Write Attributes Response (0x04), BUILD_SPEC A8.
 
     Empty payload -> error; a single 0x00 -> all success; otherwise a list of
-    ``status ‖ attr id`` (3 bytes each) for the failed attributes.
+    ``status ‖ attr id`` (3 bytes each) for the failed attributes only. A
+    SUCCESS record inside such a list is illegal (ZCL rev 8 2.5.5.1.2:
+    successful attributes are omitted) and rejected on encode and decode.
     """
 
     COMMAND_ID: ClassVar[ZclCommandId] = ZclCommandId.WRITE_ATTRIBUTES_RESPONSE
@@ -284,6 +286,8 @@ class WriteAttributesResponse:
         for r in self.records:
             if r.attribute_id is None:
                 raise EncodeError("only the single all-success record may omit attribute_id")
+            if r.status == ZclStatus.SUCCESS:
+                raise EncodeError("SUCCESS records are only valid as the lone all-success form")
             out.append(check_uint(r.status, 8, "status"))
             out += check_uint(r.attribute_id, 16, "attribute_id").to_bytes(2, "little")
         return bytes(out)
@@ -298,12 +302,13 @@ class WriteAttributesResponse:
             return cls((WriteAttributeStatus(ZclStatus.SUCCESS),))
         if len(data) % 3:
             raise ZclDecodeError(f"WriteAttributesResponse: bad payload length {len(data)}")
-        return cls(
-            tuple(
-                WriteAttributeStatus(data[i], int.from_bytes(data[i + 1 : i + 3], "little"))
-                for i in range(0, len(data), 3)
-            )
+        records = tuple(
+            WriteAttributeStatus(data[i], int.from_bytes(data[i + 1 : i + 3], "little"))
+            for i in range(0, len(data), 3)
         )
+        if any(r.status == ZclStatus.SUCCESS for r in records):
+            raise ZclDecodeError("WriteAttributesResponse: SUCCESS record in a failure list")
+        return cls(records)
 
 
 @dataclass(frozen=True, slots=True)
@@ -418,10 +423,11 @@ class ZclFrame:
     def global_command(self) -> ZclGlobalCommand:
         """Decode the payload as a standard profile-wide command.
 
-        Cluster-specific and manufacturer-specific frames raise UnsupportedFrameError.
+        Cluster-specific frames raise UnsupportedFrameError. A manufacturer-specific
+        global frame keeps the standard command layout (the MS bit scopes the
+        attribute ids to ``header.manufacturer_code``, ZCL rev 8 2.4.1.1.2), so it
+        decodes normally; callers must match on the header's manufacturer code.
         """
         if self.header.frame_type is not ZclFrameType.GLOBAL:
             raise UnsupportedFrameError("cluster-specific ZCL command")
-        if self.header.manufacturer_code is not None:
-            raise UnsupportedFrameError("manufacturer-specific ZCL command")
         return decode_global_command(self.header.command_id, self.payload)
