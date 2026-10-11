@@ -1,7 +1,6 @@
-# vicare-direct
+# vicare-local-ble
 
-Local control of Viessmann ViCare ZK03840 radiator valves, without the cloud. Talks Zigbee Direct
-over Bluetooth LE through a ubisys R0 that is already on the valves' Zigbee network.
+Local, cloud-free control of Viessmann ViCare radiator valves (ZK03840) over Bluetooth, through a ubisys R0 Zigbee Direct bridge. Talks Zigbee Direct over Bluetooth LE through a ubisys R0 that is already on the valves' Zigbee network. (Formerly "vicare-direct".)
 
 ## Status
 
@@ -11,7 +10,7 @@ over Bluetooth LE through a ubisys R0 that is already on the valves' Zigbee netw
   and route-reply builders, offset-scan fallback decoder, `FakeZdd` test helper.
 - Not yet: BLE transport, node/join flow, valve API, CLI (`transport.py`, `node.py`, `valves.py`,
   `cli.py` are stubs).
-- Planned: CLI / MQTT bridge, then a HACS integration `ha-vicare-direct` (domain `vicare_direct`)
+- Planned: CLI / MQTT bridge, then a HACS integration "ViCare Local (Bluetooth via ubisys R0)" (domain `vicare_local_ble`)
   using Home Assistant's Bluetooth stack or an ESPHome Bluetooth proxy.
 
 Protocol details: [docs/protocol.md](docs/protocol.md).
@@ -21,7 +20,7 @@ Protocol details: [docs/protocol.md](docs/protocol.md).
 ```text
  you (CLI / HA)                       ubisys R0 (ZDD)            Zigbee network
 +---------------+   BLE GATT      +----------------+   NWK   +------------------+
-| vicare-direct | --------------> | Zigbee Direct  | ------> | coordinator (TC) |
+| vicare-local-ble | --------------> | Zigbee Direct  | ------> | coordinator (TC) |
 | = ZVD         | <-------------- | router         | <------ | ZK03840 valves   |
 +---------------+  AES-CCM frames +----------------+         +------------------+
    plaintext NPDUs in the session; the R0 applies NWK security for us
@@ -32,7 +31,7 @@ The network key is used once, offline, to derive the Basic Authorization Key for
 ## Package layout
 
 ```text
-src/vicare_direct/
+src/vicare_local_ble/
   valves.py              Viessmann ZK03840 mapping (only vendor-specific module; stub)
   testing.py             FakeZdd: responder side of the handshake + session crypto
   cli.py                 entry point (stub)

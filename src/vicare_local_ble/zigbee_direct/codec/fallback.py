@@ -54,19 +54,19 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from vicare_direct.zigbee_direct.codec.aps import (
+from vicare_local_ble.zigbee_direct.codec.aps import (
     ZDO_PROFILE_ID,
     ApsDataFrame,
     ApsFrameControl,
     ApsFrameType,
 )
-from vicare_direct.zigbee_direct.codec.zcl import (
+from vicare_local_ble.zigbee_direct.codec.zcl import (
     ZclFrame,
     ZclFrameType,
     ZclGlobalCommand,
     ZclHeader,
 )
-from vicare_direct.zigbee_direct.codec.zdo import (
+from vicare_local_ble.zigbee_direct.codec.zdo import (
     ActiveEpRsp,
     IeeeAddrRsp,
     MatchDescRsp,
@@ -74,8 +74,8 @@ from vicare_direct.zigbee_direct.codec.zdo import (
     SimpleDescRsp,
     ZdoCluster,
 )
-from vicare_direct.zigbee_direct.codec.zdo_mgmt import MgmtLqiRsp
-from vicare_direct.zigbee_direct.errors import DecodeError
+from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiRsp
+from vicare_local_ble.zigbee_direct.errors import DecodeError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

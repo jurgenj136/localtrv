@@ -7,7 +7,7 @@ aliases ``CommissioningDeviceType`` and ``NeighborDeviceType``; the plain name
 stays available on each submodule.
 """
 
-from vicare_direct.zigbee_direct.codec.aps import (
+from vicare_local_ble.zigbee_direct.codec.aps import (
     HA_PROFILE_ID,
     ZDO_PROFILE_ID,
     ApsDataFrame,
@@ -15,17 +15,17 @@ from vicare_direct.zigbee_direct.codec.aps import (
     ApsFrameControl,
     ApsFrameType,
 )
-from vicare_direct.zigbee_direct.codec.commissioning import (
+from vicare_local_ble.zigbee_direct.codec.commissioning import (
     ChannelMask,
     CommissioningStatus,
     JoinedStatus,
     JoiningMethod,
     StatusTag,
 )
-from vicare_direct.zigbee_direct.codec.commissioning import (
+from vicare_local_ble.zigbee_direct.codec.commissioning import (
     DeviceType as CommissioningDeviceType,
 )
-from vicare_direct.zigbee_direct.codec.fallback import (
+from vicare_local_ble.zigbee_direct.codec.fallback import (
     SCAN_OFFSETS,
     ZDO_RESPONSE_DECODERS,
     Expected,
@@ -37,7 +37,7 @@ from vicare_direct.zigbee_direct.codec.fallback import (
     ZdoResponse,
     scan_for_response,
 )
-from vicare_direct.zigbee_direct.codec.nwk import (
+from vicare_local_ble.zigbee_direct.codec.nwk import (
     DISCOVER_ROUTE_ENABLE,
     DISCOVER_ROUTE_SUPPRESS,
     NWK_HEADER_MIN_LEN,
@@ -47,7 +47,7 @@ from vicare_direct.zigbee_direct.codec.nwk import (
     NwkFrameType,
     SourceRoute,
 )
-from vicare_direct.zigbee_direct.codec.nwk_commands import (
+from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
     DEFAULT_ZVD_CAPABILITY,
     TLV_DEVICE_CAPABILITY_EXTENSION,
     TLV_FRAGMENTATION_PARAMETERS,
@@ -69,7 +69,7 @@ from vicare_direct.zigbee_direct.codec.nwk_commands import (
     many_to_one_route_request_npdu,
     zvd_commissioning_tlvs,
 )
-from vicare_direct.zigbee_direct.codec.tlv import (
+from vicare_local_ble.zigbee_direct.codec.tlv import (
     MAX_NPDU_LEN,
     TLV_MAX_VALUE_LEN,
     TUNNEL_NPDU_TAG,
@@ -79,7 +79,7 @@ from vicare_direct.zigbee_direct.codec.tlv import (
     encode_tlvs,
     parse_tunnel_tlvs,
 )
-from vicare_direct.zigbee_direct.codec.zcl import (
+from vicare_local_ble.zigbee_direct.codec.zcl import (
     AttributeRecord,
     DefaultResponse,
     ReadAttributes,
@@ -98,7 +98,7 @@ from vicare_direct.zigbee_direct.codec.zcl import (
     ZclStatus,
     decode_global_command,
 )
-from vicare_direct.zigbee_direct.codec.zcl_types import (
+from vicare_local_ble.zigbee_direct.codec.zcl_types import (
     ZclDataType,
     ZclValue,
     decode_value,
@@ -106,7 +106,7 @@ from vicare_direct.zigbee_direct.codec.zcl_types import (
     parse_data_type,
     read_value,
 )
-from vicare_direct.zigbee_direct.codec.zdo import (
+from vicare_local_ble.zigbee_direct.codec.zdo import (
     ActiveEpReq,
     ActiveEpRsp,
     AddrRequestType,
@@ -123,14 +123,14 @@ from vicare_direct.zigbee_direct.codec.zdo import (
     ZdoCluster,
     ZdoStatus,
 )
-from vicare_direct.zigbee_direct.codec.zdo_mgmt import (
+from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import (
     NEIGHBOR_RECORD_LEN,
     MgmtLqiReq,
     MgmtLqiRsp,
     Neighbor,
     Relationship,
 )
-from vicare_direct.zigbee_direct.codec.zdo_mgmt import (
+from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import (
     DeviceType as NeighborDeviceType,
 )
 

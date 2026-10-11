@@ -22,8 +22,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Self
 
-from vicare_direct.zigbee_direct.errors import EncodeError, NwkDecodeError
-from vicare_direct.zigbee_direct.types import Eui64
+from vicare_local_ble.zigbee_direct.errors import EncodeError, NwkDecodeError
+from vicare_local_ble.zigbee_direct.types import Eui64
 
 NWK_PROTOCOL_VERSION = 2
 NWK_HEADER_MIN_LEN = 8

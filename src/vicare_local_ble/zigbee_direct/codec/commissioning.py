@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Self
 
-from vicare_direct.zigbee_direct.codec.tlv import Tlv, decode_tlvs
-from vicare_direct.zigbee_direct.errors import CommissioningDecodeError, TlvDecodeError
-from vicare_direct.zigbee_direct.types import Eui64, SecretBytes
+from vicare_local_ble.zigbee_direct.codec.tlv import Tlv, decode_tlvs
+from vicare_local_ble.zigbee_direct.errors import CommissioningDecodeError, TlvDecodeError
+from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
 
 class StatusTag(IntEnum):

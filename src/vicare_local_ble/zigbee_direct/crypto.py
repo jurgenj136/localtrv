@@ -19,14 +19,14 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
-from vicare_direct.zigbee_direct.errors import AuthenticationError, DecodeError, HandshakeError
-from vicare_direct.zigbee_direct.mmo import (
+from vicare_local_ble.zigbee_direct.errors import AuthenticationError, DecodeError, HandshakeError
+from vicare_local_ble.zigbee_direct.mmo import (
     BLOCK_SIZE,
     hmac_aes_mmo,
     install_code_crc16,
     mmo_hash,
 )
-from vicare_direct.zigbee_direct.types import Eui64, SecretBytes
+from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
 KEY_SIZE: Final = 16
 POINT_SIZE: Final = 32

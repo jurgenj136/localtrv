@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_direct.zigbee_direct.codec.aps import (
+from vicare_local_ble.zigbee_direct.codec.aps import (
     HA_PROFILE_ID,
     ApsDataFrame,
     ApsDeliveryMode,
     ApsFrameControl,
     ApsFrameType,
 )
-from vicare_direct.zigbee_direct.errors import ApsDecodeError, EncodeError, UnsupportedFrameError
+from vicare_local_ble.zigbee_direct.errors import ApsDecodeError, EncodeError, UnsupportedFrameError
 
 ZCL_READ = bytes.fromhex("0005000000080012 00".replace(" ", ""))
 

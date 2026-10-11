@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from vicare_direct.zigbee_direct.mmo import (
+from vicare_local_ble.zigbee_direct.mmo import (
     hmac_aes_mmo,
     install_code_crc16,
     mmo_hash,

@@ -1,7 +1,7 @@
 # Protocol notes: Zigbee Direct to ZK03840 valves
 
 Distilled from live research (one installation, October 2026) and the Zigbee R23 / Zigbee Direct 1.0
-(ZD) specs. Describes what `vicare_direct` implements. Everything marked **unverified** has not been
+(ZD) specs. Describes what `vicare_local_ble` implements. Everything marked **unverified** has not been
 confirmed on hardware. No installation-specific values appear here; `<ZDD short>` etc. are
 placeholders.
 
@@ -367,7 +367,7 @@ From the `transport.py` and `node.py` stubs (not implemented):
   is authoritative and may be persisted for the next join.
 - Persistent connection preferred; start with passive change detection (listen for reports) before
   active polling, to spare the battery-powered valves.
-- Test helper: `vicare_direct.testing.FakeZdd` (responder side of SE1-SE4 plus session crypto);
+- Test helper: `vicare_local_ble.testing.FakeZdd` (responder side of SE1-SE4 plus session crypto);
   phase 2 adds a scripted NWK/ZCL peer.
 
 ## 12. Open questions

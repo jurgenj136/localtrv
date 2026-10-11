@@ -14,15 +14,15 @@ from enum import IntEnum
 from types import MappingProxyType
 from typing import ClassVar, Self
 
-from vicare_direct.zigbee_direct.codec._cursor import Cursor, check_uint
-from vicare_direct.zigbee_direct.codec.zcl_types import (
+from vicare_local_ble.zigbee_direct.codec._cursor import Cursor, check_uint
+from vicare_local_ble.zigbee_direct.codec.zcl_types import (
     ZclDataType,
     ZclValue,
     encode_value,
     parse_data_type,
     read_value,
 )
-from vicare_direct.zigbee_direct.errors import EncodeError, UnsupportedFrameError, ZclDecodeError
+from vicare_local_ble.zigbee_direct.errors import EncodeError, UnsupportedFrameError, ZclDecodeError
 
 _FT_MASK = 0x03
 _MANUFACTURER_SPECIFIC = 0x04

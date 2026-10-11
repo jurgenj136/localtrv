@@ -6,10 +6,10 @@ import importlib
 
 import pytest
 
-from vicare_direct.zigbee_direct import codec
-from vicare_direct.zigbee_direct.codec import commissioning, zdo_mgmt
+from vicare_local_ble.zigbee_direct import codec
+from vicare_local_ble.zigbee_direct.codec import commissioning, zdo_mgmt
 
-PACKAGES = ["vicare_direct.zigbee_direct", "vicare_direct.zigbee_direct.codec"]
+PACKAGES = ["vicare_local_ble.zigbee_direct", "vicare_local_ble.zigbee_direct.codec"]
 
 
 @pytest.mark.parametrize("name", PACKAGES)
@@ -35,7 +35,7 @@ def test_codec_exports_every_submodule_public_name() -> None:
         "zcl_types",
         "fallback",
     ):
-        module = importlib.import_module(f"vicare_direct.zigbee_direct.codec.{sub}")
+        module = importlib.import_module(f"vicare_local_ble.zigbee_direct.codec.{sub}")
         for attr, value in vars(module).items():
             if attr.startswith("_") or attr in renamed or not hasattr(codec, attr):
                 continue

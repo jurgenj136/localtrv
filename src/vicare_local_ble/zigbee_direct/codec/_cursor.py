@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from vicare_direct.zigbee_direct.errors import EncodeError
-from vicare_direct.zigbee_direct.types import Eui64
+from vicare_local_ble.zigbee_direct.errors import EncodeError
+from vicare_local_ble.zigbee_direct.types import Eui64
 
 if TYPE_CHECKING:
-    from vicare_direct.zigbee_direct.errors import DecodeError
+    from vicare_local_ble.zigbee_direct.errors import DecodeError
 
 
 class Cursor:

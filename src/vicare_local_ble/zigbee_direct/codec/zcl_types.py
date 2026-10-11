@@ -21,9 +21,9 @@ from __future__ import annotations
 import struct
 from enum import IntEnum
 
-from vicare_direct.zigbee_direct.codec._cursor import Cursor
-from vicare_direct.zigbee_direct.errors import EncodeError, ZclDecodeError
-from vicare_direct.zigbee_direct.types import Eui64, SecretBytes
+from vicare_local_ble.zigbee_direct.codec._cursor import Cursor
+from vicare_local_ble.zigbee_direct.errors import EncodeError, ZclDecodeError
+from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
 type ZclValue = int | float | bool | bytes | str | Eui64 | SecretBytes | None
 

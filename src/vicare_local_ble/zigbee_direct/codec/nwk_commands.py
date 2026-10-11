@@ -12,15 +12,15 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Self
 
-from vicare_direct.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_direct.zigbee_direct.codec.tlv import Tlv, decode_tlvs, encode_tlvs
-from vicare_direct.zigbee_direct.errors import (
+from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from vicare_local_ble.zigbee_direct.codec.tlv import Tlv, decode_tlvs, encode_tlvs
+from vicare_local_ble.zigbee_direct.errors import (
     EncodeError,
     NwkDecodeError,
     TlvDecodeError,
     UnsupportedFrameError,
 )
-from vicare_direct.zigbee_direct.types import BROADCAST_ROUTERS, Eui64
+from vicare_local_ble.zigbee_direct.types import BROADCAST_ROUTERS, Eui64
 
 
 class NwkCommandId(IntEnum):

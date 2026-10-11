@@ -1,4 +1,4 @@
-"""Public test helpers for consumers of this library (e.g. ha-vicare-direct).
+"""Public test helpers for consumers of this library (e.g. vicare-local-ble).
 
 ``FakeZdd`` emulates the responder (Zigbee Direct Device) side of the SPEKE
 session establishment and then the session-frame crypto, so integrations can
@@ -14,7 +14,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Final
 
-from vicare_direct.zigbee_direct.crypto import (
+from vicare_local_ble.zigbee_direct.crypto import (
     LABEL_KC_2_U,
     LABEL_KC_2_V,
     POINT_SIZE,
@@ -30,8 +30,8 @@ from vicare_direct.zigbee_direct.crypto import (
     speke_shared_point,
     tags_equal,
 )
-from vicare_direct.zigbee_direct.errors import HandshakeError
-from vicare_direct.zigbee_direct.session import (
+from vicare_local_ble.zigbee_direct.errors import HandshakeError
+from vicare_local_ble.zigbee_direct.session import (
     OPCODE_SE1,
     OPCODE_SE2,
     OPCODE_SE3,
@@ -43,7 +43,7 @@ from vicare_direct.zigbee_direct.session import (
     encode_handshake_tlv,
     parse_handshake_message,
 )
-from vicare_direct.zigbee_direct.types import Eui64, SecretBytes
+from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
 #: ATT error the live ZDD returned for a rejected SE3 (research handover section 3.2).
 GATT_ERROR_REJECTED: Final = 0x80

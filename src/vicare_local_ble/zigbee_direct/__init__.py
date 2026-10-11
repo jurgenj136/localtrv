@@ -1,17 +1,17 @@
 """Generic Zigbee Direct (BLE) protocol support. No vendor-specific knowledge here.
 
-Frame codecs live in :mod:`vicare_direct.zigbee_direct.codec`; GATT UUIDs in
-:mod:`vicare_direct.zigbee_direct.uuids` (both re-exported as submodules).
+Frame codecs live in :mod:`vicare_local_ble.zigbee_direct.codec`; GATT UUIDs in
+:mod:`vicare_local_ble.zigbee_direct.uuids` (both re-exported as submodules).
 """
 
-from vicare_direct.zigbee_direct import codec, uuids
-from vicare_direct.zigbee_direct.crypto import (
+from vicare_local_ble.zigbee_direct import codec, uuids
+from vicare_local_ble.zigbee_direct.crypto import (
     WELL_KNOWN_PSK,
     SecretType,
     derive_basic_authorization_key,
     install_code_to_link_key,
 )
-from vicare_direct.zigbee_direct.errors import (
+from vicare_local_ble.zigbee_direct.errors import (
     ApsDecodeError,
     AuthenticationError,
     CommissioningDecodeError,
@@ -27,14 +27,14 @@ from vicare_direct.zigbee_direct.errors import (
     ZdoDecodeError,
     ZigbeeDirectError,
 )
-from vicare_direct.zigbee_direct.session import (
+from vicare_local_ble.zigbee_direct.session import (
     Established,
     HandshakeInitiator,
     HandshakeState,
     SendSe3,
     SessionCipher,
 )
-from vicare_direct.zigbee_direct.types import (
+from vicare_local_ble.zigbee_direct.types import (
     BROADCAST_ALL,
     BROADCAST_ROUTERS,
     BROADCAST_RX_ON,

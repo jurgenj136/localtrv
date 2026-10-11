@@ -7,7 +7,7 @@ import sys
 
 def main() -> int:
     """Run the CLI. Not implemented yet."""
-    print("vicare-direct: not implemented (phase 2)", file=sys.stderr)
+    print("vicare-local-ble: not implemented (phase 2)", file=sys.stderr)
     return 2
 
 

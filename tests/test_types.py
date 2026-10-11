@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from vicare_direct.zigbee_direct import (
+from vicare_local_ble.zigbee_direct import (
     BROADCAST_ALL,
     BROADCAST_ROUTERS,
     BROADCAST_RX_ON,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_direct.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_direct.zigbee_direct.codec.nwk_commands import (
+from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
     AssociationType,
     CommissioningRequest,
     CommissioningResponse,
@@ -21,13 +21,13 @@ from vicare_direct.zigbee_direct.codec.nwk_commands import (
     many_to_one_route_request_npdu,
     zvd_commissioning_tlvs,
 )
-from vicare_direct.zigbee_direct.codec.tlv import Tlv
-from vicare_direct.zigbee_direct.errors import (
+from vicare_local_ble.zigbee_direct.codec.tlv import Tlv
+from vicare_local_ble.zigbee_direct.errors import (
     EncodeError,
     NwkDecodeError,
     UnsupportedFrameError,
 )
-from vicare_direct.zigbee_direct.types import Eui64
+from vicare_local_ble.zigbee_direct.types import Eui64
 
 ZVD_EUI = Eui64.from_str("02:00:00:00:00:00:00:01")
 ZDD_EUI = Eui64.from_str("02:00:00:00:00:00:00:02")

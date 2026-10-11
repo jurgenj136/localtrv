@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Self
 
-from vicare_direct.zigbee_direct.codec._cursor import Cursor, check_uint
-from vicare_direct.zigbee_direct.errors import ApsDecodeError, EncodeError, UnsupportedFrameError
+from vicare_local_ble.zigbee_direct.codec._cursor import Cursor, check_uint
+from vicare_local_ble.zigbee_direct.errors import ApsDecodeError, EncodeError, UnsupportedFrameError
 
 ZDO_PROFILE_ID = 0x0000
 HA_PROFILE_ID = 0x0104

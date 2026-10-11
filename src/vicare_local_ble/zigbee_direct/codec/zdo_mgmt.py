@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import ClassVar, Self
 
-from vicare_direct.zigbee_direct.codec._cursor import Cursor, check_uint
-from vicare_direct.zigbee_direct.codec.zdo import ZdoCluster, ZdoStatus
-from vicare_direct.zigbee_direct.errors import EncodeError, ZdoDecodeError
-from vicare_direct.zigbee_direct.types import Eui64, validate_short
+from vicare_local_ble.zigbee_direct.codec._cursor import Cursor, check_uint
+from vicare_local_ble.zigbee_direct.codec.zdo import ZdoCluster, ZdoStatus
+from vicare_local_ble.zigbee_direct.errors import EncodeError, ZdoDecodeError
+from vicare_local_ble.zigbee_direct.types import Eui64, validate_short
 
 NEIGHBOR_RECORD_LEN = 22
 

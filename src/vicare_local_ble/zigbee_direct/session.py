@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Final
 
-from vicare_direct.zigbee_direct.crypto import (
+from vicare_local_ble.zigbee_direct.crypto import (
     LABEL_KC_2_U,
     LABEL_KC_2_V,
     MAX_COUNTER,
@@ -45,13 +45,13 @@ from vicare_direct.zigbee_direct.crypto import (
     speke_shared_point,
     tags_equal,
 )
-from vicare_direct.zigbee_direct.errors import (
+from vicare_local_ble.zigbee_direct.errors import (
     CounterExhaustedError,
     HandshakeError,
     ReplayError,
 )
-from vicare_direct.zigbee_direct.types import Eui64, SecretBytes
-from vicare_direct.zigbee_direct.uuids import uuid_bytes
+from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
+from vicare_local_ble.zigbee_direct.uuids import uuid_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Callable

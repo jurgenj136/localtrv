@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
-from vicare_direct.zigbee_direct.errors import EncodeError, TlvDecodeError
+from vicare_local_ble.zigbee_direct.errors import EncodeError, TlvDecodeError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
