@@ -24,12 +24,21 @@ Who calls what
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Final, Self
 
+from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID
+from vicare_local_ble.zigbee_direct.codec.fallback import ExpectedZcl, ExpectedZdo
+from vicare_local_ble.zigbee_direct.codec.zcl import ZclCommandId
+from vicare_local_ble.zigbee_direct.node_match import (
+    default_response_command,
+    zcl_verdict,
+    zdo_verdict,
+)
+
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import Callable
 
     from vicare_local_ble.zigbee_direct.clock import Clock
@@ -65,15 +74,24 @@ class SeqAllocator:
     false, advancing past skipped values; raises ``RuntimeError`` if all 256 values are skipped.
     """
 
+    __slots__ = ("_next",)
+
     def __init__(self, start: int = 0) -> None:
-        raise NotImplementedError("T11")
+        if not 0 <= start <= 0xFF:
+            raise ValueError(f"start out of range 0..255: {start!r}")
+        self._next = start
 
     def next(self, *, skip: Callable[[int], bool] | None = None) -> int:
-        raise NotImplementedError("T11")
+        for _ in range(256):
+            value = self._next
+            self._next = (value + 1) & 0xFF
+            if skip is None or not skip(value):
+                return value
+        raise RuntimeError("all 256 sequence values are in use")
 
     def peek(self) -> int:
         """The value ``next()`` would try first (no skipping, no advance)."""
-        raise NotImplementedError("T11")
+        return self._next
 
 
 @dataclass(slots=True)
@@ -97,7 +115,12 @@ class Allocators:
 
     @classmethod
     def create(cls, start: int = 1) -> Self:
-        raise NotImplementedError("T11")
+        return cls(
+            nwk=SeqAllocator(start),
+            zdo=SeqAllocator(start),
+            tsn=SeqAllocator(start),
+            aps=SeqAllocator(start),
+        )
 
 
 class EnvelopeMatch(Enum):
@@ -148,17 +171,44 @@ class Envelope:
 
     def match_zcl(self, src_short: int, aps: ApsDataFrame, frame: ZclFrame) -> EnvelopeMatch:
         """Check a standard-decoded ZCL response against every envelope field."""
-        raise NotImplementedError("T11")
+        if (
+            self.kind != "zcl"
+            or src_short != self.src_short
+            or aps.profile_id != self.profile_id
+            or aps.cluster_id != self.cluster_id
+            or (self.remote_endpoint is not None and aps.src_endpoint != self.remote_endpoint)
+            or (self.local_endpoint is not None and aps.dst_endpoint != self.local_endpoint)
+        ):
+            return EnvelopeMatch.NO_MATCH
+        header = frame.header
+        default_command = None
+        if header.command_id == ZclCommandId.DEFAULT_RESPONSE:
+            default_command = default_response_command(frame.payload)
+        return EnvelopeMatch(zcl_verdict(self, header, default_command))
 
     def match_zdo(self, src_short: int, aps: ApsDataFrame, response: ZdoResponse) -> bool:
         """Check a standard-decoded ZDO response (profile, cluster, seq, address of interest)."""
-        raise NotImplementedError("T11")
+        return (
+            src_short == self.src_short
+            and aps.profile_id == ZDO_PROFILE_ID == self.profile_id
+            and aps.cluster_id == self.cluster_id
+            and zdo_verdict(self, response)
+        )
 
     def expected(self) -> Expected:
         """The ``codec.fallback`` expectation for this envelope (``ExpectedZcl``/``ExpectedZdo``),
         used only after the standard decode failed; a ``ScanMatch`` must still pass command,
         TSN/seq and manufacturer checks."""
-        raise NotImplementedError("T11")
+        if self.kind == "zdo":
+            return ExpectedZdo(src_short=self.src_short, cluster_id=self.cluster_id, seq=self.seq)
+        command = min(self.response_commands, default=ZclCommandId.DEFAULT_RESPONSE)
+        return ExpectedZcl(
+            src_short=self.src_short,
+            tsn=self.seq,
+            command_id=command,
+            cluster_id=self.cluster_id,
+            manufacturer_code=self.manufacturer_code,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,60 +249,115 @@ class RetiredWindow:
     _entries: dict[PendingKey, float] = field(default_factory=dict)
 
     def add(self, key: PendingKey) -> None:
-        raise NotImplementedError("T11")
+        self._prune()
+        self._entries.pop(key, None)  # re-adding refreshes the TTL and the eviction order
+        self._entries[key] = self.clock.now()
+        while len(self._entries) > self.max_size:
+            del self._entries[next(iter(self._entries))]
 
     def contains(self, key: PendingKey) -> bool:
-        raise NotImplementedError("T11")
+        self._prune()
+        return key in self._entries
 
     def seq_in_use(self, kind: RequestKind, seq: int) -> bool:
         """True if any retired key of ``kind`` with ``seq`` is still in the window (any src)."""
-        raise NotImplementedError("T11")
+        self._prune()
+        return any(k[1] == kind and k[2] == seq for k in self._entries)
+
+    def discard(self, key: PendingKey) -> None:
+        """Forget ``key`` (it is pending again). T11 addition."""
+        self._entries.pop(key, None)
+
+    def __len__(self) -> int:
+        self._prune()
+        return len(self._entries)
+
+    def _prune(self) -> None:
+        now = self.clock.now()
+        entries = self._entries
+        while entries:
+            key, retired_at = next(iter(entries.items()))
+            if now - retired_at < self.ttl:
+                return
+            del entries[key]
 
 
 class PendingMap:
     """Pending requests by key plus the retired window. One per node."""
 
+    __slots__ = ("_clock", "_entries", "_retired")
+
     def __init__(self, *, clock: Clock, late_window: float, max_retired: int = MAX_RETIRED) -> None:
-        raise NotImplementedError("T11")
+        self._clock = clock
+        self._entries: dict[PendingKey, Pending] = {}
+        self._retired = RetiredWindow(clock, late_window, max_retired)
 
     def register(self, envelope: Envelope) -> Pending:
         """Create the future and store the entry; ``ValueError`` if the key is pending."""
-        raise NotImplementedError("T11")
+        key = envelope.key
+        if key in self._entries:
+            raise ValueError(f"request {key!r} is already pending")
+        future: asyncio.Future[PendingResult] = asyncio.get_running_loop().create_future()
+        pending = Pending(envelope, future, self._clock.now())
+        self._retired.discard(key)
+        self._entries[key] = pending
+        return pending
 
     def get(self, key: PendingKey) -> Pending | None:
-        raise NotImplementedError("T11")
+        return self._entries.get(key)
 
     def for_src(self, src_short: int) -> tuple[Pending, ...]:
         """Pending entries expecting a response from ``src_short`` (fallback candidates)."""
-        raise NotImplementedError("T11")
+        return tuple(p for k, p in self._entries.items() if k[0] == src_short)
 
     def seq_in_use(self, kind: RequestKind, seq: int) -> bool:
         """True if ``seq`` of ``kind`` is pending for any src or retired within the window.
         Used as the allocators' ``skip`` predicate."""
-        raise NotImplementedError("T11")
+        return any(k[1] == kind and k[2] == seq for k in self._entries) or self._retired.seq_in_use(
+            kind, seq
+        )
 
     def is_retired(self, key: PendingKey) -> bool:
-        raise NotImplementedError("T11")
+        return key not in self._entries and self._retired.contains(key)
 
     def resolve(self, key: PendingKey, result: PendingResult) -> bool:
         """Set the result if the entry exists and is not done; False otherwise."""
-        raise NotImplementedError("T11")
+        pending = self._entries.get(key)
+        if pending is None or pending.future.done():
+            return False
+        pending.future.set_result(result)
+        return True
 
     def retire(self, key: PendingKey) -> None:
         """Remove the entry (cancelling an unfinished future) and add the key to the window.
         Idempotent."""
-        raise NotImplementedError("T11")
+        pending = self._entries.pop(key, None)
+        if pending is None:
+            return
+        future = pending.future
+        if not future.done():
+            future.cancel()
+        elif not future.cancelled():
+            future.exception()  # mark a failure as retrieved (the caller already saw it)
+        self._retired.add(key)
 
     def fail_dst(self, dst: int, exc: BaseException) -> int:
         """Fail every pending future expecting ``dst`` with ``exc``; returns how many."""
-        raise NotImplementedError("T11")
+        failed = 0
+        for key, pending in self._entries.items():
+            if key[0] == dst and not pending.future.done():
+                pending.future.set_exception(exc)
+                failed += 1
+        return failed
 
     def fail_all(self, exc: BaseException) -> None:
         """Fail every pending future (node close)."""
-        raise NotImplementedError("T11")
+        for pending in self._entries.values():
+            if not pending.future.done():
+                pending.future.set_exception(exc)
 
     def __len__(self) -> int:
-        raise NotImplementedError("T11")
+        return len(self._entries)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,21 +383,38 @@ class JoinSlot:
     node's job after the future resolves.
     """
 
+    __slots__ = ("_future", "_token")
+
     def __init__(self) -> None:
-        raise NotImplementedError("T11")
+        self._token: JoinToken | None = None
+        self._future: asyncio.Future[CommissioningResponse] | None = None
 
     def open(self, token: JoinToken) -> asyncio.Future[CommissioningResponse]:
-        raise NotImplementedError("T11")
+        self.close()
+        future: asyncio.Future[CommissioningResponse] = asyncio.get_running_loop().create_future()
+        self._token, self._future = token, future
+        return future
 
     def offer(self, frame: NwkFrame, response: CommissioningResponse) -> bool:
-        raise NotImplementedError("T11")
+        token, future = self._token, self._future
+        if token is None or future is None or future.done():
+            return False
+        if frame.src != token.zdd_short or frame.dst != token.placeholder:
+            return False
+        if frame.dst_ieee is not None and frame.dst_ieee != token.own_eui:
+            return False
+        future.set_result(response)
+        return True
 
     def close(self) -> None:
-        raise NotImplementedError("T11")
+        future = self._future
+        if future is not None and not future.done():
+            future.cancel()
+        self._token = self._future = None
 
     @property
     def active(self) -> JoinToken | None:
-        raise NotImplementedError("T11")
+        return self._token
 
 
 __all__ = [

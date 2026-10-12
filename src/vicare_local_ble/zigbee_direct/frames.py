@@ -19,7 +19,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
+from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID, ApsDataFrame, ApsDeliveryMode
+from vicare_local_ble.zigbee_direct.codec.nwk import DISCOVER_ROUTE_ENABLE, NwkFrame, NwkFrameType
 from vicare_local_ble.zigbee_direct.codec.nwk_commands import DEFAULT_ZVD_CAPABILITY
+from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce, ZdoCluster
+from vicare_local_ble.zigbee_direct.types import BROADCAST_RX_ON
 
 if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.types import Eui64
@@ -30,6 +34,20 @@ DEFAULT_RADIUS: Final = 30
 LOCAL_ENDPOINT: Final = 1
 #: Options byte the live client sent in Route Replies (PN §5.1), with both EUIs appended.
 LIVE_ROUTE_REPLY_OPTIONS: Final = 0x20
+
+
+def _data_npdu(*, dst: int, own_short: int, nwk_seq: int, radius: int, aps: ApsDataFrame) -> bytes:
+    """Post-join NWK data frame: discover_route=1, security bit set (FC ``48 02``)."""
+    return NwkFrame(
+        frame_type=NwkFrameType.DATA,
+        dst=dst,
+        src=own_short,
+        radius=radius,
+        seq=nwk_seq,
+        payload=aps.encode(),
+        discover_route=DISCOVER_ROUTE_ENABLE,
+        security=True,
+    ).encode()
 
 
 def device_annce_npdu(
@@ -47,7 +65,19 @@ def device_annce_npdu(
     NWK ``48 02 FD FF <own> 1E seq`` (data, discover_route=1, security), APS broadcast
     ``08 00 13 00 00 00 00 ctr``, ZDO ``zdo_seq <own> EUI_own capability`` (PN §1.4).
     """
-    raise NotImplementedError("T11")
+    annce = DeviceAnnce(seq=zdo_seq, nwk_addr=own_short, ieee=own_eui, capability=capability)
+    aps = ApsDataFrame(
+        cluster_id=ZdoCluster.DEVICE_ANNCE,
+        profile_id=ZDO_PROFILE_ID,
+        payload=annce.encode(),
+        delivery_mode=ApsDeliveryMode.BROADCAST,
+        dst_endpoint=0,
+        src_endpoint=0,
+        counter=aps_counter,
+    )
+    return _data_npdu(
+        dst=BROADCAST_RX_ON, own_short=own_short, nwk_seq=nwk_seq, radius=radius, aps=aps
+    )
 
 
 def zdo_unicast_npdu(
@@ -63,7 +93,15 @@ def zdo_unicast_npdu(
     """ZDO unicast request: NWK ``48 02 <dst> <own> 1E seq``, APS ``00 00 <cluster> 00 00 00
     ctr`` (endpoints 0, profile 0), then ``zdo_payload`` (``seq ‖ body`` as encoded by the
     ``codec.zdo``/``zdo_mgmt`` request classes). The live client always used APS counter 0."""
-    raise NotImplementedError("T11")
+    aps = ApsDataFrame(
+        cluster_id=cluster_id,
+        profile_id=ZDO_PROFILE_ID,
+        payload=bytes(zdo_payload),
+        dst_endpoint=0,
+        src_endpoint=0,
+        counter=aps_counter,
+    )
+    return _data_npdu(dst=dst, own_short=own_short, nwk_seq=nwk_seq, radius=radius, aps=aps)
 
 
 def zcl_unicast_npdu(
@@ -82,7 +120,15 @@ def zcl_unicast_npdu(
     """ZCL unicast request: NWK ``48 02 <dst> <own> 1E seq``, APS ``00 <dst_ep> <cluster>
     <profile> <src_ep> ctr`` (PN §1.4: ``00 01 01 02 04 01 01 ctr``), then the encoded
     ``ZclFrame``."""
-    raise NotImplementedError("T11")
+    aps = ApsDataFrame(
+        cluster_id=cluster_id,
+        profile_id=profile_id,
+        payload=bytes(zcl_frame),
+        dst_endpoint=dst_endpoint,
+        src_endpoint=src_endpoint,
+        counter=aps_counter,
+    )
+    return _data_npdu(dst=dst, own_short=own_short, nwk_seq=nwk_seq, radius=radius, aps=aps)
 
 
 def route_reply_npdu(

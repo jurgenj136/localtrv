@@ -1,0 +1,254 @@
+"""Private state of one ``ZigbeeDirectNode``: the ``DispatchHost`` and ``RoutingHost`` (T11).
+
+``NodeCore`` owns the allocators, pending map, join slot, neighbor table, router, dispatcher,
+node tasks and listeners of one node generation. ``node.py`` is the public facade; the join
+procedure lives in ``node_join.py`` and the request engine in ``node_requests.py``.
+
+Lifecycle: built around an open transport (installs ``dispatcher.handle`` as its NPDU handler);
+``close`` fails pending futures and the join, cancels and awaits every node task, drops the
+listeners and swaps the NPDU handler for a no-op. It never closes the transport.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from typing import TYPE_CHECKING, Any
+
+from vicare_local_ble.zigbee_direct.dispatch import Dispatcher
+from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, TransportError
+from vicare_local_ble.zigbee_direct.node_types import NodeStats
+from vicare_local_ble.zigbee_direct.requests import Allocators, JoinSlot, PendingMap
+from vicare_local_ble.zigbee_direct.routing import NeighborTable, Router
+
+if TYPE_CHECKING:
+    import random
+    from collections.abc import Callable, Coroutine
+
+    from vicare_local_ble.zigbee_direct.clock import Clock
+    from vicare_local_ble.zigbee_direct.codec.nwk_commands import CommissioningResponse
+    from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
+    from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce
+    from vicare_local_ble.zigbee_direct.node_types import JoinInfo, NodeConfig, ReportEvent
+    from vicare_local_ble.zigbee_direct.transport import ZigbeeDirectTransport
+    from vicare_local_ble.zigbee_direct.types import Eui64
+
+_LOGGER = logging.getLogger("vicare_local_ble.zigbee_direct.node")
+
+
+def _drop_npdu(_npdu: TunnelNpdu) -> None:
+    """NPDU handler installed at close: a closed node ignores every frame."""
+
+
+class NodeCore:
+    """Collaborators and shared state of one node (implements ``DispatchHost`` and
+    ``RoutingHost``)."""
+
+    def __init__(
+        self,
+        transport: ZigbeeDirectTransport,
+        *,
+        clock: Clock,
+        config: NodeConfig,
+        rng: random.Random,
+    ) -> None:
+        session = transport.session
+        if session is None or transport.closed:
+            raise ValueError("the transport must be open")
+        self.transport = transport
+        self.rng = rng
+        self.zdd_eui = session.zdd_eui
+        self._own_eui = session.own_eui
+        self._clock = clock
+        self._config = config
+        self._stats = NodeStats()
+        self._allocators = Allocators.create()
+        self._pending = PendingMap(clock=clock, late_window=config.late_window)
+        self._join_slot = JoinSlot()
+        self._neighbors = NeighborTable()
+        self._current_short: int | None = None
+        self.join_info: JoinInfo | None = None
+        self.join_started = False
+        self.join_future: asyncio.Future[CommissioningResponse] | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._report_listeners: list[Callable[[ReportEvent], None]] = []
+        self._annce_listeners: list[Callable[[DeviceAnnce, int], None]] = []
+        self._conflict_listeners: list[Callable[[], None]] = []
+        self._dst_locks: dict[int, asyncio.Lock] = {}
+        self.in_flight = asyncio.Semaphore(config.max_in_flight)
+        self._closed = False
+        self._router = Router(self)
+        self._dispatcher = Dispatcher(self)
+        transport.set_npdu_handler(self._dispatcher.handle)
+
+    # --- DispatchHost / RoutingHost -----------------------------------------------------
+
+    @property
+    def clock(self) -> Clock:
+        return self._clock
+
+    @property
+    def config(self) -> NodeConfig:
+        return self._config
+
+    @property
+    def stats(self) -> NodeStats:
+        return self._stats
+
+    @property
+    def allocators(self) -> Allocators:
+        return self._allocators
+
+    @property
+    def pending(self) -> PendingMap:
+        return self._pending
+
+    @property
+    def join_slot(self) -> JoinSlot:
+        return self._join_slot
+
+    @property
+    def router(self) -> Router:
+        return self._router
+
+    @property
+    def neighbors(self) -> NeighborTable:
+        return self._neighbors
+
+    @property
+    def current_short(self) -> int | None:
+        return self._current_short
+
+    @current_short.setter
+    def current_short(self, short: int) -> None:
+        self._current_short = short
+
+    @property
+    def own_short(self) -> int:
+        short = self._current_short
+        if short is None:
+            raise RuntimeError("own short is unknown before join() accepted a response")
+        return short
+
+    @property
+    def own_eui(self) -> Eui64:
+        return self._own_eui
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    async def send_secure(self, npdu: bytes) -> None:
+        await self.send(npdu, secure=True)
+
+    async def send(self, npdu: bytes, *, secure: bool) -> None:
+        """``transport.send_npdu``; ``ConnectionLostError`` (``TransportError`` chained) if the
+        node is closed or the write failed."""
+        self.check_open()
+        try:
+            await self.transport.send_npdu(npdu, secure=secure)
+        except TransportError as exc:
+            raise ConnectionLostError(f"transport failed ({exc.reason})") from exc
+
+    def start_task(self, coro: Coroutine[Any, Any, None], *, name: str) -> asyncio.Task[None]:
+        if self._closed:
+            coro.close()
+            raise ConnectionLostError("node is closed")
+        task = asyncio.get_running_loop().create_task(self._guarded(coro, name), name=name)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
+    @staticmethod
+    async def _guarded(coro: Coroutine[Any, Any, None], name: str) -> None:
+        try:
+            await coro
+        except Exception as exc:
+            _LOGGER.debug("node task %s failed: %s", name, type(exc).__name__)
+
+    def fire_address_conflict(self) -> None:
+        _LOGGER.debug("address conflict for our short")
+        for cb in tuple(self._conflict_listeners):
+            try:
+                cb()
+            except Exception:
+                _LOGGER.exception("address conflict listener raised")
+
+    def emit_report(self, event: ReportEvent) -> None:
+        for cb in tuple(self._report_listeners):
+            try:
+                cb(event)
+            except Exception:
+                _LOGGER.exception("report listener raised")
+
+    def emit_device_annce(self, annce: DeviceAnnce, src_short: int) -> None:
+        for cb in tuple(self._annce_listeners):
+            try:
+                cb(annce, src_short)
+            except Exception:
+                _LOGGER.exception("Device_annce listener raised")
+
+    # --- node facade helpers --------------------------------------------------------------
+
+    def check_open(self) -> None:
+        if self._closed:
+            raise ConnectionLostError("node is closed")
+
+    def check_ready(self) -> None:
+        """Requests need an open, joined node (nothing reaches a device before the join)."""
+        self.check_open()
+        if self.join_info is None:
+            raise RuntimeError("join() has not completed")
+
+    def dst_lock(self, dst: int) -> asyncio.Lock:
+        return self._dst_locks.setdefault(dst, asyncio.Lock())
+
+    def on_report(self, cb: Callable[[ReportEvent], None]) -> Callable[[], None]:
+        return self._subscribe(self._report_listeners, cb)
+
+    def on_device_annce(self, cb: Callable[[DeviceAnnce, int], None]) -> Callable[[], None]:
+        return self._subscribe(self._annce_listeners, cb)
+
+    def on_address_conflict(self, cb: Callable[[], None]) -> Callable[[], None]:
+        return self._subscribe(self._conflict_listeners, cb)
+
+    def _subscribe[T](self, listeners: list[T], cb: T) -> Callable[[], None]:
+        self.check_open()
+        listeners.append(cb)
+
+        def unsubscribe() -> None:
+            with contextlib.suppress(ValueError):
+                listeners.remove(cb)
+
+        return unsubscribe
+
+    async def close(self, exc: BaseException | None) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        error = exc if exc is not None else ConnectionLostError("node closed")
+        self.transport.set_npdu_handler(_drop_npdu)
+        self._pending.fail_all(error)
+        join_future = self.join_future
+        if join_future is not None and not join_future.done():
+            join_future.set_exception(error)
+        self._join_slot.close()
+        self._router.stop()
+        current = asyncio.current_task()
+        tasks = [t for t in self._tasks if t is not current]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._report_listeners.clear()
+        self._annce_listeners.clear()
+        self._conflict_listeners.clear()
+        _LOGGER.debug("node closed (%d pending failed)", len(self._pending))
+
+    @property
+    def task_count(self) -> int:
+        """Live node-owned tasks (diagnostics and tests)."""
+        return len(self._tasks)
+
+
+__all__ = ["NodeCore"]

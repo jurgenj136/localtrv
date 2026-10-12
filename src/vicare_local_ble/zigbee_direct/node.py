@@ -26,7 +26,9 @@ Requests
     answer to attempt 1 that arrives during attempt 2 still resolves the request. Only
     ``PendingMap.retire`` (in a ``finally`` once the request ends) or ``node.close`` completes
     or cancels a pending future. Errors: ``RequestTimeoutError`` after the last attempt,
-    ``RouteError`` from Network Status, ``ZclStatusError`` for a ZCL Default Response,
+    ``RouteError`` from Network Status, ``ZclStatusError(status)`` for a matched ZCL Default
+    Response (any status for a read; a non-zero status for a write, whose SUCCESS Default
+    Response returns an all-success ``WriteAttributesResponse`` instead),
     ``ConnectionLostError`` if the node is or becomes closed or the transport is broken
     (``TransportError`` chained as ``__cause__``). Cancelling the caller retires the key and
     propagates.
@@ -55,9 +57,13 @@ keys); DEBUG pending lifecycle, RREP, fallback hits, late drops.
 
 from __future__ import annotations
 
+import random
 from typing import TYPE_CHECKING
 
+from vicare_local_ble.zigbee_direct import node_requests
 from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID
+from vicare_local_ble.zigbee_direct.node_core import NodeCore
+from vicare_local_ble.zigbee_direct.node_join import run_join
 from vicare_local_ble.zigbee_direct.node_types import (
     JoinInfo,
     NetworkSummary,
@@ -68,7 +74,6 @@ from vicare_local_ble.zigbee_direct.node_types import (
 )
 
 if TYPE_CHECKING:
-    import random
     from collections.abc import Callable, Iterable, Sequence
 
     from vicare_local_ble.zigbee_direct.clock import Clock
@@ -102,7 +107,13 @@ class ZigbeeDirectNode:
         config: NodeConfig | None = None,
         rng: random.Random | None = None,
     ) -> None:
-        raise NotImplementedError("T11")
+        self._config = config if config is not None else NodeConfig()
+        self._core = NodeCore(
+            transport,
+            clock=clock,
+            config=self._config,
+            rng=rng if rng is not None else random.Random(),  # noqa: S311 - not crypto
+        )
 
     async def join(self) -> JoinInfo:
         """Commissioning, Device_annce and the MTORR burst; returns once routed.
@@ -110,7 +121,7 @@ class ZigbeeDirectNode:
         Starts the periodic MTORR (``Router.start_periodic``) before returning. Call once.
         After a failed join the node is unusable: the caller closes it.
         """
-        raise NotImplementedError("T11")
+        return await run_join(self._core)
 
     async def zdo_request[R: ZdoResponse](
         self, dst: int, request: ZdoRequest, *, response: type[R]
@@ -121,7 +132,7 @@ class ZigbeeDirectNode:
         not checked (callers inspect ``status``). ``TypeError`` if ``response`` does not match
         the request's response cluster.
         """
-        raise NotImplementedError("T11")
+        return await node_requests.zdo_request(self._core, dst, request, response)
 
     async def zcl_read(
         self,
@@ -139,7 +150,15 @@ class ZigbeeDirectNode:
         ``manufacturer`` sets the ZCL MS bit and code (manufacturer-specific attributes need
         their own request).
         """
-        raise NotImplementedError("T11")
+        return await node_requests.zcl_read(
+            self._core,
+            dst=dst,
+            endpoint=endpoint,
+            cluster=cluster,
+            attrs=attrs,
+            profile=profile,
+            manufacturer=manufacturer,
+        )
 
     async def zcl_write(
         self,
@@ -152,62 +171,76 @@ class ZigbeeDirectNode:
         manufacturer: int | None = None,
     ) -> WriteAttributesResponse:
         """Write Attributes; returns the response (per-record failures are not raised;
-        callers check ``.success``). A Default Response raises ``ZclStatusError``."""
-        raise NotImplementedError("T11")
+        callers check ``.success``). A Default Response for the write with status SUCCESS
+        (0x00) returns ``WriteAttributesResponse((WriteAttributeStatus(0x00),))``, the value an
+        all-success ``04 00`` response decodes to; any other status raises
+        ``ZclStatusError(status)``."""
+        return await node_requests.zcl_write(
+            self._core,
+            dst=dst,
+            endpoint=endpoint,
+            cluster=cluster,
+            records=records,
+            profile=profile,
+            manufacturer=manufacturer,
+        )
 
     async def send_mtorr(self) -> None:
         """Send one many-to-one Route Request now (``Router.send_mtorr``)."""
-        raise NotImplementedError("T11")
+        self._core.check_ready()
+        await self._core.router.send_mtorr()
 
     def on_report(self, cb: Callable[[ReportEvent], None]) -> Unsubscribe:
-        raise NotImplementedError("T11")
+        return self._core.on_report(cb)
 
     def on_device_annce(self, cb: Callable[[DeviceAnnce, int], None]) -> Unsubscribe:
         """``cb(annce, nwk_src_short)`` for every Device_annce in the tunnel (ours excluded)."""
-        raise NotImplementedError("T11")
+        return self._core.on_device_annce(cb)
 
     def on_address_conflict(self, cb: Callable[[], None]) -> Unsubscribe:
         """``cb()`` when a Network Status 0x0D names our own short."""
-        raise NotImplementedError("T11")
+        return self._core.on_address_conflict(cb)
 
     def note_neighbors(self, neighbors: Iterable[Neighbor]) -> None:
         """Feed Mgmt_Lqi records into the neighbor table (``walk_topology`` results)."""
-        raise NotImplementedError("T11")
+        self._core.check_open()
+        self._core.neighbors.note_neighbors(neighbors)
 
     def lookup_ieee(self, short: int) -> Eui64 | None:
         """EUI last seen for ``short`` (neighbor table), or ``None``."""
-        raise NotImplementedError("T11")
+        self._core.check_open()
+        return self._core.neighbors.ieee_for(short)
 
     @property
     def own_short(self) -> int:
         """Validated own short; ``RuntimeError`` before ``join()`` accepted a response."""
-        raise NotImplementedError("T11")
+        return self._core.own_short
 
     @property
     def own_eui(self) -> Eui64:
-        raise NotImplementedError("T11")
+        return self._core.own_eui
 
     @property
     def join_info(self) -> JoinInfo | None:
-        raise NotImplementedError("T11")
+        return self._core.join_info
 
     @property
     def config(self) -> NodeConfig:
-        raise NotImplementedError("T11")
+        return self._config
 
     @property
     def closed(self) -> bool:
-        raise NotImplementedError("T11")
+        return self._core.closed
 
     @property
     def stats(self) -> NodeStats:
-        raise NotImplementedError("T11")
+        return self._core.stats
 
     async def close(self, exc: BaseException | None = None) -> None:
         """Idempotent. Fail pending futures and the join with ``exc`` (default
         ``ConnectionLostError``), cancel and await node tasks, drop listeners. Does not close
         the transport. Afterwards every API raises ``ConnectionLostError``."""
-        raise NotImplementedError("T11")
+        await self._core.close(exc)
 
 
 __all__ = [

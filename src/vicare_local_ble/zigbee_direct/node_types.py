@@ -87,7 +87,18 @@ class NetworkSummary:
     @classmethod
     def from_status(cls, status: CommissioningStatus) -> Self:
         """Copy only the allowlisted fields; never raises on a malformed channel TLV."""
-        raise NotImplementedError("T11")
+        try:
+            masks = status.channel_masks
+        except ValueError, IndexError:  # DecodeError is a ValueError
+            masks = None
+        return cls(
+            pan_id=status.pan_id,
+            extended_pan_id=status.extended_pan_id,
+            channel_masks=masks,
+            trust_center_address=status.trust_center_address,
+            device_type=status.device_type,
+            joined_status=status.joined_status,
+        )
 
 
 @dataclass(frozen=True, slots=True)
