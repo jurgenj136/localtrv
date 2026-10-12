@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 #: Fallback setpoint limits when neither min/max nor abs limits are valid.
 DEFAULT_LIMITS_C: Final = (8.0, 30.0)
+#: Mirror of ``constants.LIMITS_BAND_C`` (constants imports this module); a test pins equality.
+_LIMITS_BAND_C: Final = (5.0, 35.0)
 
 
 class ValueKind(StrEnum):
@@ -75,6 +77,14 @@ class ReadRequest:
 type ReadPlan = tuple[ReadRequest, ...]
 
 
+def _pair(low: float | None, high: float | None) -> tuple[float, float] | None:
+    """``(low, high)`` if ``5 <= low < high <= 35`` (``LIMITS_BAND_C``); ``None``/NaN: invalid."""
+    if low is None or high is None:
+        return None
+    band_low, band_high = _LIMITS_BAND_C
+    return (low, high) if band_low <= low < high <= band_high else None
+
+
 @dataclass(frozen=True, slots=True)
 class SetpointLimits:
     """Validated setpoint limits in °C; ``source`` says which rule produced them."""
@@ -93,13 +103,34 @@ class SetpointLimits:
         abs_max_c: float | None = None,
     ) -> SetpointLimits:
         """Accept min/max only if ``5 <= min < max <= 35`` and inside valid abs limits; else
-        valid abs limits; else ``DEFAULT_LIMITS_C``. Invalid limits are never applied."""
-        raise NotImplementedError("T4")
+        valid abs limits; else ``DEFAULT_LIMITS_C``. Invalid limits are never applied.
+
+        A pair counts as valid only as a pair (both present, finite, ``5 <= lo < hi <= 35``);
+        the abs pair is held to the same band as min/max."""
+        limits = _pair(min_c, max_c)
+        absolute = _pair(abs_min_c, abs_max_c)
+        if absolute is None:
+            return cls(*limits, "limits") if limits else DEFAULT_LIMITS
+        if limits and absolute[0] <= limits[0] and limits[1] <= absolute[1]:
+            return cls(*limits, "limits")
+        return cls(*absolute, "abs")
 
     @classmethod
     def from_reads(cls, statuses: Iterable[ReadAttributeStatus]) -> SetpointLimits:
         """``from_attrs`` over a STATIC Thermostat read (validated and scaled first)."""
-        raise NotImplementedError("T4")
+        from vicare_local_ble.valves import constants as c
+        from vicare_local_ble.valves.decode import _decode, _entries
+
+        by_attr: dict[int, float | None] = {}
+        for spec, data_type, value in _entries(c.CLUSTER_THERMOSTAT, statuses, None):
+            got = _decode(spec, data_type, value)[0]
+            by_attr[spec.attr] = float(got) if isinstance(got, int | float) else None
+        return cls.from_attrs(
+            min_c=by_attr.get(c.ATTR_MIN_HEAT),
+            max_c=by_attr.get(c.ATTR_MAX_HEAT),
+            abs_min_c=by_attr.get(c.ATTR_ABS_MIN_HEAT),
+            abs_max_c=by_attr.get(c.ATTR_ABS_MAX_HEAT),
+        )
 
 
 DEFAULT_LIMITS: Final = SetpointLimits(*DEFAULT_LIMITS_C, source="default")
