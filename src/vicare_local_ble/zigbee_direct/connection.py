@@ -45,7 +45,7 @@ Short addresses (``avoid_shorts`` ownership)
     set is ignored by the node anyway (it is in ``avoid_shorts``).
 
 Size note: keep this module under ~500 lines when implemented; T13 may split the supervisor
-loop and backoff into ``_connection_supervisor.py`` (public names stay here).
+loop and backoff into ``connection_supervisor.py`` (public names stay here).
 
 Threading: loop thread only; every listener is called synchronously and must not await.
 Logging (``vicare_local_ble.zigbee_direct.connection``): INFO state changes and generations,
@@ -54,117 +54,50 @@ WARNING repeated failures; never the network key, BAK or EUIs beyond the ZDD's.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Final, Protocol
+import asyncio
+import dataclasses
+import logging
+import random
+from typing import TYPE_CHECKING, Any, cast
 
-from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+from bleak_retry_connector import establish_connection
+
+from vicare_local_ble.zigbee_direct.clock import LoopClock
+from vicare_local_ble.zigbee_direct.connection_session import run_validation
+from vicare_local_ble.zigbee_direct.connection_supervisor import ConnectionCore, subscribe
+from vicare_local_ble.zigbee_direct.connection_types import (
+    AUTH_FAILURES_TO_STOP,
+    BACKOFF_JITTER,
+    BACKOFF_RESET_AFTER,
+    BACKOFF_SCHEDULE,
+    CONNECT_MAX_ATTEMPTS,
+    DISCONNECT_TIMEOUT,
+    SEEN_SHORTEN_THRESHOLD,
+    SEEN_SHORTENED_WAIT,
+    ConnectionIssue,
+    ConnectionState,
+    ConnectionStats,
+    Connector,
+    DeviceResolver,
+    Generation,
+)
+from vicare_local_ble.zigbee_direct.crypto import derive_basic_authorization_key
+from vicare_local_ble.zigbee_direct.errors import ConnectionLostError
+from vicare_local_ble.zigbee_direct.node import NodeConfig
 
 if TYPE_CHECKING:
-    import asyncio
-    import random
     from collections.abc import Callable, Coroutine
-
-    from bleak.backends.device import BLEDevice
 
     from vicare_local_ble.zigbee_direct.clock import Clock
     from vicare_local_ble.zigbee_direct.debug import NpduRecorder
-    from vicare_local_ble.zigbee_direct.errors import TransportErrorReason
-    from vicare_local_ble.zigbee_direct.node import ZigbeeDirectNode
-    from vicare_local_ble.zigbee_direct.node_types import JoinInfo, NodeConfig, NodeStats
-    from vicare_local_ble.zigbee_direct.transport import GattClient, TransportStats
+    from vicare_local_ble.zigbee_direct.node_types import JoinInfo, NodeStats
+    from vicare_local_ble.zigbee_direct.transport import TransportStats
     from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
-#: Backoff schedule in seconds (last value is the cap); +-``BACKOFF_JITTER`` applied.
-BACKOFF_SCHEDULE: Final = (2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0)
-BACKOFF_JITTER: Final = 0.2
-#: Time in READY after which the backoff index resets.
-BACKOFF_RESET_AFTER: Final = 600.0
-#: ``notify_seen`` shortens waits of at least this long to ``SEEN_SHORTENED_WAIT``.
-SEEN_SHORTEN_THRESHOLD: Final = 30.0
-SEEN_SHORTENED_WAIT: Final = 2.0
-DISCONNECT_TIMEOUT: Final = 5.0
-AUTH_FAILURES_TO_STOP: Final = 2
-CONNECT_MAX_ATTEMPTS: Final = 3
-
-type DeviceResolver = Callable[[], BLEDevice | None]
-"""Returns a fresh ``BLEDevice`` for the ZDD, or ``None`` if it is not currently seen."""
+_LOGGER = logging.getLogger(__name__)
 
 
-class Connector(Protocol):
-    """How a connection attempt obtains a connected client.
-
-    Matches ``bleak_retry_connector.establish_connection`` as the connection calls it, and
-    ``vicare_local_ble.testing.fake_connector()``. ``disconnected_callback`` receives the client
-    that disconnected (compared with the current client to ignore stale callbacks).
-    """
-
-    async def __call__(
-        self,
-        client_class: type[BleakClientWithServiceCache],
-        device: BLEDevice,
-        name: str,
-        disconnected_callback: Callable[[GattClient], None] | None = None,
-        *,
-        use_services_cache: bool = True,
-        max_attempts: int = CONNECT_MAX_ATTEMPTS,
-    ) -> GattClient: ...
-
-
-class ConnectionState(StrEnum):
-    IDLE = "idle"
-    CONNECTING = "connecting"
-    JOINING = "joining"
-    READY = "ready"
-    BACKOFF = "backoff"
-    AUTH_FAILED = "auth_failed"
-    STOPPED = "stopped"
-
-
-class ConnectionIssue(StrEnum):
-    """Conditions the integration surfaces as repair issues."""
-
-    MTU_TOO_SMALL = "mtu_too_small"
-    LONG_WRITE_UNSUPPORTED = "long_write_unsupported"
-
-
-@dataclass(frozen=True, slots=True)
-class Generation:
-    """One READY session. ``number`` increases by 1 per READY and never repeats."""
-
-    number: int
-    node: ZigbeeDirectNode
-    join: JoinInfo
-
-
-@dataclass(slots=True)
-class ConnectionStats:
-    """Counters and last values for diagnostics (no secrets, no EUIs).
-
-    ``last_failure`` is a short reason (``not_found``, ``connect``, ``auth``, ``handshake``,
-    ``join``, ``transport:<TransportErrorReason>``, ``disconnect``, ``rejoin:<reason>``,
-    ``address_conflict``). ``cache_clears`` counts stale-GATT-cache recoveries.
-    ``backoff`` is the current/last wait in seconds; ``mtu`` the last session's MTU.
-    """
-
-    attempts: int = 0
-    connects: int = 0
-    connect_failures: int = 0
-    auth_failures: int = 0
-    disconnects: int = 0
-    rejoins: int = 0
-    cache_clears: int = 0
-    address_conflicts: int = 0
-    generation: int = 0
-    backoff: float | None = None
-    last_failure: str | None = None
-    last_transport_error: TransportErrorReason | None = None
-    mtu: int | None = None
-    mtu_low: bool = False
-    ready_since: float | None = None
-
-
-class ZdConnection:
+class ZdConnection(ConnectionCore):
     """Supervised, persistent Zigbee Direct connection (see module docstring).
 
     The BAK is derived once in ``__init__`` from ``network_key`` and ``own_eui`` and kept as
@@ -185,21 +118,38 @@ class ZdConnection:
         recorder: NpduRecorder | None = None,
         rng: random.Random | None = None,
     ) -> None:
-        raise NotImplementedError("T13")
+        super().__init__(
+            resolve_device,
+            own_eui=own_eui,
+            bak=derive_basic_authorization_key(own_eui, network_key),
+            clock=clock,
+            node_config=node_config if node_config is not None else NodeConfig(),
+            name=name,
+            connector=connector,
+            recorder=recorder,
+            rng=rng if rng is not None else random.Random(),  # noqa: S311 - jitter only
+        )
+
+    def __repr__(self) -> str:
+        return f"ZdConnection(name={self._name!r}, state={self._state.value})"
+
+    # --- listeners ---
 
     def add_state_listener(self, cb: Callable[[ConnectionState], None]) -> Callable[[], None]:
         """``cb(state)`` on every state change; returns an unsubscribe callable."""
-        raise NotImplementedError("T13")
+        return subscribe(self._state_listeners, cb)
 
     def add_ready_listener(self, cb: Callable[[Generation], None]) -> Callable[[], None]:
         """``cb(gen)`` synchronously when a generation becomes READY (before ``start`` returns
         for the first one). The listener may ``spawn`` work on ``gen``."""
-        raise NotImplementedError("T13")
+        return subscribe(self._ready_listeners, cb)
 
     def add_issue_listener(self, cb: Callable[[ConnectionIssue, bool], None]) -> Callable[[], None]:
         """``cb(issue, active)`` when a repair condition appears (``mtu_low`` at open, a
         ``long_write_unsupported`` transport error) or clears (a later session without it)."""
-        raise NotImplementedError("T13")
+        return subscribe(self._issue_listeners, cb)
+
+    # --- generation API ---
 
     def spawn[T](
         self, gen: Generation, coro: Coroutine[Any, Any, T], *, name: str
@@ -211,24 +161,37 @@ class ZdConnection:
         at WARNING with the task name and otherwise swallowed; awaiting the returned task still
         re-raises them.
         """
-        raise NotImplementedError("T13")
+        session = self._live_session(gen)
+        if session is None:
+            coro.close()
+            raise ConnectionLostError(f"generation {gen.number} is not current")
+        return session.spawn(coro, name)
 
     def request_rejoin(self, gen: Generation, reason: str) -> None:
         """Tear ``gen`` down and reconnect after the backoff; ignored if ``gen`` is stale or the
         connection is stopping. ``reason`` is a short token logged and kept in ``last_failure``
         (e.g. ``"all_valves_silent"``)."""
-        raise NotImplementedError("T13")
+        session = self._live_session(gen)
+        if session is None or self._stopping:
+            _LOGGER.debug("ignored rejoin request for stale generation %d", gen.number)
+            return
+        if session.fail(f"rejoin:{reason}"):
+            self._stats.rejoins += 1
+            _LOGGER.info("generation %d: rejoin requested (%s)", gen.number, reason)
 
     def notify_seen(self) -> None:
         """An advertisement of the ZDD was seen: shorten a long backoff wait (module docstring).
         Cheap and safe to call at any rate and in any state."""
-        raise NotImplementedError("T13")
+        if self._wait.shorten():
+            _LOGGER.debug("device seen: backoff shortened to %.0f s", SEEN_SHORTENED_WAIT)
 
     def update_node_config(self, **changes: object) -> None:
         """``dataclasses.replace`` the stored node config used at the NEXT join (the current
         node keeps its config). ``TypeError`` for an unknown field. The private conflict set is
         merged into ``avoid_shorts`` at join time and is not affected (module docstring)."""
-        raise NotImplementedError("T13")
+        self._config = dataclasses.replace(self._config, **cast("dict[str, Any]", changes))
+
+    # --- lifecycle ---
 
     async def start(self, *, first_ready_timeout: float = 90.0) -> Generation:
         """Start the supervisor and wait for the first READY.
@@ -241,50 +204,73 @@ class ZdConnection:
         * ``ConnectionLostError`` if ``stop()`` runs while ``start()`` is pending.
         * ``RuntimeError`` if already started.
         """
-        raise NotImplementedError("T13")
+        if self._supervisor is not None or self._stopping:
+            raise RuntimeError("connection already started")
+        loop = asyncio.get_running_loop()
+        first: asyncio.Future[Generation] = loop.create_future()
+        self._first_ready = first
+        self._supervisor = loop.create_task(self._run(), name=f"{self._name} connection")
+        try:
+            async with self._clock.timeout(first_ready_timeout):
+                return await first
+        finally:
+            if self._first_ready is first:
+                self._first_ready = None
 
     async def stop(self) -> None:
         """Idempotent: stop the supervisor, run the teardown, then state STOPPED. Leaves no
         tasks behind."""
-        raise NotImplementedError("T13")
+        if self._stop_done is not None:
+            await asyncio.shield(self._stop_done)
+            return
+        done: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._stop_done = done
+        self._stopping = True
+        try:
+            self._resolve_first(ConnectionLostError("connection stopped"))
+            supervisor = self._supervisor
+            if supervisor is not None and not supervisor.done():
+                if self._interruptible:
+                    supervisor.cancel()
+                await asyncio.wait((supervisor,))
+            self._set_state(ConnectionState.STOPPED)
+        finally:
+            done.set_result(None)
+
+    # --- properties ---
 
     @property
     def state(self) -> ConnectionState:
-        raise NotImplementedError("T13")
+        return self._state
 
     @property
     def current(self) -> Generation | None:
         """The READY generation, or ``None`` outside READY."""
-        raise NotImplementedError("T13")
-
-    @property
-    def node_config(self) -> NodeConfig:
-        """Config the next join will use."""
-        raise NotImplementedError("T13")
+        return self._current
 
     @property
     def stats(self) -> ConnectionStats:
-        raise NotImplementedError("T13")
+        return self._stats
 
     @property
     def transport_stats(self) -> TransportStats | None:
         """Stats of the current (or last) transport; survives teardown (diagnostics)."""
-        raise NotImplementedError("T13")
+        return self._transport_stats
 
     @property
     def last_join(self) -> JoinInfo | None:
         """``JoinInfo`` of the most recent successful join; survives teardown (diagnostics)."""
-        raise NotImplementedError("T13")
+        return self._last_join
 
     @property
     def last_node_stats(self) -> NodeStats | None:
         """``NodeStats`` of the current or most recent node; survives teardown (diagnostics).
         The object is the node's live stats while READY, a final snapshot afterwards."""
-        raise NotImplementedError("T13")
+        return self._last_node_stats
 
     @property
     def recorder(self) -> NpduRecorder | None:
-        raise NotImplementedError("T13")
+        return self._recorder
 
 
 async def validate_connection(
@@ -303,7 +289,16 @@ async def validate_connection(
     ``HandshakeRejectedError`` (wrong key), ``TransportError`` (``reason="not_found"`` if the
     resolver returns ``None``), ``TimeoutError``, or the connector's ``BleakError``.
     """
-    raise NotImplementedError("T13")
+    return await run_validation(
+        resolve_device,
+        own_eui=own_eui,
+        psk=derive_basic_authorization_key(own_eui, network_key),
+        clock=clock if clock is not None else LoopClock(),
+        connector=connector,
+        timeout=timeout,
+        disconnect_timeout=DISCONNECT_TIMEOUT,
+        max_attempts=CONNECT_MAX_ATTEMPTS,
+    )
 
 
 __all__ = [
