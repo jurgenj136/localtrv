@@ -98,6 +98,7 @@ class FakeZdd:
         self._session_key: SecretBytes | None = None
         self._secret_type: SecretType | None = None
         self._cipher: SessionCipher | None = None
+        self._per_char: dict[str, SessionCipher] = {}
 
     @property
     def eui(self) -> Eui64:
@@ -119,21 +120,40 @@ class FakeZdd:
     def counter_model(self) -> ZddCounterModel:
         return self._counter_model
 
+    @property
+    def established(self) -> bool:
+        """True once SE3 was accepted (the session cipher exists)."""
+        return self._cipher is not None
+
     def seal(self, service_uuid: str, char_uuid: str, plaintext: bytes) -> bytes:
         """Encrypt a ZDD-to-ZVD value (indication or read response) under ``counter_model``.
 
         ``SHARED`` uses ``cipher``; ``PER_CHARACTERISTIC`` uses one outgoing counter per
-        ``char_uuid``. Implemented by T8; ``RuntimeError`` before the session exists.
+        ``char_uuid`` (each starting at 1, same session key). ``RuntimeError`` before the
+        session exists.
         """
-        raise NotImplementedError("T8")
+        cipher = self.cipher
+        if self._counter_model is ZddCounterModel.SHARED:
+            return cipher.encrypt(service_uuid, char_uuid, plaintext)
+        key = char_uuid.lower()
+        sender = self._per_char.get(key)
+        if sender is None:
+            if self._session_key is None or self._peer_eui is None:  # pragma: no cover
+                raise RuntimeError("FakeZdd internal state lost")
+            sender = SessionCipher(
+                session_key=self._session_key, own_eui=self._eui, peer_eui=self._peer_eui
+            )
+            self._per_char[key] = sender
+        return sender.encrypt(service_uuid, char_uuid, plaintext)
 
     def open_frame(self, service_uuid: str, char_uuid: str, frame: bytes) -> bytes:
         """Decrypt and replay-check a ZVD-to-ZDD write (the ZVD always uses one counter).
 
-        Raises ``ReplayError``/``AuthenticationError`` like ``SessionCipher.decrypt``; the
-        GATT layer maps them to its configured replay behaviour. Implemented by T8.
+        Raises ``DecodeError``/``ReplayError``/``AuthenticationError`` like
+        ``SessionCipher.decrypt``; the GATT layer maps them to its configured replay
+        behaviour. ``RuntimeError`` before the session exists.
         """
-        raise NotImplementedError("T8")
+        return self.cipher.decrypt(service_uuid, char_uuid, frame)
 
     def __repr__(self) -> str:
         return f"FakeZdd(eui={self._eui}, state={self._state.name})"
