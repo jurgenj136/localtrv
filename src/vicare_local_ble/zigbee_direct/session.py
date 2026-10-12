@@ -15,13 +15,17 @@ Handshake message layout (research tools/zvd_client.py:53-83, 175-262)::
 Every handshake TLV is ``tag(1) | len-1 (1) | value(len)``. Unknown TLVs are
 ignored; duplicate known TLVs and malformed TLVs are rejected. Whether SE2
 echoes the method TLV is not observed in research; it is validated if present.
+
+Size note: this module is near the ~500-line limit. When T3 adds per-characteristic tracking
+and counter-model detection, ``SessionCipher`` and ``CounterModel`` may move to
+``session_cipher.py`` (re-exported here so existing imports keep working).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Final
 
 from vicare_local_ble.zigbee_direct.crypto import (
@@ -128,6 +132,21 @@ def _uuid(value: str | bytes) -> bytes:
 # --- session cipher ------------------------------------------------------------------------
 
 
+class CounterModel(StrEnum):
+    """How the ZDD numbers its outgoing frames across characteristics (spec §1.1, PN §5.9).
+
+    * ``SHARED``: one counter for the whole session; Tunnel's first counter is above the Status
+      counter and no value repeats across characteristics.
+    * ``PER_CHARACTERISTIC``: a counter value was accepted on two characteristics (the ZDD then
+      reuses CCM nonces across characteristics; detected and reported, never rejected).
+    * ``UNKNOWN``: not enough evidence yet.
+    """
+
+    UNKNOWN = "unknown"
+    SHARED = "shared"
+    PER_CHARACTERISTIC = "per_characteristic"
+
+
 class SessionCipher:
     """Encrypts/decrypts GATT values of an established session.
 
@@ -201,6 +220,15 @@ class SessionCipher:
         plaintext = decrypt_session_frame(self._key, self._peer_eui, svc, chr_, frame)
         self._incoming = counter
         return plaintext
+
+    def counter_model(self) -> CounterModel:
+        """Detected ZDD counter model from the counters accepted so far (spec §1.1).
+
+        Phase-2 task T3 implements this together with per-characteristic incoming tracking
+        (``dict[bytes, int]`` keyed by characteristic UUID bytes). Pure and cheap; the
+        transport calls it after the first Tunnel indication and logs the result at INFO once.
+        """
+        raise NotImplementedError("T3")
 
     def __repr__(self) -> str:
         return (
@@ -410,6 +438,7 @@ __all__ = [
     "TLV_C25519_POINT",
     "TLV_MAC_TAG",
     "TLV_SELECTED_METHOD",
+    "CounterModel",
     "Established",
     "HandshakeInitiator",
     "HandshakeState",

@@ -1,19 +1,23 @@
-"""Public test helpers for consumers of this library (e.g. vicare-local-ble).
+"""``FakeZdd``: the ZDD (responder) side of SE1-SE4 plus its session crypto.
 
-``FakeZdd`` emulates the responder (Zigbee Direct Device) side of the SPEKE
-session establishment and then the session-frame crypto, so integrations can
+Moved unchanged in behaviour from the former ``vicare_local_ble.testing`` module (T2).
+``FakeZdd`` emulates the responder (Zigbee Direct Device) side of the SPEKE session
+establishment and then the session-frame crypto, so integrations can
 be tested without hardware. It uses the same crypto primitives as the
 initiator but with the roles spelled out explicitly, so a responder/initiator
 mix-up in the library fails the tests instead of cancelling itself out.
 
-Phase 2 will add a scripted NWK/ZCL peer behind the tunnel characteristic.
+T8 adds the ZDD counter models (``ZddCounterModel``): the per-characteristic model gives every
+characteristic its own outgoing counter (starting at 1) under the one session key, to exercise
+the client's per-characteristic incoming tracking and counter-model detection (spec §1.1).
 """
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Final
 
+from vicare_local_ble.testing.errors import GATT_ERROR_REJECTED, FakeGattError
 from vicare_local_ble.zigbee_direct.crypto import (
     LABEL_KC_2_U,
     LABEL_KC_2_V,
@@ -45,18 +49,18 @@ from vicare_local_ble.zigbee_direct.session import (
 )
 from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
-#: ATT error the live ZDD returned for a rejected SE3 (research handover section 3.2).
-GATT_ERROR_REJECTED: Final = 0x80
-
 _EUI_SIZE: Final = 8
 
 
-class FakeGattError(Exception):
-    """Emulates a GATT error response from the ZDD (e.g. ATT error 0x80)."""
+class ZddCounterModel(StrEnum):
+    """How the simulated ZDD numbers its outgoing session frames (PN §5.9 is unresolved).
 
-    def __init__(self, message: str, *, code: int = GATT_ERROR_REJECTED) -> None:
-        super().__init__(f"{message} (GATT error 0x{code:02x})")
-        self.code = code
+    * ``SHARED``: one outgoing counter across Status reads and Tunnel indications.
+    * ``PER_CHARACTERISTIC``: one outgoing counter per characteristic, each starting at 1.
+    """
+
+    SHARED = "shared"
+    PER_CHARACTERISTIC = "per_characteristic"
 
 
 class _State(Enum):
@@ -75,8 +79,14 @@ class FakeZdd:
     """
 
     def __init__(
-        self, *, eui: Eui64, psk: SecretBytes, private_key: SecretBytes | None = None
+        self,
+        *,
+        eui: Eui64,
+        psk: SecretBytes,
+        private_key: SecretBytes | None = None,
+        counter_model: ZddCounterModel = ZddCounterModel.SHARED,
     ) -> None:
+        self._counter_model = counter_model
         self._eui = eui
         self._psk = psk
         self._private_key = private_key
@@ -104,6 +114,26 @@ class FakeZdd:
         if self._cipher is None:
             raise RuntimeError("FakeZdd session not established")
         return self._cipher
+
+    @property
+    def counter_model(self) -> ZddCounterModel:
+        return self._counter_model
+
+    def seal(self, service_uuid: str, char_uuid: str, plaintext: bytes) -> bytes:
+        """Encrypt a ZDD-to-ZVD value (indication or read response) under ``counter_model``.
+
+        ``SHARED`` uses ``cipher``; ``PER_CHARACTERISTIC`` uses one outgoing counter per
+        ``char_uuid``. Implemented by T8; ``RuntimeError`` before the session exists.
+        """
+        raise NotImplementedError("T8")
+
+    def open_frame(self, service_uuid: str, char_uuid: str, frame: bytes) -> bytes:
+        """Decrypt and replay-check a ZVD-to-ZDD write (the ZVD always uses one counter).
+
+        Raises ``ReplayError``/``AuthenticationError`` like ``SessionCipher.decrypt``; the
+        GATT layer maps them to its configured replay behaviour. Implemented by T8.
+        """
+        raise NotImplementedError("T8")
 
     def __repr__(self) -> str:
         return f"FakeZdd(eui={self._eui}, state={self._state.name})"
@@ -188,4 +218,4 @@ class FakeZdd:
         )
 
 
-__all__ = ["GATT_ERROR_REJECTED", "FakeGattError", "FakeZdd"]
+__all__ = ["GATT_ERROR_REJECTED", "FakeGattError", "FakeZdd", "ZddCounterModel"]

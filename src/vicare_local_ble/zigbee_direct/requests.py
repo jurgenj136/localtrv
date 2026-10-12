@@ -1,0 +1,313 @@
+"""Allocators, envelopes, pending requests, the retired window and the join slot (spec §1.3).
+
+Implemented by T11; frozen interface (T2). Pure bookkeeping on the loop thread: no I/O, no
+tasks. Futures are created on the running loop by ``PendingMap.register``/``JoinSlot.open``.
+Time comes from the injected ``Clock`` (TTL checks are lazy, no timers).
+
+Who calls what
+    * ``ZigbeeDirectNode`` owns one ``Allocators``, one ``PendingMap`` and one ``JoinSlot``.
+    * The node registers a ``Pending`` **before** ``transport.send_npdu`` (a response racing
+      the write return must still match), keeps it registered across retransmits (same key),
+      and calls ``retire`` exactly once when the request ends (success, timeout, error or
+      cancellation). Each attempt awaits ``asyncio.shield(pending.future)`` inside
+      ``clock.timeout(request_timeout)``, so an attempt timeout never cancels the future and a
+      late answer to attempt 1 resolves the request during attempt 2. Besides a matching
+      response (``resolve``), only ``fail_dst`` (``RouteError``), ``retire`` and ``fail_all``
+      (node close) complete or cancel a pending future.
+    * ``Dispatcher`` (``dispatch.py``) calls ``match_*``/``resolve``, ``is_retired`` and
+      ``for_src`` (fallback); ``Router.on_network_status`` calls ``fail_dst``.
+    * ``node.join`` opens a ``JoinToken`` per attempt, each with a NEW placeholder (previous
+      placeholders of this join are avoided); the dispatcher offers every NWK Commissioning
+      Response to ``JoinSlot.offer``, so a response to an older attempt's placeholder is
+      rejected (DEBUG) once its token was replaced.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import TYPE_CHECKING, Final, Self
+
+if TYPE_CHECKING:
+    import asyncio
+    from collections.abc import Callable
+
+    from vicare_local_ble.zigbee_direct.clock import Clock
+    from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
+    from vicare_local_ble.zigbee_direct.codec.fallback import Expected, ZdoResponse
+    from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
+    from vicare_local_ble.zigbee_direct.codec.nwk_commands import CommissioningResponse
+    from vicare_local_ble.zigbee_direct.codec.zcl import ZclFrame, ZclGlobalCommand, ZclHeader
+    from vicare_local_ble.zigbee_direct.codec.zdo import (
+        ActiveEpReq,
+        IeeeAddrReq,
+        MatchDescReq,
+        NwkAddrReq,
+        SimpleDescReq,
+    )
+    from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiReq
+    from vicare_local_ble.zigbee_direct.errors import RequestKind
+    from vicare_local_ble.zigbee_direct.types import Eui64
+
+#: Retired keys kept at most (oldest evicted first), in addition to the TTL.
+MAX_RETIRED: Final = 512
+
+type ZdoRequest = MgmtLqiReq | ActiveEpReq | SimpleDescReq | IeeeAddrReq | NwkAddrReq | MatchDescReq
+"""ZDO requests the node can send. Their ``seq`` field is ignored: ``zdo_request`` replaces it
+(``dataclasses.replace``) with the allocated ZDO seq. Response cluster = ``CLUSTER_ID | 0x8000``."""
+
+type PendingKey = tuple[int, RequestKind, int]
+"""``(src_short, kind, seq)``: the device we expect the response from, namespace, ZDO seq/TSN."""
+
+
+class SeqAllocator:
+    """8-bit wrapping counter. ``next(skip=...)`` returns the next value for which ``skip`` is
+    false, advancing past skipped values; raises ``RuntimeError`` if all 256 values are skipped.
+    """
+
+    def __init__(self, start: int = 0) -> None:
+        raise NotImplementedError("T11")
+
+    def next(self, *, skip: Callable[[int], bool] | None = None) -> int:
+        raise NotImplementedError("T11")
+
+    def peek(self) -> int:
+        """The value ``next()`` would try first (no skipping, no advance)."""
+        raise NotImplementedError("T11")
+
+
+@dataclass(slots=True)
+class Allocators:
+    """One allocator per sequence space, owned by one node (never shared module state).
+
+    * ``nwk``: NWK sequence numbers for every frame we originate (join, data, routing).
+    * ``zdo``: ZDO transaction sequence numbers; the node skips values that are pending or
+      retired (``PendingMap.seq_in_use(kind="zdo", ...)``).
+    * ``tsn``: ZCL transaction sequence numbers, skipped the same way (``kind="zcl"``).
+    * ``aps``: APS counter for ZCL unicasts and broadcasts. Not a correlation key (PN §5.7).
+      ZDO unicasts use APS counter 0 as the live client did (``frames.zdo_unicast_npdu``).
+
+    Start values are 1 (live: commissioning used NWK seq 1). Tests may inject others.
+    """
+
+    nwk: SeqAllocator
+    zdo: SeqAllocator
+    tsn: SeqAllocator
+    aps: SeqAllocator
+
+    @classmethod
+    def create(cls, start: int = 1) -> Self:
+        raise NotImplementedError("T11")
+
+
+class EnvelopeMatch(Enum):
+    """Result of matching a decoded response against an ``Envelope``."""
+
+    NO_MATCH = "no_match"
+    MATCH = "match"
+    #: Matched, but a manufacturer-specific request was answered without the MS header
+    #: (accepted per PN §5.11, counted in ``NodeStats.mfr_header_missing``).
+    MATCH_MFR_HEADER_MISSING = "match_mfr_header_missing"
+
+
+@dataclass(frozen=True, slots=True)
+class Envelope:
+    """Everything a response must carry to resolve a pending request (spec §1.3 table).
+
+    ZCL (``kind="zcl"``): ``seq`` is the TSN; response must come from ``src_short``, with APS
+    profile ``profile_id``, cluster ``cluster_id``, APS src endpoint ``remote_endpoint`` (the
+    request's dst endpoint), APS dst endpoint ``local_endpoint``, ZCL global frame,
+    server->client direction, and a command in ``response_commands`` or a Default Response whose
+    ``command_id == request_command``. ``manufacturer_code``: a response that carries a code must
+    match it; a response without one to a manufacturer request is accepted as
+    ``MATCH_MFR_HEADER_MISSING``; a response with a code to a standard request never matches.
+
+    ZDO (``kind="zdo"``): ``seq`` is the ZDO seq; response from ``src_short``, profile 0, cluster
+    ``cluster_id`` (request cluster | 0x8000). Endpoints are not checked. If
+    ``nwk_addr_of_interest`` is set and the decoded response has an address-of-interest field
+    (``nwk_addr`` on Active_EP/Simple_Desc/IEEE_addr responses), it must be equal; Mgmt_Lqi has
+    none. (The spec table says Active_EP and Simple_Desc have none; their codecs do carry
+    ``nwk_addr`` and PN §1.5 shows the valve short there, so T2 chose to check it.)
+    """
+
+    src_short: int
+    kind: RequestKind
+    seq: int
+    profile_id: int
+    cluster_id: int
+    remote_endpoint: int | None = None
+    local_endpoint: int | None = None
+    manufacturer_code: int | None = None
+    request_command: int | None = None
+    response_commands: frozenset[int] = frozenset()
+    nwk_addr_of_interest: int | None = None
+
+    @property
+    def key(self) -> PendingKey:
+        return (self.src_short, self.kind, self.seq)
+
+    def match_zcl(self, src_short: int, aps: ApsDataFrame, frame: ZclFrame) -> EnvelopeMatch:
+        """Check a standard-decoded ZCL response against every envelope field."""
+        raise NotImplementedError("T11")
+
+    def match_zdo(self, src_short: int, aps: ApsDataFrame, response: ZdoResponse) -> bool:
+        """Check a standard-decoded ZDO response (profile, cluster, seq, address of interest)."""
+        raise NotImplementedError("T11")
+
+    def expected(self) -> Expected:
+        """The ``codec.fallback`` expectation for this envelope (``ExpectedZcl``/``ExpectedZdo``),
+        used only after the standard decode failed; a ``ScanMatch`` must still pass command,
+        TSN/seq and manufacturer checks."""
+        raise NotImplementedError("T11")
+
+
+@dataclass(frozen=True, slots=True)
+class ZclResponse:
+    """A matched ZCL response: header, decoded global command, and how it was found."""
+
+    header: ZclHeader
+    command: ZclGlobalCommand
+    via_fallback: bool = False
+
+
+type PendingResult = ZdoResponse | ZclResponse
+
+
+@dataclass(slots=True, eq=False)
+class Pending:
+    """One in-flight request. ``future`` resolves with the matched response or fails with
+    ``RouteError``/``ConnectionLostError``. Attempt timeouts are the node's and never touch the
+    future (attempts await it through ``asyncio.shield``); ``retire`` cancels it if unfinished.
+    ``attempts`` counts sends so far (diagnostics)."""
+
+    envelope: Envelope
+    future: asyncio.Future[PendingResult]
+    created_at: float
+    attempts: int = 0
+
+
+@dataclass(slots=True)
+class RetiredWindow:
+    """Bounded TTL set of retired keys: at most ``max_size`` keys, each kept ``ttl`` seconds.
+
+    Pruning is lazy (on every ``add``/``contains``), from the clock's ``now()``.
+    """
+
+    clock: Clock
+    ttl: float
+    max_size: int = MAX_RETIRED
+    _entries: dict[PendingKey, float] = field(default_factory=dict)
+
+    def add(self, key: PendingKey) -> None:
+        raise NotImplementedError("T11")
+
+    def contains(self, key: PendingKey) -> bool:
+        raise NotImplementedError("T11")
+
+    def seq_in_use(self, kind: RequestKind, seq: int) -> bool:
+        """True if any retired key of ``kind`` with ``seq`` is still in the window (any src)."""
+        raise NotImplementedError("T11")
+
+
+class PendingMap:
+    """Pending requests by key plus the retired window. One per node."""
+
+    def __init__(self, *, clock: Clock, late_window: float, max_retired: int = MAX_RETIRED) -> None:
+        raise NotImplementedError("T11")
+
+    def register(self, envelope: Envelope) -> Pending:
+        """Create the future and store the entry; ``ValueError`` if the key is pending."""
+        raise NotImplementedError("T11")
+
+    def get(self, key: PendingKey) -> Pending | None:
+        raise NotImplementedError("T11")
+
+    def for_src(self, src_short: int) -> tuple[Pending, ...]:
+        """Pending entries expecting a response from ``src_short`` (fallback candidates)."""
+        raise NotImplementedError("T11")
+
+    def seq_in_use(self, kind: RequestKind, seq: int) -> bool:
+        """True if ``seq`` of ``kind`` is pending for any src or retired within the window.
+        Used as the allocators' ``skip`` predicate."""
+        raise NotImplementedError("T11")
+
+    def is_retired(self, key: PendingKey) -> bool:
+        raise NotImplementedError("T11")
+
+    def resolve(self, key: PendingKey, result: PendingResult) -> bool:
+        """Set the result if the entry exists and is not done; False otherwise."""
+        raise NotImplementedError("T11")
+
+    def retire(self, key: PendingKey) -> None:
+        """Remove the entry (cancelling an unfinished future) and add the key to the window.
+        Idempotent."""
+        raise NotImplementedError("T11")
+
+    def fail_dst(self, dst: int, exc: BaseException) -> int:
+        """Fail every pending future expecting ``dst`` with ``exc``; returns how many."""
+        raise NotImplementedError("T11")
+
+    def fail_all(self, exc: BaseException) -> None:
+        """Fail every pending future (node close)."""
+        raise NotImplementedError("T11")
+
+    def __len__(self) -> int:
+        raise NotImplementedError("T11")
+
+
+@dataclass(frozen=True, slots=True)
+class JoinToken:
+    """The active join attempt: a Commissioning Response resolves it only if its NWK src is
+    ``zdd_short``, its NWK dst is ``placeholder``, and its dst IEEE (if present) is ``own_eui``.
+    ``nwk_seq`` is the Commissioning Request's NWK seq (diagnostics only, not matched).
+    Every join attempt uses a fresh placeholder, so tokens of one join never share one."""
+
+    placeholder: int
+    nwk_seq: int
+    zdd_short: int
+    own_eui: Eui64
+
+
+class JoinSlot:
+    """Holds at most one ``JoinToken`` and its future.
+
+    ``open`` replaces (and cancels) any previous token; ``offer`` is called by the dispatcher for
+    every decoded Commissioning Response and returns True if it resolved the active token;
+    mismatching or token-less responses return False (the dispatcher logs one DEBUG line).
+    ``close`` cancels the active future. Validation of the assigned short and status is the
+    node's job after the future resolves.
+    """
+
+    def __init__(self) -> None:
+        raise NotImplementedError("T11")
+
+    def open(self, token: JoinToken) -> asyncio.Future[CommissioningResponse]:
+        raise NotImplementedError("T11")
+
+    def offer(self, frame: NwkFrame, response: CommissioningResponse) -> bool:
+        raise NotImplementedError("T11")
+
+    def close(self) -> None:
+        raise NotImplementedError("T11")
+
+    @property
+    def active(self) -> JoinToken | None:
+        raise NotImplementedError("T11")
+
+
+__all__ = [
+    "MAX_RETIRED",
+    "Allocators",
+    "Envelope",
+    "EnvelopeMatch",
+    "JoinSlot",
+    "JoinToken",
+    "Pending",
+    "PendingKey",
+    "PendingMap",
+    "PendingResult",
+    "RetiredWindow",
+    "SeqAllocator",
+    "ZclResponse",
+    "ZdoRequest",
+]

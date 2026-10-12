@@ -78,7 +78,7 @@ omit = [
     "*/vicare_local_ble/zigbee_direct/transport.py",
     "*/vicare_local_ble/zigbee_direct/node.py",
     "*/vicare_local_ble/cli.py",
-    "*/vicare_local_ble/valves.py",
+    "*/vicare_local_ble/valves/*",
 ]
 
 [tool.coverage.report]
