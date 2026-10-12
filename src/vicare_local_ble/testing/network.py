@@ -36,29 +36,66 @@ Behaviours (spec §1.7) and their knobs
         * ``add_valve_later(valve)`` (Device_annce from a new EUI), ``valve_rejoin(valve,
           new_short)``, ``address_conflict()`` (Network Status 0x0D for the ZVD short),
           ``SimulatedR0.r0_reboot()`` (via ``on_session_reset``).
+
+Implementation notes (T9)
+    * Every frame the network sends goes out from a ``clock.call_later`` callback (scripted
+      events and noise use delay 0: ``await clock.advance(0)`` delivers them).
+    * A session generation guards scheduled frames: after ``on_session_reset`` nothing
+      scheduled earlier reaches the tunnel. ``route_replies`` survives resets; ``received``
+      is per session.
+    * The extra Commissioning Request checks beyond the three live rules: dst must be the
+      ZDD short and a src IEEE must be present (the response carries it as dst IEEE).
+    * Device and coordinator replies (and valve reports) need an open gate when they are sent,
+      so a gate closed by a session reset also stops them. Broadcasts, RREQs and Network
+      Status frames do not need the gate.
+    * Unicasts to the coordinator or a router are gated like valve traffic; a ZDO request
+      other than Mgmt_Lqi_req (Mgmt_Bind included) is never answered by them.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Final, Literal, Protocol
 
-from vicare_local_ble.zigbee_direct.types import COORDINATOR
+from vicare_local_ble.testing import network_frames as nf
+from vicare_local_ble.testing.network_topology import FIRST_BROADCAST, MeshTopology
+from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID, ApsDataFrame
+from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
+    TLV_JOINER_ENCAPSULATION,
+    CommissioningRequest,
+    ManyToOne,
+    RouteReply,
+    RouteRequest,
+    decode_nwk_command,
+)
+from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce, ZdoCluster
+from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiReq
+from vicare_local_ble.zigbee_direct.errors import DecodeError
+from vicare_local_ble.zigbee_direct.types import (
+    BROADCAST_ROUTERS,
+    BROADCAST_RX_ON,
+    COORDINATOR,
+    Eui64,
+    validate_short,
+)
 
 if TYPE_CHECKING:
     import random
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from vicare_local_ble.testing.gatt import TunnelPeer
     from vicare_local_ble.testing.valve import SimValve
     from vicare_local_ble.zigbee_direct.clock import VirtualClock
-    from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-    from vicare_local_ble.zigbee_direct.codec.nwk_commands import RouteReply
     from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
-    from vicare_local_ble.zigbee_direct.types import Eui64
+    from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import Neighbor
 
+type _Builder = Callable[[], bytes | None]
 type FrameVariant = Literal["plain", "source_route", "garbage4"]
 type NoiseKind = Literal["foreign_annce", "foreign_broadcast", "network_status_other", "other_dst"]
+
+_FC1_COMMISSIONING: Final = 0x18
+_ROUTER_REPLY_DELAY: Final = (0.2, 1.0)
 
 
 class TunnelHost(Protocol):
@@ -109,39 +146,276 @@ class SimNetwork:
         router_timeout: frozenset[int] = frozenset(),
         variant_weights: Mapping[FrameVariant, float] | None = None,
     ) -> None:
-        raise NotImplementedError("T9")
+        if lqi_page_size < 1:
+            raise ValueError("lqi_page_size must be >= 1")
+        self._clock = clock
+        self._rng = rng
+        self._zdd_short = validate_short(zdd_short)
+        self._zdd_eui = zdd_eui
+        self._mesh = MeshTopology(coordinator_eui=coordinator_eui, extended_pan_id=extended_pan_id)
+        self.commissioning_delay = commissioning_delay
+        self.assign_short = assign_short
+        self.commissioning_status = commissioning_status
+        self.unrelated_commissioning_response = unrelated_commissioning_response
+        self.lqi_page_size = lqi_page_size
+        self.router_timeout = router_timeout
+        self._weights = nf.check_variant_weights(variant_weights)
+        self._host: TunnelHost | None = None
+        self._drop_requests = 0
+        self._generation = 0
+        self._joined: int | None = None
+        self._zvd_eui: Eui64 | None = None
+        self._annce_seen = False
+        self._mtorr_seen = False
+        self._received: list[NwkFrame] = []
+        self._rreps: list[RecordedRrep] = []
+        self._nwk_seq = 0x20
+        self._aps_counter = 0x10
+        self._zdo_seq = 0x60
+        self.add_router(SimRouter(eui=zdd_eui, short=self._zdd_short))
 
     # --- topology ---
 
     def attach(self, host: TunnelHost) -> None:
         """Wire both directions (``host.attach_network(self)``); replies go to
         ``host.indicate_npdu``."""
-        raise NotImplementedError("T9")
+        self._host = host
+        host.attach_network(self)
 
     def add_router(self, router: SimRouter) -> None:
-        raise NotImplementedError("T9")
+        self._mesh.add_router(router)
 
     def add_valve(self, valve: SimValve, *, parent: int = COORDINATOR) -> None:
         """Register ``valve`` under ``parent`` and bind its back-reference
         (``valve.bind(self)``), so ``valve.report`` and scheduled replies reach the tunnel.
         A valve belongs to at most one network; ``ValueError`` on a duplicate EUI or short."""
-        raise NotImplementedError("T9")
+        self._mesh.add_valve(valve, parent)
+        valve.bind(self)
 
     def drop_commissioning_requests(self, count: int) -> None:
         """Silently drop the next ``count`` valid Commissioning Requests."""
-        raise NotImplementedError("T9")
+        if count < 0:
+            raise ValueError("count must be >= 0")
+        self._drop_requests = count
 
     @property
     def valves(self) -> tuple[SimValve, ...]:
-        raise NotImplementedError("T9")
+        return self._mesh.valves
+
+    @property
+    def routers(self) -> tuple[SimRouter, ...]:
+        """Every router, the R0 first."""
+        return self._mesh.routers
+
+    def neighbor_table(self, short: int) -> tuple[Neighbor, ...]:
+        """The Mgmt_Lqi table of the coordinator or a router: its valves, then its routers."""
+        return self._mesh.neighbor_table(short)
+
+    # --- sending ---
+
+    def _next_seq(self) -> int:
+        self._nwk_seq = (self._nwk_seq + 1) & 0xFF
+        return self._nwk_seq
+
+    def _next_aps(self) -> int:
+        self._aps_counter = (self._aps_counter + 1) & 0xFF
+        return self._aps_counter
+
+    def _next_zdo_seq(self) -> int:
+        self._zdo_seq = (self._zdo_seq + 1) & 0xFF
+        return self._zdo_seq
+
+    def _later(self, delay: float, build: _Builder, *, secure: bool = True) -> None:
+        """Send ``build()`` after ``delay`` unless the session changed or it returns None."""
+        generation = self._generation
+
+        def fire() -> None:
+            if generation != self._generation or self._host is None:
+                return
+            npdu = build()
+            if npdu is not None:
+                self._host.indicate_npdu(npdu, secure=secure)
+
+        self._clock.call_later(delay, fire)
+
+    def _status_later(self, dst: int, status: int, *, about: int) -> None:
+        """Network Status from the R0, sent from a zero-delay clock callback."""
+        self._later(
+            0.0,
+            lambda: nf.network_status_npdu(
+                dst=dst, src=self._zdd_short, seq=self._next_seq(), status=status, about=about
+            ),
+        )
+
+    def _pick_variant(self) -> FrameVariant:
+        if self._weights is None:
+            return "plain"
+        return self._rng.choices(self._weights[0], weights=self._weights[1])[0]
+
+    def _reply_later(self, src: int, aps: ApsDataFrame, delay: float) -> None:
+        """A unicast from ``src`` to the ZVD; dropped when the gate is closed at send time."""
+
+        def build() -> bytes | None:
+            if self._joined is None or not self.gated_open:
+                return None
+            return nf.data_npdu(
+                dst=self._joined,
+                src=src,
+                seq=self._next_seq(),
+                aps=aps,
+                variant=self._pick_variant(),
+                relay=self._zdd_short,
+            )
+
+        self._later(delay, build)
+
+    def deliver_from_valve(self, valve: SimValve, aps: ApsDataFrame, *, delay: float) -> None:
+        """``ValveUplink``: an unsolicited frame from ``valve`` (reports)."""
+        if valve not in self.valves:
+            raise ValueError(f"{valve!r} is not in this network")
+        self._reply_later(valve.short, aps, delay)
 
     # --- TunnelPeer ---
 
     def on_zvd_npdu(self, npdu: TunnelNpdu) -> None:
-        raise NotImplementedError("T9")
+        raw = npdu.npdu
+        try:
+            frame = NwkFrame.decode(raw)
+        except DecodeError:
+            return
+        self._received.append(frame)
+        if frame.frame_type is NwkFrameType.COMMAND:
+            self._on_command(frame, raw)
+        elif frame.frame_type is NwkFrameType.DATA:
+            self._on_data(frame)
 
     def on_session_reset(self) -> None:
-        raise NotImplementedError("T9")
+        self._generation += 1
+        self._joined = None
+        self._zvd_eui = None
+        self._annce_seen = False
+        self._mtorr_seen = False
+        self._received.clear()
+
+    def _on_command(self, frame: NwkFrame, raw: bytes) -> None:
+        try:
+            command = decode_nwk_command(frame.payload)
+        except DecodeError:
+            return
+        match command:
+            case CommissioningRequest():
+                self._on_commissioning(frame, raw, command)
+            case RouteRequest():
+                if (
+                    command.many_to_one is not ManyToOne.NONE
+                    and self._joined is not None
+                    and frame.src == self._joined
+                ):
+                    self._mtorr_seen = True
+            case RouteReply():
+                self._rreps.append(RecordedRrep(frame, command, raw))
+            case _:
+                pass
+
+    def _on_commissioning(self, frame: NwkFrame, raw: bytes, req: CommissioningRequest) -> None:
+        if raw[1] != _FC1_COMMISSIONING or frame.radius != 1:
+            return
+        if not any(t.tag == TLV_JOINER_ENCAPSULATION for t in req.tlvs):
+            return
+        zvd = frame.src_ieee
+        if frame.dst != self._zdd_short or zvd is None:
+            return
+        if self._drop_requests:
+            self._drop_requests -= 1
+            return
+        placeholder = frame.src
+        if self.unrelated_commissioning_response:
+            other = placeholder ^ 0x444C  # 0x1234 -> 0x5678 (golden OTHER_PLACEHOLDER)
+            self._later(
+                self.commissioning_delay / 2,
+                lambda: nf.commissioning_response_npdu(
+                    placeholder=other,
+                    zdd_short=self._zdd_short,
+                    seq=self._next_seq(),
+                    short=other,
+                    status=0,
+                    zvd=None,
+                ),
+                secure=False,
+            )
+        short = placeholder if self.assign_short is None else self.assign_short
+        status = self.commissioning_status
+
+        def respond() -> bytes:
+            if status == 0:
+                self._joined, self._zvd_eui = short, zvd
+                self._annce_seen = self._mtorr_seen = False
+            return nf.commissioning_response_npdu(
+                placeholder=placeholder,
+                zdd_short=self._zdd_short,
+                seq=self._next_seq(),
+                short=short,
+                status=status,
+                zvd=zvd,
+            )
+
+        self._later(self.commissioning_delay, respond, secure=False)
+
+    def _on_data(self, frame: NwkFrame) -> None:
+        joined = self._joined
+        if joined is None or frame.src != joined:
+            return
+        try:
+            aps = ApsDataFrame.decode(frame.payload)
+        except DecodeError:
+            return
+        if frame.dst >= FIRST_BROADCAST:
+            self._on_broadcast(aps)
+            return
+        if frame.discover_route == 0:
+            self._status_later(joined, nf.NETWORK_STATUS_NO_ROUTE, about=frame.dst)
+            return
+        if not self.gated_open:
+            return
+        if self._mesh.is_router(frame.dst):
+            self._on_router_request(frame.dst, aps)
+            return
+        valve = self._mesh.valve_by_short(frame.dst)
+        if valve is None:
+            return  # stale or unknown short: unanswered
+        src = valve.short
+        for reply in valve.handle_request(aps):
+            self._reply_later(src, reply.aps, reply.delay)
+
+    def _on_broadcast(self, aps: ApsDataFrame) -> None:
+        if aps.profile_id != ZDO_PROFILE_ID or aps.cluster_id != ZdoCluster.DEVICE_ANNCE:
+            return  # Match_Desc and other broadcasts: the valves sleep
+        try:
+            annce = DeviceAnnce.decode(aps.payload)
+        except DecodeError:
+            return
+        if annce.nwk_addr == self._joined and annce.ieee == self._zvd_eui:
+            self._annce_seen = True
+
+    def _on_router_request(self, short: int, aps: ApsDataFrame) -> None:
+        if aps.profile_id != ZDO_PROFILE_ID or aps.dst_endpoint != 0:
+            return
+        if aps.cluster_id != ZdoCluster.MGMT_LQI_REQ or short in self.router_timeout:
+            return  # Mgmt_Bind and other ZDO requests never answer
+        try:
+            req = MgmtLqiReq.decode(aps.payload)
+        except DecodeError:
+            return
+        rsp = nf.lqi_page(req, self.neighbor_table(short), self.lqi_page_size)
+        reply = ApsDataFrame(
+            cluster_id=ZdoCluster.MGMT_LQI_RSP,
+            profile_id=ZDO_PROFILE_ID,
+            payload=rsp.encode(),
+            dst_endpoint=0,
+            src_endpoint=0,
+            counter=self._next_aps(),
+        )
+        self._reply_later(short, reply, self._rng.uniform(*_ROUTER_REPLY_DELAY))
 
     # --- scripted traffic and events ---
 
@@ -157,42 +431,100 @@ class SimNetwork:
         spacing: float = 1.0,
     ) -> None:
         """RREQ from ``src_short`` to ``dst`` (default: the ZVD short), as the R0 relays it."""
-        raise NotImplementedError("T9")
+        target = self._joined if dst is None else dst
+        if target is None:
+            raise RuntimeError("no joined ZVD short to target")
+        if repeat < 1:
+            raise ValueError("repeat must be >= 1")
+        target_ieee = None
+        if with_dst_ieee:
+            target_ieee = self._zvd_eui if target == self._joined else self._mesh.eui_of(target)
+        src_ieee = self._mesh.eui_of(src_short) if with_src_ieee else None
+        for i in range(repeat):
+            self._later(
+                i * spacing,
+                lambda: nf.route_request_npdu(
+                    src=src_short,
+                    seq=self._next_seq(),
+                    route_id=route_id,
+                    target=target,
+                    target_ieee=target_ieee,
+                    src_ieee=src_ieee,
+                    broadcast=BROADCAST_ROUTERS,
+                ),
+            )
 
     def emit_noise(self, kind: NoiseKind) -> None:
-        raise NotImplementedError("T9")
+        self._later(0.0, lambda: self._noise(kind))
+
+    def _foreign_short(self) -> int:
+        while True:
+            short = self._rng.randrange(0x0001, FIRST_BROADCAST)
+            if short not in {self._joined, self._zdd_short} and self._mesh.eui_of(short) is None:
+                return short
+
+    def _noise(self, kind: NoiseKind) -> bytes:
+        valves = self._mesh.valves
+        return nf.noise_npdu(
+            kind,
+            seq=self._next_seq(),
+            zdo_seq=self._next_zdo_seq(),
+            counter=self._next_aps(),
+            foreign_short=self._foreign_short(),
+            valve_short=valves[0].short if valves else self._zdd_short,
+            zdd_short=self._zdd_short,
+        )
+
+    def _announce(self, valve: SimValve) -> None:
+        short, eui = valve.short, valve.eui
+
+        def build() -> bytes:
+            aps = nf.device_annce_aps(
+                zdo_seq=self._next_zdo_seq(), short=short, eui=eui, counter=self._next_aps()
+            )
+            return nf.broadcast_npdu(src=short, seq=self._next_seq(), aps=aps)
+
+        self._later(0.0, build)
 
     def add_valve_later(self, valve: SimValve, *, parent: int = COORDINATOR) -> None:
         """Add a valve and emit its Device_annce into the tunnel."""
-        raise NotImplementedError("T9")
+        self.add_valve(valve, parent=parent)
+        self._announce(valve)
 
     def valve_rejoin(self, valve: SimValve, new_short: int) -> None:
         """The valve gets ``new_short`` (old short goes stale) and announces itself."""
-        raise NotImplementedError("T9")
+        if valve not in self.valves:
+            raise ValueError(f"{valve!r} is not in this network")
+        self._mesh.check_short_free(new_short)
+        valve.set_short(new_short)
+        self._announce(valve)
 
     def address_conflict(self) -> None:
         """Network Status 0x0D naming the ZVD's short."""
-        raise NotImplementedError("T9")
+        joined = self._joined
+        if joined is None:
+            raise RuntimeError("no joined ZVD short to conflict with")
+        self._status_later(BROADCAST_RX_ON, nf.NETWORK_STATUS_ADDRESS_CONFLICT, about=joined)
 
     # --- observation ---
 
     @property
     def joined_short(self) -> int | None:
-        raise NotImplementedError("T9")
+        return self._joined
 
     @property
     def gated_open(self) -> bool:
         """True once a Device_annce and an MTORR from the ZVD were seen this session."""
-        raise NotImplementedError("T9")
+        return self._annce_seen and self._mtorr_seen
 
     @property
     def route_replies(self) -> tuple[RecordedRrep, ...]:
-        raise NotImplementedError("T9")
+        return tuple(self._rreps)
 
     @property
     def received(self) -> tuple[NwkFrame, ...]:
         """Every decoded NWK frame the ZVD sent this session (for assertions)."""
-        raise NotImplementedError("T9")
+        return tuple(self._received)
 
 
 __all__ = ["FrameVariant", "NoiseKind", "RecordedRrep", "SimNetwork", "SimRouter", "TunnelHost"]
