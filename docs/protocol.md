@@ -117,8 +117,20 @@ AAD   = service_uuid(16) ‖ 0x00 ‖ char_uuid(16) ‖ 0x00   # canonical big-e
 ```
 
 - MIC is 4 bytes. Sender EUI = our EUI outgoing, the ZDD EUI (from SE2) incoming.
-- **One counter pair for the whole session**, shared across characteristics (proven live): outgoing
-  starts at 1; incoming accepts strictly increasing counters only.
+- **Outgoing:** one counter for the session, starting at 1. We write only to Authenticate (before
+  the session exists) and Tunnel, so our nonces are never reused.
+- **Incoming:** tracked per characteristic UUID; each accepts strictly increasing counters only. A
+  counter shared across characteristics is **not demonstrated live** (PN §5.9): the prototype used
+  Commissioning Status only in a session with no tunnel traffic. Both ZDD behaviours (one shared
+  counter, or one per characteristic) are accepted. The first hardware run must check which.
+- **Residual risk (ZDD nonce reuse).** The nonce has no characteristic in it. If the ZDD runs one
+  counter per characteristic under one session key, it reuses CCM nonces across characteristics.
+  The different AAD does **not** prevent that: equal counters on Status and Tunnel share a keystream,
+  which leaks the XOR of those plaintexts and weakens CCM authenticity for them. This would be a ZDD
+  flaw we cannot fix from the client. Detection only, no rejection: `SessionCipher.counter_model()`
+  reports `SHARED`, `PER_CHARACTERISTIC` or `UNKNOWN`, logged once per session and shown in
+  diagnostics (spec §1.1). Follow-ups if confirmed: isolate the Status read in its own short
+  session, or cache the ZDD short.
 - Receive order: length check, replay check on the counter, MIC check, then the counter advances.
 - Outgoing counter is burned before sealing and never rolled back or reused. At `0xFFFFFFFF` the
   cipher raises `CounterExhaustedError`; reconnect and redo the handshake.
@@ -152,7 +164,7 @@ plaintext).
 ### 6.1 Commissioning Request (`commissioning_request_npdu`)
 
 ```text
-FC byte0 0x09 (command, v2, discover_route 0)   [0x49 with discover_route=1; both worked per research]
+FC byte0 0x09 (command, v2, discover_route 0)   # only 0x09 was sent live (PN §5.2)
 FC byte1 0x18 (dst IEEE + src IEEE present)     # REQUIRED; src-IEEE-only frames vanish silently
 dst = <ZDD short>, src = <placeholder short>, radius = 1 (spec), seq
 dst IEEE = ZDD EUI, src IEEE = ZVD EUI
@@ -164,7 +176,9 @@ payload: 0E ‖ assoc_type(00 initial join) ‖ capability(8E) ‖ TLV 48 [Joine
 
 Wire form of the payload TLV section: `48 len-1 [41 09 01 00 EUI][47 04 short_le 01 CF 00][4C 01 01 00]`
 (inner `4C` value `01 00`). The ZDD forwards this as a rejoin; the TC answers. All three pitfalls
-(both IEEEs, the TLV context, radius 1) produced silent failure when missed. ZDD short and EUI come
+(both IEEEs, the TLV context, radius 1) produced silent failure when missed. The research handover
+claims 0x49 "also works", but no 0x49 send exists in the prototype code: only FC `0x09` is proven;
+the library default is `discover_route=0` (PN §5.2). ZDD short and EUI come
 from Commissioning Status / SE2; the placeholder short is caller supplied (no default).
 
 ### 6.2 Commissioning Response (`CommissioningResponse.decode`)
@@ -195,7 +209,16 @@ writes).
 
 Options are derived from present fields (R23 3.4.2.3.1): bit4 `0x10` originator IEEE, bit5 `0x20`
 responder IEEE, bit6 multicast. Both EUIs gives **0x30**. The research client sent **0x20** with both
-EUIs appended and that worked live. 0x30 is spec-correct but **unverified live**; check in phase 2.
+EUIs appended and that worked live. By spec 0x20 means "responder IEEE only", so the live frame
+carried 8 extra bytes. 0x30 is spec-correct but **unverified live** (PN §5.1).
+
+- **Default is the live mode:** `RouteReply.options_override=0x20` with both EUIs, NWK FC `49 02`
+  (`discover_route=1`), payload `02 20 rid <orig> <own> 00 EUI_orig EUI_own`. 0x30 is opt-in, to be
+  tested on hardware.
+- **Benefit of answering is unproven:** the prototype sent RREPs only in probe mode; write-test,
+  attrs, rooms and schedule never answered RREQs and still got responses after the many-to-one
+  Route Request (PN §5.1).
+
 NWK: src = our short, dst = originator, command frame, radius 30.
 
 ### 6.5 Commissioning Status (`CommissioningStatus.decode`)
@@ -222,7 +245,9 @@ Read after the session is up (decrypted value is a TLV list):
 
 Bold tags carry key material: decoded into `SecretBytes`, never log them. Unknown tags are kept raw.
 Research guessed 0x00 as TC EUI and 0x09 as extended PAN ID; the codec follows the ZD tag table
-instead (0x00 extended PAN, 0x09 TC address). The values seen live (PAN, ZDD short, ZDD EUI) matched
+instead (0x00 extended PAN, 0x09 TC address). Confirmed: TLV 0x09 reversed equals exactly the
+coordinator EUI found as the binding destination on every valve (PN §5.3), so the table is correct
+and the research "TC EUI" label is really the extended PAN ID. The values seen live (PAN, ZDD short, ZDD EUI) matched
 independent sources; the rest was never cross-checked.
 
 ## 7. Discovery
@@ -313,16 +338,46 @@ UTC, cluster id, attribute id, EUI-64, key128. Unknown type code or truncated re
 
 **ZK03840 Thermostat (0x0201), endpoint 1** (`valves.py`, the only Viessmann-specific module):
 
-| Attr | Name | Type | Unit | Access |
+Full v1 map (PN §4). All five valves had identical cluster and attribute lists and every read
+succeeded; reads were done 4 attributes per request (6+ never tried).
+
+| Cluster/attr | Name | Type | Scaling / value seen | v1 |
 |---|---|---|---|---|
-| 0x0000 | localTemperature | int16 (0x29) | 0.01 C | read |
-| 0x0008 | piHeatingDemand | uint8 (0x20) | % | read |
-| 0x0012 | occupiedHeatingSetpoint | int16 (0x29) | 0.01 C | write |
+| 0201/0000 | localTemperature | int16 0x29 | 0.01 C | read |
+| 0201/0008 | piHeatingDemand | uint8 0x20 | **0-5 scale, not %** (2 or 5 seen) | read raw |
+| 0201/0012 | occupiedHeatingSetpoint | int16 0x29 | 0.01 C; write proven, persists | read/write |
+| 0201/0003, 0004 | absMin/absMaxHeatSetpointLimit | int16 | 800 / 3000 | read once |
+| 0201/0015, 0016 | min/maxHeatSetpointLimit | int16 | 800 / 3000; writable per z2m, untested | read; clamp writes |
+| 0201/001B | controlSequenceOfOperation | enum8 0x30 | 2 (heating only) | optional |
+| 0201/001C | systemMode | enum8 0x30 | **9 = sleep** on all valves while they regulate; do not map to "off" | read |
+| 0201/4000 mfr 0x1221 | window_open (internal) | enum8 0x30 | 1 everywhere; z2m: 3 = open/no heat, 4 = open/heat; 1 = closed is a **hypothesis** | raw/diagnostic only |
+| 0201/4003, 4012, 4007 mfr | window_open_force / assembly_mode / unknown | bool 0x10 | 0 | do not write 4012 |
+| 0201/4008 mfr | unknown | uint16 0x21 | 80-891, varies by valve | ignore |
+| 0001/0021 | batteryPercentageRemaining | uint8 | **0.5 % units** (126 = 63 %) | read |
+| 0204/0001 | keypadLockout | enum8 | 0 | optional |
+| 0B05/011C, 011D | lastMessageLQI / lastMessageRSSI | uint8 / int8 0x28 | 116-212 / -71..-47 (link to parent) | diagnostic |
+| 0020/0000, 0001 | check-in / long poll interval | uint32, quarter-seconds | 1200 = 300 s / 28 = 7 s | read-only, never write |
+
+- Mfr attributes need their own request with the ZCL MS bit and code `0x1221`; they cannot be mixed
+  with standard attrs in one frame.
+- `localTemperatureCalibration` 0x0010 was **not** in the discovered attribute list: unsupported.
+- Basic 0x0000: manufacturerName 0x0004 = "Viessmann", modelId 0x0005 = "7637434", powerSource
+  0x0007 = 3 (battery), swBuildId 0x4000 = "01.18.0008 02.06", dateCode 0x0006 = "20230613". Valve
+  EUI OUI `14:2D:41`; match on modelId + manufacturer, not OUI alone.
+- Do not touch: Time 0x000A, Poll Control 0x0020, Identify, OTA.
 
 Live write test: setpoint changed, read back, still held after 90 s (the vendor controller did not
 revert it), then restored. A write is a manual override on a real heating system.
 Other clusters seen on the endpoint: 0x0000, 0x0001, 0x0003, 0x000A, 0x0020, 0x0204, 0x0B05. Device
 id `0x0301`.
+
+**Override evidence (2 h).** On 2026-10-11 research wrote a setpoint over Zigbee Direct (19.0 to
+23.0 C, read back 23.00). Within minutes the ViCare app showed the room as "manually set, for
+2 hours" (spec §2.5). So a Zigbee Direct write behaves like turning the valve wheel: the valve
+reports at its check-in (<= 300 s) to the OPTO2, which syncs to the cloud. The 2 h duration is
+OPTO2/cloud logic, not a valve feature (the thermostat cluster has no hold or duration attribute).
+After 2 h or at the next schedule transition the OPTO2 pushes the schedule setpoint again; last
+writer wins. The manual state cannot be cancelled over Zigbee, only in the app or by expiry.
 
 ## 10. Fixes versus the research code
 
@@ -330,8 +385,8 @@ id `0x0301`.
   B.4 (16-bit length form below 2^16 bits, 32-bit form plus `0000` above).
 - **Confirmation tag**: only the proven responder-first order; other variants dropped; SE4 compare is
   constant-time.
-- **Route Reply options**: derived from present fields (0x30 with both EUIs) instead of a literal
-  0x20. Unverified live (section 6.4).
+- **Route Reply options**: derived from present fields (0x30 with both EUIs) by default in the
+  codec; the node uses the live 0x20 via `options_override`. 0x30 unverified live (section 6.4).
 - **TLV parsing**: unknown tags skipped, truncation is an error, NPDU length checked, NPDU <= 254 B.
 - **ZCL**: full type table; unknown types and truncated records raise instead of being swallowed;
   Report Attributes and Default Response parsers added; full frame control.
@@ -362,7 +417,8 @@ From the `transport.py` and `node.py` stubs (not implemented):
 - `ZigbeeDirectNode`: join flow = session, Commissioning Request, Device_annce, many-to-one Route
   Request, answer Route Requests (dedupe per `(originator, route_id)` with TTL, any originator).
 - One NWK sequence, ZDO sequence, ZCL TSN and APS counter allocator, owned by the node.
-- Pending requests keyed by `(src_short, kind, seq)`; default timeout 35 s (sleepy range 2-30 s).
+- Pending requests keyed by `(src_short, kind, seq)`; request timeout 30 s per attempt, 2 attempts (sleepy range 2-30 s;
+  prototype used 10-15 s plus one retry, PN §5.8).
 - Own short: random valid address avoiding known shorts; the short in the Commissioning Response
   is authoritative and may be persisted for the next join.
 - Persistent connection preferred; start with passive change detection (listen for reports) before
@@ -378,10 +434,12 @@ From the `transport.py` and `node.py` stubs (not implemented):
 3. **BLE message size via an ESPHome proxy.** MTU is negotiated per device (ATT payload = MTU - 3).
    Plan: keep writes at most about 240 B, or read bleak's `mtu_size`, and fail clearly if a frame
    does not fit. Session frame overhead is 8 B plus the tunnel TLV header (4 B).
-4. **Valve count.** Research found 5 valves via the coordinator's LQI table; the vendor app lists 8
-   eTRVs. The others may hang off routers (for example repeaters), so discovery may need to walk
-   router neighbour tables, not only the coordinator.
-5. **Route Reply options** 0x20 (research, worked) vs 0x30 (spec). Verify live.
+4. **Valve count.** Research found 5 valves via the coordinator's LQI table; the claim that the
+   vendor app lists 8 eTRVs is **unsupported**: no research doc shows more than 5 (PN §5.4). The
+   prototype only paged the coordinator and R0 tables; valves hanging off other routers would need
+   discovery to walk router neighbour tables.
+5. **Route Reply options** 0x20 (research, worked; node default) vs 0x30 (spec). Verify live, and
+   whether answering Route Requests helps at all.
 6. **Source-route hypothesis** for the 4 extra bytes (section 8). Collect fixtures and decide
    whether the fallback decoder can go.
 7. **SE2 contents.** Whether the method/secret-type TLV is echoed, and any further TLVs.
