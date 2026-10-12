@@ -51,25 +51,47 @@ Logging (logger ``vicare_local_ble.zigbee_direct.transport``)
     key, the Commissioning Status value (raw, decrypted or decoded).
 
 Size note: keep this module under ~500 lines when implemented. T10 may split private helpers
-into sibling modules, e.g. ``_transport_handshake.py`` (SE1-SE4 driving and classification,
-``_att_error_code``) and ``_transport_writer.py`` (writer task); the public names stay here.
+into sibling modules, e.g. ``transport_handshake.py`` (SE1-SE4 driving and classification,
+``_att_error_code``) and ``transport_writer.py`` (writer task); the public names stay here.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
+from vicare_local_ble.zigbee_direct.codec.commissioning import CommissioningStatus
+from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu, parse_tunnel_tlvs
+from vicare_local_ble.zigbee_direct.errors import (
+    AuthenticationError,
+    DecodeError,
+    EncodeError,
+    ReplayError,
+    TransportError,
+)
 from vicare_local_ble.zigbee_direct.session import CounterModel
+from vicare_local_ble.zigbee_direct.transport_handshake import (
+    att_error_code,
+    guarded,
+    run_handshake,
+)
+from vicare_local_ble.zigbee_direct.transport_writer import TunnelWriter
+from vicare_local_ble.zigbee_direct.uuids import (
+    COMMISSIONING_SERVICE,
+    COMMISSIONING_STATUS,
+    SECURITY_AUTHENTICATE_C25519,
+    TUNNEL_NPDU,
+    TUNNEL_SERVICE,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from vicare_local_ble.zigbee_direct.clock import Clock
-    from vicare_local_ble.zigbee_direct.codec.commissioning import CommissioningStatus
-    from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
     from vicare_local_ble.zigbee_direct.debug import NpduRecorder
-    from vicare_local_ble.zigbee_direct.errors import TransportError
+    from vicare_local_ble.zigbee_direct.session import SessionCipher
     from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
 #: About 116 B plaintext NPDU + 4 B tunnel TLV + 8 B session overhead + 3 B ATT header.
@@ -78,6 +100,9 @@ MIN_RECOMMENDED_MTU: Final = 131
 ATT_HEADER_LEN: Final = 3
 #: Consecutive MIC failures that trigger the MTU WARNING.
 MIC_WARNING_STREAK: Final = 3
+
+_LOGGER = logging.getLogger(__name__)
+_AUTH: Final = SECURITY_AUTHENTICATE_C25519
 
 #: Bleak passes a ``BleakGATTCharacteristic`` first; the transport ignores it.
 type NotifyCallback = Callable[[Any, bytearray], None]
@@ -157,7 +182,7 @@ def _att_error_code(exc: BaseException) -> int | None:
     then matches backend message patterns. Never guesses: an
     unknown shape returns ``None`` (which classifies as a retryable ``TransportError``).
     """
-    raise NotImplementedError("T10")
+    return att_error_code(exc)
 
 
 class ZigbeeDirectTransport:
@@ -167,6 +192,28 @@ class ZigbeeDirectTransport:
     connection). It is held only as ``SecretBytes`` and dropped after the handshake.
     ``recorder`` receives every Tunnel NPDU (rx and tx) and nothing else.
     """
+
+    __slots__ = (
+        "_auth_subscribed",
+        "_cipher",
+        "_client",
+        "_clock",
+        "_closed",
+        "_fatal_handler",
+        "_handler",
+        "_handshake_timeout",
+        "_mic_streak",
+        "_model_logged",
+        "_opened",
+        "_own_eui",
+        "_psk",
+        "_recorder",
+        "_session",
+        "_stats",
+        "_tunnel_subscribed",
+        "_write_timeout",
+        "_writer",
+    )
 
     def __init__(
         self,
@@ -179,7 +226,29 @@ class ZigbeeDirectTransport:
         write_timeout: float = 10.0,
         recorder: NpduRecorder | None = None,
     ) -> None:
-        raise NotImplementedError("T10")
+        self._client = client
+        self._own_eui = own_eui
+        self._psk: SecretBytes | None = psk
+        self._clock = clock
+        self._handshake_timeout = handshake_timeout
+        self._write_timeout = write_timeout
+        self._recorder = recorder
+        self._stats = TransportStats()
+        self._session: SessionInfo | None = None
+        self._cipher: SessionCipher | None = None
+        self._writer: TunnelWriter | None = None
+        self._handler: NpduHandler | None = None
+        self._fatal_handler: FatalHandler | None = None
+        self._opened = False
+        self._closed = False
+        self._auth_subscribed = False
+        self._tunnel_subscribed = False
+        self._mic_streak = 0
+        self._model_logged = False
+
+    def __repr__(self) -> str:
+        state = "closed" if self._closed else "open" if self._session else "new"
+        return f"ZigbeeDirectTransport(own_eui={self._own_eui}, {state}, broken={self.broken})"
 
     async def open(self) -> SessionInfo:
         """Run SE1..SE4, subscribe Tunnel, start the writer task; call once.
@@ -190,7 +259,68 @@ class ZigbeeDirectTransport:
         closed (no writer, notifications stopped where possible). Cancellation of the caller
         propagates and leaves the transport closed.
         """
-        raise NotImplementedError("T10")
+        if self._opened or self._closed:
+            raise TransportError("open() may be called once", reason="closed")
+        self._opened = True
+        try:
+            return await self._open()
+        except BaseException as exc:
+            _LOGGER.debug("open failed: %s", type(exc).__name__)
+            await self._shutdown()
+            raise
+        finally:
+            self._psk = None  # the BAK is only needed for the handshake
+
+    async def _open(self) -> SessionInfo:
+        client, clock, timeout = self._client, self._clock, self._handshake_timeout
+        indications: asyncio.Queue[bytes] = asyncio.Queue()
+
+        def on_auth(_char: Any, data: bytearray) -> None:
+            indications.put_nowait(bytes(data))
+
+        await guarded(clock, timeout, "Authenticate subscribe", client.start_notify(_AUTH, on_auth))
+        self._auth_subscribed = True
+        psk = self._psk
+        if psk is None:  # pragma: no cover - open() runs once
+            raise TransportError("pre-shared key already dropped", reason="closed")
+        established = await run_handshake(
+            client,
+            own_eui=self._own_eui,
+            psk=psk,
+            clock=clock,
+            timeout=timeout,
+            indications=indications,
+        )
+        self._psk = None
+        self._cipher = established.cipher
+        _LOGGER.info("handshake OK")
+        await guarded(
+            clock, timeout, "Tunnel subscribe", client.start_notify(TUNNEL_NPDU, self._on_tunnel)
+        )
+        self._tunnel_subscribed = True
+        mtu = int(client.mtu_size)
+        session = SessionInfo(own_eui=self._own_eui, zdd_eui=established.peer_eui, mtu=mtu)
+        _LOGGER.info("connected, mtu=%d", mtu)
+        if session.mtu_low:
+            _LOGGER.warning(
+                "mtu=%d is below the recommended %d: large indications may be lost",
+                mtu,
+                MIN_RECOMMENDED_MTU,
+            )
+        writer = TunnelWriter(
+            client,
+            established.cipher,
+            clock=clock,
+            write_timeout=self._write_timeout,
+            max_value=mtu - ATT_HEADER_LEN,
+            stats=self._stats,
+            recorder=self._recorder,
+            on_broken=self._on_writer_broken,
+        )
+        self._writer = writer
+        writer.start()
+        self._session = session
+        return session
 
     async def read_commissioning_status(self) -> CommissioningStatus:
         """Read, decrypt (AAD of the Commissioning Status characteristic) and decode the status.
@@ -199,7 +329,21 @@ class ZigbeeDirectTransport:
         ``TransportError`` (``"write"``, ``"timeout"``, ``"closed"``) or ``DecodeError``. The
         value is never recorded or logged: it holds the network key.
         """
-        raise NotImplementedError("T10")
+        cipher = self._usable_cipher()
+        raw = await guarded(
+            self._clock,
+            self._write_timeout,
+            "Commissioning Status read",
+            self._client.read_gatt_char(COMMISSIONING_STATUS),
+        )
+        try:
+            plaintext = cipher.decrypt(COMMISSIONING_SERVICE, COMMISSIONING_STATUS, bytes(raw))
+        except (ReplayError, AuthenticationError) as exc:
+            raise TransportError(
+                f"Commissioning Status rejected: {type(exc).__name__}", reason="protocol"
+            ) from None
+        self._check_counter_model()
+        return CommissioningStatus.decode(plaintext)
 
     async def send_npdu(self, npdu: bytes, *, secure: bool = True) -> None:
         """Queue one NPDU for the writer and wait until its GATT write completed.
@@ -210,14 +354,17 @@ class ZigbeeDirectTransport:
         Cancelling the caller does not cancel the write once it has been dequeued.
         ``recorder.tx`` is called just before the write.
         """
-        raise NotImplementedError("T10")
+        writer = self._writer
+        if writer is None or self._closed or writer.broken:
+            raise TransportError("transport is not open", reason="closed")
+        await writer.submit(TunnelNpdu(bytes(npdu), secure))
 
     def set_npdu_handler(self, handler: NpduHandler) -> None:
         """Install the single ingress handler (the node's dispatcher); replaces any previous one.
 
         Called synchronously on the loop for every decrypted NPDU, in arrival order.
         """
-        raise NotImplementedError("T10")
+        self._handler = handler
 
     def set_fatal_handler(self, handler: FatalHandler) -> None:
         """Install the handler called once when the transport becomes ``broken``.
@@ -225,37 +372,145 @@ class ZigbeeDirectTransport:
         Installed by ``ZdConnection`` (T13). Called synchronously from the writer task; it must
         not await and must not call ``close()`` inline (schedule teardown instead).
         """
-        raise NotImplementedError("T10")
+        self._fatal_handler = handler
 
     @property
     def session(self) -> SessionInfo | None:
         """``SessionInfo`` after a successful ``open()``, else ``None``."""
-        raise NotImplementedError("T10")
+        return self._session
 
     @property
     def mtu_low(self) -> bool:
         """True if the MTU read at ``open()`` is below ``MIN_RECOMMENDED_MTU``."""
-        raise NotImplementedError("T10")
+        return self._session is not None and self._session.mtu_low
 
     @property
     def broken(self) -> bool:
         """True once a write failed or the counter is in doubt; the session must be replaced."""
-        raise NotImplementedError("T10")
+        return self._writer is not None and self._writer.broken
 
     @property
     def closed(self) -> bool:
         """True after ``close()`` or a failed ``open()``."""
-        raise NotImplementedError("T10")
+        return self._closed
 
     @property
     def stats(self) -> TransportStats:
-        raise NotImplementedError("T10")
+        return self._stats
 
     async def close(self) -> None:
         """Idempotent. Cancel and await the writer, fail queued sends, ``stop_notify`` (errors
         ignored). A write cancelled mid-flight marks the transport ``broken``. Does not call
         the fatal handler and does not disconnect the client."""
-        raise NotImplementedError("T10")
+        if self._closed:
+            return
+        await self._shutdown()
+
+    # --- internals ---
+
+    async def _shutdown(self) -> None:
+        self._closed = True
+        self._psk = None
+        if self._writer is not None:
+            await self._writer.stop()
+        for subscribed, char in (
+            (self._tunnel_subscribed, TUNNEL_NPDU),
+            (self._auth_subscribed, _AUTH),
+        ):
+            if subscribed:
+                await self._stop_notify(char)
+        self._tunnel_subscribed = self._auth_subscribed = False
+        if self._cipher is not None and not self._model_logged:
+            self._model_logged = True
+            _LOGGER.info("counter_model=%s", self._stats.counter_model.value)
+
+    async def _stop_notify(self, char: str) -> None:
+        try:
+            async with self._clock.timeout(self._write_timeout):
+                await self._client.stop_notify(char)
+        except Exception as exc:  # the client may already be gone
+            _LOGGER.debug("stop_notify failed: %s", type(exc).__name__)
+
+    def _usable_cipher(self) -> SessionCipher:
+        if self._cipher is None or self._closed or self.broken:
+            raise TransportError("transport is not open", reason="closed")
+        return self._cipher
+
+    def _on_writer_broken(self, error: TransportError) -> None:
+        handler = self._fatal_handler
+        if handler is None:
+            return
+        try:
+            handler(error)
+        except Exception:
+            _LOGGER.exception("fatal handler raised")
+
+    def _check_counter_model(self) -> None:
+        if self._cipher is None:  # pragma: no cover - only called with a session
+            return
+        model = self._cipher.counter_model()
+        self._stats.counter_model = model
+        if model is not CounterModel.UNKNOWN and not self._model_logged:
+            self._model_logged = True
+            _LOGGER.info("counter_model=%s", model.value)
+
+    def _on_tunnel(self, _char: Any, data: bytearray) -> None:
+        cipher = self._cipher
+        if cipher is None or self._closed:
+            return
+        try:
+            plaintext = cipher.decrypt(TUNNEL_SERVICE, TUNNEL_NPDU, bytes(data))
+        except ReplayError:
+            self._stats.replay_drops += 1
+            _LOGGER.debug("dropped a replayed Tunnel indication")
+            return
+        except AuthenticationError:
+            self._on_mic_failure()
+            return
+        except DecodeError:
+            self._stats.tlv_errors += 1
+            _LOGGER.debug("dropped a Tunnel indication shorter than a session frame")
+            return
+        self._mic_streak = 0
+        self._stats.frames_rx += 1
+        self._check_counter_model()
+        try:
+            items = parse_tunnel_tlvs(plaintext)
+        except DecodeError, EncodeError:
+            self._stats.tlv_errors += 1
+            _LOGGER.debug("dropped a Tunnel indication with malformed TLVs")
+            return
+        for item in items:
+            if isinstance(item, TunnelNpdu):
+                self._deliver(item)
+            else:
+                _LOGGER.debug("ignored Tunnel TLV 0x%02X", item.tag)
+
+    def _on_mic_failure(self) -> None:
+        self._stats.mic_failures += 1
+        self._mic_streak += 1
+        if self._mic_streak == MIC_WARNING_STREAK:
+            mtu = self._session.mtu if self._session is not None else 0
+            _LOGGER.warning(
+                "%d Tunnel indications in a row failed the MIC (mtu=%d): oversized indications "
+                "may be truncated",
+                MIC_WARNING_STREAK,
+                mtu,
+            )
+
+    def _deliver(self, npdu: TunnelNpdu) -> None:
+        if self._recorder is not None:
+            try:
+                self._recorder.rx(npdu)
+            except Exception as exc:
+                _LOGGER.debug("NPDU recorder rx failed: %s", type(exc).__name__)
+        handler = self._handler
+        if handler is None:
+            return
+        try:
+            handler(npdu)
+        except Exception:
+            _LOGGER.exception("NPDU handler raised")
 
 
 __all__ = [

@@ -79,7 +79,6 @@ addopts = "--cov=vicare_local_ble --cov-report=term-missing --cov-fail-under=90"
 [tool.coverage.run]
 branch = true
 omit = [
-    "*/vicare_local_ble/zigbee_direct/transport.py",
     "*/vicare_local_ble/zigbee_direct/node.py",
     "*/vicare_local_ble/cli.py",
 ]
