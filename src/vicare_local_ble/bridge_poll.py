@@ -4,7 +4,18 @@ Per valve: ``try_acquire`` the transaction lock (busy -> skipped), then the plan
 ``FAST`` (+ ``SLOW`` every ``SLOW_EVERY_N_POLLS``-th poll, + ``STATIC`` when due), one request
 at a time. The first request without any response (timeout, route error) ends the valve's
 cycle: its remaining requests would only wait out the same timeouts. A ZCL Default Response
-with an error status is still a response.
+with an error status is still a response. A setpoint waiting for the lock ends the valve's
+cycle early (between requests): the lock passes to it at once, and the valve counts as answered
+if any response arrived this cycle, else as busy (never a miss).
+
+A ``STATIC`` refresh replaces the limits only with limits from an at least as good source
+(``limits`` > ``abs`` > ``default``).
+
+All-silent rejoin backoff: the first rejoin follows ``SILENT_POLLS_REJOIN`` silent polls. If no
+valve answered since the last all-silent rejoin, the next one also waits
+``SILENT_REJOIN_BACKOFF`` x 2^(n-1) after it (1 h, 2 h, 4 h, capped at
+``SILENT_REJOIN_BACKOFF_MAX`` = 6 h), so one dead valve cannot cause a rejoin loop. Any valve
+answering resets the backoff. Valves never expire.
 """
 
 from __future__ import annotations
@@ -12,10 +23,14 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from vicare_local_ble import valves
-from vicare_local_ble.bridge_types import SILENT_POLLS_REJOIN
+from vicare_local_ble.bridge_types import (
+    SILENT_POLLS_REJOIN,
+    SILENT_REJOIN_BACKOFF,
+    SILENT_REJOIN_BACKOFF_MAX,
+)
 from vicare_local_ble.zigbee_direct.connection import ConnectionState
 from vicare_local_ble.zigbee_direct.discovery import walk_topology
 from vicare_local_ble.zigbee_direct.errors import (
@@ -42,6 +57,8 @@ type _Outcome = Literal["ok", "miss", "busy", "stale"]
 NO_RESPONSE = (RequestTimeoutError, RouteError, SequenceExhaustedError)
 #: The limits request of ``STATIC`` (everything in it except the Basic identification).
 _LIMIT_REQUESTS = tuple(r for r in valves.STATIC if r != valves.IDENTIFY)
+#: ``SetpointLimits.source`` quality: a refresh never downgrades.
+_LIMIT_RANK: Final = {"default": 0, "abs": 1, "limits": 2}
 
 
 class StaleGenerationError(Exception):
@@ -94,7 +111,11 @@ def apply_result(
     elif req in _LIMIT_REQUESTS:
         core.log_issues(eui, req.cluster, statuses, req.manufacturer)
         valve = core.valves[eui]
-        updated = dataclasses.replace(valve, limits=valves.SetpointLimits.from_reads(statuses))
+        limits = valves.SetpointLimits.from_reads(statuses)
+        if _LIMIT_RANK[limits.source] < _LIMIT_RANK[valve.limits.source]:
+            _LOGGER.debug("valve %s: refreshed limits (%s) kept out", eui, limits.source)
+            return False
+        updated = dataclasses.replace(valve, limits=limits)
     else:
         return core.apply(eui, req.cluster, statuses, req.manufacturer)
     if updated == valve:
@@ -126,6 +147,12 @@ async def poll_valve(core: BridgeCore, gen: Generation, eui: Eui64, *, slow: boo
         static_ok = static_due
         changed = False
         for req in plan:
+            if tx.lock.has_waiters():
+                _LOGGER.debug("valve %s: cycle ended early for a setpoint", eui)
+                if not answered:
+                    return "busy"
+                static_ok = False
+                break
             try:
                 statuses = await read(core, gen, eui, req)
             except NO_RESPONSE as exc:
@@ -175,11 +202,24 @@ async def poll(core: BridgeCore) -> BridgeSnapshot:
         core.silent_streak += 1
     else:
         core.silent_streak = 0
-    if core.silent_streak >= SILENT_POLLS_REJOIN:
+    if core.silent_streak >= SILENT_POLLS_REJOIN and _rejoin_allowed(core):
         core.silent_streak = 0
+        core.silent_rejoins += 1
+        core.last_silent_rejoin = core.clock.now()
         _LOGGER.warning("all %d known valves silent: requesting a rejoin", len(euis))
         conn.request_rejoin(gen, "all_valves_silent")
     return core.snapshot()
+
+
+def _rejoin_allowed(core: BridgeCore) -> bool:
+    """The all-silent rejoin backoff (module docstring)."""
+    last = core.last_silent_rejoin
+    if core.silent_rejoins == 0 or last is None:
+        return True
+    gap: float = min(
+        SILENT_REJOIN_BACKOFF * 2.0 ** (core.silent_rejoins - 1), SILENT_REJOIN_BACKOFF_MAX
+    )
+    return core.clock.now() - last >= gap
 
 
 def spawn_rewalk(core: BridgeCore, gen: Generation) -> None:
@@ -187,24 +227,31 @@ def spawn_rewalk(core: BridgeCore, gen: Generation) -> None:
     if core.walking:
         return
     try:
-        core.connection.spawn(gen, rewalk(core, gen), name="vicare topology re-walk")
+        task = core.connection.spawn(gen, rewalk(core, gen), name="vicare topology re-walk")
     except ConnectionLostError:
         _LOGGER.debug("generation %d gone: re-walk not started", gen.number)
         return
     core.walking = True
 
+    def done(_task: asyncio.Task[None]) -> None:
+        # A done callback, not ``finally``: it also runs if the task is cancelled before it
+        # started, so the flag can never stick.
+        core.walking = False
+
+    task.add_done_callback(done)
+
 
 async def rewalk(core: BridgeCore, gen: Generation) -> None:
+    started = core.clock.now()
     try:
         topology = await walk_topology(gen.node)
-        if core.is_current(gen):
-            core.set_topology(topology)
-            core.push_avoid_shorts()
-            core.changed()
     except ConnectionLostError:
         _LOGGER.debug("generation %d lost: re-walk ends", gen.number)
-    finally:
-        core.walking = False
+        return
+    if core.is_current(gen):
+        core.set_topology(topology, started=started)
+        core.push_avoid_shorts()
+        core.changed()
 
 
 __all__ = [

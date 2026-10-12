@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
 MISSES_UNAVAILABLE: Final = 3
 SILENT_POLLS_REJOIN: Final = 2
+#: Without any valve answering since the last all-silent rejoin, the next one waits
+#: ``SILENT_REJOIN_BACKOFF * 2**(n-1)`` after it, capped at ``SILENT_REJOIN_BACKOFF_MAX``.
+SILENT_REJOIN_BACKOFF: Final = 3600.0
+SILENT_REJOIN_BACKOFF_MAX: Final = 21_600.0
 SETPOINT_ACK_DEADLINE: Final = 60.0
 SETPOINT_TOTAL_DEADLINE: Final = 90.0
 #: Discovery retries after an incomplete topology, an identification timeout or 0 valves.
@@ -99,6 +103,8 @@ __all__ = [
     "SETPOINT_ACK_DEADLINE",
     "SETPOINT_TOTAL_DEADLINE",
     "SILENT_POLLS_REJOIN",
+    "SILENT_REJOIN_BACKOFF",
+    "SILENT_REJOIN_BACKOFF_MAX",
     "TOPOLOGY_REFRESH",
     "BridgeSnapshot",
     "DiscoveryStatus",

@@ -288,7 +288,7 @@ async def test_poll_completing_after_reconnect_does_not_mutate() -> None:
     await stop(r)
 
 
-async def test_error_status_is_a_response_and_unsupported_identify_is_ignored() -> None:
+async def test_error_status_is_a_response_and_basic_error_is_retried() -> None:
     from test_bridge import ACME_EUI, add_acme
 
     def setup(inst: Installation) -> None:
@@ -298,7 +298,11 @@ async def test_error_status_is_a_response_and_unsupported_identify_is_ignored() 
 
     r = make_rig(n_valves=1, behind_router=0, setup=setup)
     await discovered(r)
-    assert str(ACME_EUI) in r.bridge.export_cache().ignored
+    # An error status on the Basic read is retryable, not proof of "not a valve".
+    assert str(ACME_EUI) not in r.bridge.export_cache().ignored
+    assert r.snap().discovery.complete is False
+    await run_until(r.clock, lambda: str(ACME_EUI) in r.bridge.export_cache().ignored, 400)
+    await run_until(r.clock, lambda: not r.core.discovery.running)
     valve = r.inst.valves[0]
     r.core.misses[valve.eui] = 2
     valve.queue_default_response(ZclCommandId.READ_ATTRIBUTES, ZclStatus.UNSUPPORTED_CLUSTER)

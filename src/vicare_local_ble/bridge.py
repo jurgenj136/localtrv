@@ -23,7 +23,9 @@ Polling
     ``MISSES_UNAVAILABLE`` the valve is unavailable and a topology walk is spawned. Not READY ->
     the cycle is skipped and every known valve counts a miss. Rejoin rule: >= 1 known valve,
     every known valve missed ``SILENT_POLLS_REJOIN`` consecutive polls, READY throughout ->
-    ``connection.request_rejoin(gen, "all_valves_silent")``.
+    ``connection.request_rejoin(gen, "all_valves_silent")``. Without any valve answering
+    since the last such rejoin, the next one also waits ``SILENT_REJOIN_BACKOFF`` doubling
+    per rejoin (1 h, 2 h, 4 h, cap ``SILENT_REJOIN_BACKOFF_MAX`` 6 h; see ``bridge_poll``).
 
 Setpoints (``set_setpoint``), per valve, in this order
     1. Validate (``KeyError`` unknown valve, ``ValueError`` non-finite) and clamp with
@@ -88,6 +90,8 @@ from vicare_local_ble.bridge_types import (
     SETPOINT_ACK_DEADLINE,
     SETPOINT_TOTAL_DEADLINE,
     SILENT_POLLS_REJOIN,
+    SILENT_REJOIN_BACKOFF,
+    SILENT_REJOIN_BACKOFF_MAX,
     TOPOLOGY_REFRESH,
     BridgeSnapshot,
     DiscoveryStatus,
@@ -238,6 +242,8 @@ __all__ = [
     "SETPOINT_ACK_DEADLINE",
     "SETPOINT_TOTAL_DEADLINE",
     "SILENT_POLLS_REJOIN",
+    "SILENT_REJOIN_BACKOFF",
+    "SILENT_REJOIN_BACKOFF_MAX",
     "TOPOLOGY_REFRESH",
     "BridgeCache",
     "BridgeSnapshot",

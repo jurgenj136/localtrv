@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger("vicare_local_ble.bridge")
 
-type _Identified = Literal["valve", "ignored", "timeout", "stale"]
+type _Identified = Literal["valve", "ignored", "retry", "stale"]
 
 _LIMIT_REQUESTS = tuple(r for r in valves.STATIC if r != valves.IDENTIFY)
 
@@ -104,10 +104,11 @@ async def discovery_run(core: BridgeCore, gen: Generation) -> bool:
     core.discovery = dataclasses.replace(core.discovery, running=True)
     core.changed()
     try:
+        started = core.clock.now()
         topology = await walk_topology(gen.node)
         if not core.is_current(gen):
             return False
-        core.set_topology(topology)
+        core.set_topology(topology, started=started)
         candidates = [
             (eui, n.nwk_addr)
             for eui, n in topology.neighbors.items()
@@ -121,7 +122,7 @@ async def discovery_run(core: BridgeCore, gen: Generation) -> bool:
             return False
         core.summarize()
         found = len(core.valves)
-        complete = topology.complete and "timeout" not in results and found > 0
+        complete = topology.complete and "retry" not in results and found > 0
         core.discovery = dataclasses.replace(
             core.discovery,
             running=False,
@@ -176,15 +177,20 @@ async def identify(core: BridgeCore, gen: Generation, eui: Eui64, short: int) ->
         _LOGGER.debug("identify %s: no response (%s, %d)", eui, type(exc).__name__, count)
         if count == IDENTIFY_DIAGNOSTIC_AFTER:
             await _diagnose(gen, eui, short)
-        return "timeout"
-    except ZclStatusError:
-        statuses = ()
+        return "retry"
+    except ZclStatusError as exc:
+        # An error status is no proof the device is not a valve: retry later.
+        _LOGGER.debug("identify %s: status 0x%02X, will retry", eui, exc.status)
+        return "retry"
     except ConnectionLostError:
         return "stale"
     if not core.is_current(gen):
         return "stale"
     info = valves.parse_basic(statuses)
     if not valves.is_supported_valve(info.manufacturer, info.model):
+        if not _mismatch(info):
+            _LOGGER.debug("identify %s: identification incomplete, will retry", eui)
+            return "retry"
         _LOGGER.debug("device %s (0x%04X) is not a supported valve: ignored", eui, short)
         core.ignored.add(str(eui))
         core.changed()
@@ -212,6 +218,14 @@ async def identify(core: BridgeCore, gen: Generation, eui: Eui64, short: int) ->
     core.changed()
     core.new_valve(valve)
     return "valve"
+
+
+def _mismatch(info: valves.BasicInfo) -> bool:
+    """True only on positive evidence: a manufacturer or model that was read and differs."""
+    maker, model = info.manufacturer, info.model
+    return (maker is not None and maker.strip() != valves.MANUFACTURER) or (
+        model is not None and model.strip() not in valves.MODEL_IDS
+    )
 
 
 async def _read_limits(gen: Generation, short: int) -> tuple[SetpointLimits, bool]:

@@ -62,6 +62,10 @@ class TxLock:
     def locked(self) -> bool:
         return self._held
 
+    def has_waiters(self) -> bool:
+        """True while a caller waits in ``acquire`` (a setpoint behind a poll)."""
+        return any(not fut.done() for fut in self._waiters)
+
     def try_acquire(self) -> bool:
         if self._held:
             return False
@@ -101,7 +105,8 @@ class ValveTx:
 
     lock: TxLock = dataclasses.field(default_factory=TxLock)
     confirm: asyncio.Task[None] | None = None
-    confirm_version: int = 0
+    #: Value of the last write the valve acknowledged (any version).
+    acked_c: float | None = None
 
 
 class BridgeCore:
@@ -144,6 +149,11 @@ class BridgeCore:
         self.polls = 0
         self.silent_streak = 0
         self.walking = False
+        #: Clock time at which each valve's short was last learned (walk or Device_annce).
+        self.short_at: dict[Eui64, float] = {}
+        #: All-silent rejoins without any valve answering since, and when the last one was.
+        self.silent_rejoins = 0
+        self.last_silent_rejoin: float | None = None
         #: Basic-read timeouts per unknown EUI (diagnostic Active_EP/Simple_Desc trigger).
         self.basic_timeouts: dict[Eui64, int] = {}
         #: Per generation: Device_annce senders scheduled for identification, latest shorts.
@@ -161,6 +171,7 @@ class BridgeCore:
         """Reset the per-generation bookkeeping for a new READY generation."""
         self.gen = gen
         self.silent_streak = 0
+        self.walking = False
         self.annce_seen = set()
         self.annce_short = {}
         self.identify_sem = asyncio.Semaphore(IDENTIFY_CONCURRENCY)
@@ -181,12 +192,13 @@ class BridgeCore:
                 _LOGGER.exception("on_update callback raised")
         cache = self.export_cache()
         if cache != self._exported:
-            self._exported = cache
             if self._on_cache_changed is not None:
                 try:
                     self._on_cache_changed(cache)
                 except Exception:
                     _LOGGER.exception("on_cache_changed callback raised")
+                    return  # not persisted: retried at the next change
+            self._exported = cache
 
     def new_valve(self, valve: Valve) -> None:
         if self._on_new_valve is not None:
@@ -257,6 +269,8 @@ class BridgeCore:
         self.ignored.discard(str(eui))
 
     def set_short(self, eui: Eui64, short: int) -> bool:
+        """Adopt a short learned now; True if it changed."""
+        self.short_at[eui] = self.clock.now()
         valve = self.valves[eui]
         if valve.short == short:
             return False
@@ -319,6 +333,7 @@ class BridgeCore:
 
     def responded(self, eui: Eui64) -> bool:
         """A valve answered: reset its misses; True if anything changed."""
+        self.silent_rejoins = 0
         if self.misses.get(eui) == 0 and self.available.get(eui):
             return False
         self.misses[eui] = 0
@@ -338,13 +353,20 @@ class BridgeCore:
             )
         return count == MISSES_UNAVAILABLE
 
-    def set_topology(self, topology: Topology) -> None:
-        """Adopt a walk result: refresh known valve shorts and the summary."""
+    def set_topology(self, topology: Topology, *, started: float) -> None:
+        """Adopt a walk result: refresh known valve shorts and the summary.
+
+        A short learned at or after ``started`` (when the walk began, e.g. from a
+        Device_annce) is fresher than the walk's and is kept."""
         self.topology = topology
         self.walked_at = self.clock.now()
         for eui, neighbor in topology.neighbors.items():
-            if eui in self.valves:
-                self.set_short(eui, neighbor.nwk_addr)
+            if eui not in self.valves:
+                continue
+            learned = self.short_at.get(eui)
+            if learned is not None and learned >= started:
+                continue
+            self.set_short(eui, neighbor.nwk_addr)
         self.summarize()
 
     def summarize(self) -> None:
