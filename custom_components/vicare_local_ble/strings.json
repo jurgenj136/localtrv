@@ -120,6 +120,9 @@
     }
   },
   "exceptions": {
+    "auth_failed": {
+      "message": "The ubisys R0 rejected the network key."
+    },
     "device_not_found": {
       "message": "The ubisys R0 is not reachable over Bluetooth. {diagnostics}"
     },

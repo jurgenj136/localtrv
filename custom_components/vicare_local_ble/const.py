@@ -37,3 +37,30 @@ LOCAL_NAME_PREFIX: Final = "ubisys"
 VALIDATE_TIMEOUT: Final = 60
 # Valve is unavailable after this many consecutive missed polls.
 MISSED_POLLS_UNAVAILABLE: Final = 3
+
+# Setup and shutdown (T16). Seconds on the library clock unless noted.
+FIRST_READY_TIMEOUT: Final = 90.0
+# Upper bound for connection.stop() at unload / HA stop (the teardown has its own inner bounds).
+STOP_TIMEOUT: Final = 30.0
+# Debounce for persisting the bridge cache after a change (HA Store.async_delay_save, seconds).
+CACHE_SAVE_DELAY: Final = 10
+STORAGE_VERSION: Final = 1
+
+# Bridge (R0) device registry entry.
+BRIDGE_MANUFACTURER: Final = "ubisys"
+BRIDGE_MODEL: Final = "R0"
+
+
+def storage_key(entry_id: str) -> str:
+    """HA Store key of the bridge cache of one config entry."""
+    return f"{DOMAIN}.{entry_id}"
+
+
+def signal_new_valve(entry_id: str) -> str:
+    """Dispatcher signal sent once per newly identified valve (payload: the ``Valve``)."""
+    return f"{DOMAIN}_{entry_id}_new_valve"
+
+
+def issue_id(issue: str, entry_id: str) -> str:
+    """Repair issue id of a connection issue (one per config entry)."""
+    return f"{issue}_{entry_id}"
