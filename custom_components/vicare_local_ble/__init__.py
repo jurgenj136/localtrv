@@ -72,8 +72,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# T17 adds Platform.CLIMATE, Platform.SENSOR and Platform.BINARY_SENSOR with their modules.
-PLATFORMS: list[Platform] = []
+PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: VicareConfigEntry) -> bool:

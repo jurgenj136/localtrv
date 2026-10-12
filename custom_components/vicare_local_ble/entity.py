@@ -38,6 +38,7 @@ def valve_device_info(valve: Valve, bridge_device_id: str | None) -> DeviceInfo:
     ``via_device`` identifier tuple in favour of ``via_device_id``)."""
     info = DeviceInfo(
         identifiers={(DOMAIN, eui_hex(valve.eui))},
+        name=f"ViCare valve {str(valve.eui)[-5:]}",
         manufacturer=valves.MANUFACTURER,
         model=valves.MODEL_NAME,
         model_id=valve.model,

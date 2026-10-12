@@ -128,6 +128,12 @@
     },
     "write_failed": {
       "message": "Could not set the temperature on {valve}. The valve did not acknowledge the write."
+    },
+    "invalid_temperature": {
+      "message": "{temperature} is not a valid target temperature. Use a value between {min} and {max} °C."
+    },
+    "invalid_hvac_mode": {
+      "message": "The valve only supports the heat mode, not {mode}."
     }
   },
   "issues": {
