@@ -67,7 +67,9 @@ Use at your own risk; no warranty.
 
 ## Development
 
-Python 3.13+, [uv](https://docs.astral.sh/uv/).
+Python 3.14+, [uv](https://docs.astral.sh/uv/). Integration tests use
+[pytest-homeassistant-custom-component](https://pypi.org/project/pytest-homeassistant-custom-component/)
+(pinned to Home Assistant 2026.10.x).
 
 ```bash
 uv sync

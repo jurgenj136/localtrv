@@ -7,7 +7,7 @@ name = "vicare-local-ble"
 version = "0.1.0.dev0"
 description = "Local Zigbee Direct (BLE) client for Viessmann ZK03840 radiator valves."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14.2"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "jurgenj136" }]
@@ -18,14 +18,14 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Home Automation",
     "Typing :: Typed",
 ]
 dependencies = [
     "cryptography>=42",
-    "bleak>=0.22",
+    "bleak>=1.0",
+    "bleak-retry-connector>=4.7",
 ]
 
 [project.scripts]
@@ -35,10 +35,11 @@ vicare-local-ble = "vicare_local_ble.cli:main"
 dev = [
     "ruff>=0.17.0",
     "mypy>=2.4.0",
-    "pytest>=9.1.1",
+    "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pre-commit>=4.6.2",
+    "pytest-homeassistant-custom-component>=0.13.372",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -46,7 +47,7 @@ packages = ["src/vicare_local_ble"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py314"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -62,7 +63,7 @@ quote-style = "double"
 
 [tool.mypy]
 strict = true
-python_version = "3.13"
+python_version = "3.14"
 files = ["src", "tests"]
 
 [tool.pytest.ini_options]

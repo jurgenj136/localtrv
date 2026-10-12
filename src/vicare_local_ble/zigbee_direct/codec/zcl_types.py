@@ -199,7 +199,7 @@ def encode_value(data_type: int, value: ZclValue) -> bytes:
         number_f = value
         try:
             return struct.pack(_FLOAT_FORMATS[dt], number_f)
-        except (OverflowError, struct.error):
+        except OverflowError, struct.error:
             raise EncodeError(f"{number_f} does not fit {dt.name}") from None
     if dt in _STRINGS:
         prefix, text = _STRINGS[dt]

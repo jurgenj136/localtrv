@@ -45,7 +45,7 @@ def scan(path: Path) -> list[int]:
     """Return 1-based line numbers with suspicious content."""
     try:
         text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except OSError, UnicodeDecodeError:
         return []
     return [n for n, line in enumerate(text.splitlines(), start=1) if suspicious(line)]
 
