@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: Verify tag, pyproject and manifest versions agree
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import json, os, sys, tomllib
+
+          tag = os.environ["TAG"].removeprefix("v")
+          py = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          manifest = json.load(open("custom_components/vicare_local_ble/manifest.json"))
+          problems = []
+          if py != tag:
+              problems.append(f"pyproject version {py} != tag {tag}")
+          if manifest["version"] != tag:
+              problems.append(f"manifest version {manifest['version']} != tag {tag}")
+          if manifest["requirements"] != [f"vicare-local-ble=={tag}"]:
+              problems.append(f"manifest requirements {manifest['requirements']} != pin {tag}")
+          if problems:
+              sys.exit("; ".join(problems))
+          PY
+      - run: uv sync --locked --all-groups
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run mypy
+      - run: uv run pytest
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=()
+          # PEP 440 pre/dev releases (v0.2.0a1, v0.2.0rc1, v0.2.0.dev1) are GitHub prereleases.
+          if [[ "$TAG" =~ (a|b|rc|\.dev)[0-9]+$ ]]; then prerelease=(--prerelease); fi
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" --generate-notes "${prerelease[@]}"

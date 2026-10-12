@@ -40,6 +40,9 @@ dev = [
     "pytest-cov>=7.1.0",
     "pre-commit>=4.6.2",
     "pytest-homeassistant-custom-component>=0.13.372",
+    # HA bluetooth -> usb requirements (homeassistant/components/usb/manifest.json)
+    "aiousbwatcher==1.1.2",
+    "serialx==1.11.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -48,7 +51,7 @@ packages = ["src/vicare_local_ble"]
 [tool.ruff]
 line-length = 100
 target-version = "py314"
-src = ["src", "tests"]
+src = ["src", "tests", "tests/components/vicare_local_ble"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "S", "C4", "PIE", "PT", "RET", "TC"]
@@ -64,10 +67,11 @@ quote-style = "double"
 [tool.mypy]
 strict = true
 python_version = "3.14"
-files = ["src", "tests"]
+files = ["src", "custom_components", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=vicare_local_ble --cov-report=term-missing --cov-fail-under=90"
@@ -78,7 +82,6 @@ omit = [
     "*/vicare_local_ble/zigbee_direct/transport.py",
     "*/vicare_local_ble/zigbee_direct/node.py",
     "*/vicare_local_ble/cli.py",
-    "*/vicare_local_ble/valves/*",
 ]
 
 [tool.coverage.report]

@@ -31,3 +31,5 @@ captures/
 .DS_Store
 .idea/
 .vscode/
+# Home Assistant dev config (spec 2.7)
+.ha-config/

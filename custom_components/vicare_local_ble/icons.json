@@ -1,0 +1,23 @@
+{
+  "entity": {
+    "sensor": {
+      "heating_demand": {
+        "default": "mdi:radiator"
+      },
+      "lqi": {
+        "default": "mdi:signal"
+      },
+      "connection_state": {
+        "default": "mdi:bluetooth-connect"
+      }
+    },
+    "binary_sensor": {
+      "window_open": {
+        "default": "mdi:window-closed",
+        "state": {
+          "on": "mdi:window-open"
+        }
+      }
+    }
+  }
+}

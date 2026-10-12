@@ -1,0 +1,128 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Select the ubisys R0",
+        "description": "Choose the Bluetooth device of your ubisys R0 bridge.",
+        "data": {
+          "address": "Device"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "ubisys R0 found",
+        "description": "Set up the ubisys R0 {name}? Close the ViCare app first: the R0 accepts only one Bluetooth client."
+      },
+      "network_key": {
+        "title": "Zigbee network key",
+        "description": "Enter the 128-bit network key of your ViCare Zigbee network as 32 hexadecimal characters. Close the ViCare app first: the R0 accepts only one Bluetooth client.",
+        "data": {
+          "network_key": "Network key",
+          "validate": "Test the connection"
+        },
+        "data_description": {
+          "network_key": "32 hexadecimal characters.",
+          "validate": "Connect to the R0 and verify the key before saving."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-enter the network key",
+        "description": "The R0 rejected the stored network key. Enter the current key.",
+        "data": {
+          "network_key": "Network key"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The R0 rejected the network key.",
+      "cannot_connect": "Could not connect to the R0. Close the ViCare app (the R0 accepts only one client) and move the Bluetooth adapter or proxy closer.",
+      "invalid_key": "The key must be exactly 32 hexadecimal characters.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "already_in_progress": "A setup flow for this device is already in progress.",
+      "no_devices_found": "No ubisys R0 found over Bluetooth.",
+      "not_supported": "This device is not a ubisys R0 with Zigbee Direct.",
+      "reauth_successful": "The network key was updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ViCare Local options",
+        "data": {
+          "scan_interval": "Poll interval (seconds)",
+          "route_reply_mode": "Route reply mode"
+        },
+        "data_description": {
+          "scan_interval": "How often the valves are polled, 60 to 3600 seconds. Valves are battery powered and answer slowly.",
+          "route_reply_mode": "Advanced. How the integration answers Zigbee route requests."
+        }
+      }
+    }
+  },
+  "selector": {
+    "route_reply_mode": {
+      "options": {
+        "live": "Live (observed behaviour)",
+        "spec": "Specification",
+        "off": "Off"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "heating_demand": {
+        "name": "Heating demand"
+      },
+      "lqi": {
+        "name": "Link quality"
+      },
+      "rssi": {
+        "name": "Signal strength"
+      },
+      "connection_state": {
+        "name": "Connection state",
+        "state": {
+          "idle": "Idle",
+          "connecting": "Connecting",
+          "joining": "Joining",
+          "ready": "Ready",
+          "backoff": "Waiting to retry",
+          "auth_failed": "Authentication failed",
+          "stopped": "Stopped"
+        }
+      }
+    },
+    "binary_sensor": {
+      "window_open": {
+        "name": "Window open (experimental)"
+      },
+      "connection": {
+        "name": "Connection"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "The ubisys R0 is not reachable over Bluetooth. {diagnostics}"
+    },
+    "write_failed": {
+      "message": "Could not set the temperature on {valve}. The valve did not acknowledge the write."
+    }
+  },
+  "issues": {
+    "mtu_too_small": {
+      "title": "Bluetooth MTU too small",
+      "description": "The Bluetooth adapter or proxy negotiated an MTU that is too small for Zigbee Direct. Some replies may be lost. Use a different adapter or ESPHome proxy."
+    },
+    "long_write_unsupported": {
+      "title": "Bluetooth long writes unsupported",
+      "description": "The Bluetooth adapter or proxy does not support long GATT writes, which Zigbee Direct needs for large frames. Use a different adapter or ESPHome proxy."
+    }
+  }
+}

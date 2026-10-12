@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 4 * * *"
 
 permissions:
   contents: read
@@ -17,10 +19,26 @@ jobs:
         with:
           python-version: "3.14"
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv sync --locked --all-groups
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run mypy
       - run: uv run pytest
       - name: Secret check
         run: git ls-files -z | xargs -0 uv run python scripts/check_secrets.py
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # The brands check is unverified for in-repo brand/ dirs (spec section 7, item 15).
+          ignore: brands
