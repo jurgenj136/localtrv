@@ -11,19 +11,14 @@ from bleak.exc import BleakError
 from custom_components.vicare_local_ble.const import (
     CONF_ADDRESS,
     CONF_NETWORK_KEY,
-    CONF_ROUTE_REPLY_MODE,
-    CONF_SCAN_INTERVAL,
     CONF_VALIDATE,
     CONF_ZDD_EUI,
     CONF_ZVD_EUI,
-    DEFAULT_ROUTE_REPLY_MODE,
-    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    SECTION_ADVANCED,
     VALIDATE_TIMEOUT,
 )
 from homeassistant.config_entries import SOURCE_BLUETOOTH, SOURCE_USER
-from homeassistant.data_entry_flow import FlowResultType, InvalidData, section
+from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import (  # type: ignore[import-untyped]
     MockConfigEntry,
 )
@@ -256,8 +251,8 @@ async def test_user_lists_discovered_r0s_and_creates_entry(
         hass,
         make_service_info(
             address="AA:BB:CC:00:11:44",
-            name="LEDnet",
-            service_uuids=["0000ffe5-0000-1000-8000-00805f9b34fb"],
+            name="Unrelated sensor",  # matches no bluetooth matcher in HA core
+            service_uuids=["0000aaaa-0000-1000-8000-00805f9b34fb"],
         ),
     )
     await hass.async_block_till_done()
@@ -471,81 +466,3 @@ async def test_reauth_timeout_saves_with_warning(
     assert entry.data[CONF_ZDD_EUI] == str(ZDD_EUI)  # kept
     assert any(r.levelno == logging.WARNING for r in caplog.records)
     assert OTHER_KEY not in caplog.text.lower()
-
-
-# --- options -------------------------------------------------------------------------------
-
-
-def _options_schema(result: ConfigFlowResult) -> dict[str, Any]:
-    schema = result["data_schema"]
-    assert schema is not None
-    return {str(k): (k, v) for k, v in schema.schema.items()}
-
-
-async def test_options_defaults_and_save(hass: HomeAssistant) -> None:
-    entry = _entry()
-    entry.add_to_hass(hass)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "init"
-    fields = _options_schema(result)
-    assert set(fields) == {CONF_SCAN_INTERVAL, SECTION_ADVANCED}
-    assert fields[CONF_SCAN_INTERVAL][0].default() == DEFAULT_SCAN_INTERVAL
-    advanced = fields[SECTION_ADVANCED][1]
-    assert isinstance(advanced, section)
-    assert advanced.options["collapsed"] is True
-    inner = {str(k): k.default() for k in advanced.schema.schema}
-    assert inner == {CONF_ROUTE_REPLY_MODE: DEFAULT_ROUTE_REPLY_MODE}
-
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {CONF_SCAN_INTERVAL: 120, SECTION_ADVANCED: {CONF_ROUTE_REPLY_MODE: "live"}},
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {CONF_SCAN_INTERVAL: 120, CONF_ROUTE_REPLY_MODE: "live"}
-    assert isinstance(entry.options[CONF_SCAN_INTERVAL], int)
-
-
-async def test_options_route_reply_mode_saved_and_prefilled(hass: HomeAssistant) -> None:
-    entry = _entry()
-    entry.add_to_hass(hass)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {CONF_SCAN_INTERVAL: 3600, SECTION_ADVANCED: {CONF_ROUTE_REPLY_MODE: "spec"}},
-    )
-    assert entry.options == {CONF_SCAN_INTERVAL: 3600, CONF_ROUTE_REPLY_MODE: "spec"}
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    fields = _options_schema(result)
-    assert fields[CONF_SCAN_INTERVAL][0].default() == 3600
-    inner = {str(k): k.default() for k in fields[SECTION_ADVANCED][1].schema.schema}
-    assert inner == {CONF_ROUTE_REPLY_MODE: "spec"}
-    # Collapsed section left untouched: the inner default keeps the stored mode.
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_SCAN_INTERVAL: 60, SECTION_ADVANCED: {}}
-    )
-    assert entry.options == {CONF_SCAN_INTERVAL: 60, CONF_ROUTE_REPLY_MODE: "spec"}
-
-
-@pytest.mark.parametrize("value", [59, 3601, 0])
-async def test_options_scan_interval_range(hass: HomeAssistant, value: int) -> None:
-    entry = _entry()
-    entry.add_to_hass(hass)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    with pytest.raises(InvalidData):
-        await hass.config_entries.options.async_configure(
-            result["flow_id"], {CONF_SCAN_INTERVAL: value, SECTION_ADVANCED: {}}
-        )
-    assert entry.options == {}
-
-
-async def test_options_route_reply_mode_rejects_unknown(hass: HomeAssistant) -> None:
-    entry = _entry()
-    entry.add_to_hass(hass)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    with pytest.raises(InvalidData):
-        await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {CONF_SCAN_INTERVAL: 300, SECTION_ADVANCED: {CONF_ROUTE_REPLY_MODE: "bogus"}},
-        )

@@ -7,13 +7,16 @@ adapters and scanner start.
 from __future__ import annotations
 
 import importlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import PropertyMock, patch
 
 import pytest
+from homeassistant.helpers import discovery_flow
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from homeassistant.core import HomeAssistant
 
 # HA mounts PHACC's testing_config dir first and would import ITS ``custom_components``
 # package (which shadows ours). Importing ours up front (repo root is on sys.path via
@@ -43,4 +46,21 @@ def _no_bluez_history() -> Iterator[None]:
         new_callable=PropertyMock,
         return_value={},
     ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _only_our_discovery_flows() -> Iterator[None]:
+    """Injected adverts must never start other integrations' discovery flows.
+
+    HA's bluetooth manager calls ``discovery_flow.async_create_flow`` for every matching core
+    domain; those integrations' requirements (e.g. ``led_ble``) are not installed here.
+    """
+    real = discovery_flow.async_create_flow
+
+    def only_ours(hass: HomeAssistant, domain: str, *args: Any, **kwargs: Any) -> None:
+        if domain == "vicare_local_ble":
+            real(hass, domain, *args, **kwargs)
+
+    with patch.object(discovery_flow, "async_create_flow", only_ours):
         yield
