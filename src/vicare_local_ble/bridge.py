@@ -73,91 +73,39 @@ valve and attribute. EUIs only in DEBUG.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final
+import logging
+from typing import TYPE_CHECKING
 
+from vicare_local_ble import bridge_discovery, bridge_poll, bridge_setpoint
 from vicare_local_ble.bridge_cache import CACHE_VERSION, BridgeCache, CachedValve, JsonValue
+from vicare_local_ble.bridge_state import BridgeCore
+from vicare_local_ble.bridge_types import (
+    ANNCE_IDENTIFY_DEBOUNCE,
+    DISCOVERY_RETRY_DELAYS,
+    IDENTIFY_CONCURRENCY,
+    IDENTIFY_DIAGNOSTIC_AFTER,
+    MISSES_UNAVAILABLE,
+    SETPOINT_ACK_DEADLINE,
+    SETPOINT_TOTAL_DEADLINE,
+    SILENT_POLLS_REJOIN,
+    TOPOLOGY_REFRESH,
+    BridgeSnapshot,
+    DiscoveryStatus,
+    SetpointStatus,
+    TopologySummary,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
-    from vicare_local_ble.valves import Valve, ValveState
+    from vicare_local_ble.valves import Valve
     from vicare_local_ble.zigbee_direct.clock import Clock
-    from vicare_local_ble.zigbee_direct.connection import ConnectionState, ZdConnection
+    from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce
+    from vicare_local_ble.zigbee_direct.connection import Generation, ZdConnection
+    from vicare_local_ble.zigbee_direct.node import ReportEvent
     from vicare_local_ble.zigbee_direct.types import Eui64
 
-MISSES_UNAVAILABLE: Final = 3
-SILENT_POLLS_REJOIN: Final = 2
-SETPOINT_ACK_DEADLINE: Final = 60.0
-SETPOINT_TOTAL_DEADLINE: Final = 90.0
-#: Discovery retries after an incomplete topology, an identification timeout or 0 valves.
-DISCOVERY_RETRY_DELAYS: Final = (300.0, 900.0, 3600.0)
-TOPOLOGY_REFRESH: Final = 21_600.0
-#: Identification of an unknown Device_annce sender: debounce, once per EUI per generation.
-ANNCE_IDENTIFY_DEBOUNCE: Final = 10.0
-IDENTIFY_CONCURRENCY: Final = 4
-#: Basic-read timeouts after which Active_EP/Simple_Desc are sent (diagnostic only).
-IDENTIFY_DIAGNOSTIC_AFTER: Final = 2
-
-
-@dataclass(frozen=True, slots=True)
-class SetpointStatus:
-    """Setpoint transaction state of one valve (spec §1.6 #7).
-
-    ``requested_c`` is set while a write is in flight; ``acknowledged_c`` once the valve
-    acknowledged it; ``confirmed_c`` from the last confirming read. ``version`` increases per
-    ``set_setpoint`` call; ``pending`` is True until the latest version's confirm finished.
-    """
-
-    requested_c: float | None = None
-    acknowledged_c: float | None = None
-    confirmed_c: float | None = None
-    version: int = 0
-    pending: bool = False
-    confirmed_at: float | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class TopologySummary:
-    """Diagnostics-safe digest of the last ``walk_topology`` result (no extended PAN).
-
-    ``parent_of`` maps a known valve's EUI to the short of its parent router/coordinator;
-    diagnostics pseudonymise the EUIs (``valve_n``).
-    """
-
-    complete: bool
-    routers: int
-    neighbors: int
-    parent_of: Mapping[Eui64, int] = field(default_factory=dict)
-    walked_at: float | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class DiscoveryStatus:
-    """Last discovery run and the retry schedule; times are ``Clock.now()`` values."""
-
-    running: bool = False
-    last_run: float | None = None
-    complete: bool | None = None
-    valves_found: int = 0
-    attempts: int = 0
-    next_retry: float | None = None
-    topology: TopologySummary | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class BridgeSnapshot:
-    """Immutable view handed to HA (coordinator data, entities, diagnostics)."""
-
-    connection_state: ConnectionState
-    generation: int | None
-    own_short: int | None
-    valves: Mapping[Eui64, Valve]
-    states: Mapping[Eui64, ValveState]
-    available: Mapping[Eui64, bool]
-    setpoints: Mapping[Eui64, SetpointStatus]
-    discovery: DiscoveryStatus
-    misses: Mapping[Eui64, int] = field(default_factory=dict)
+_LOGGER = logging.getLogger(__name__)
 
 
 class ViCareBridge:
@@ -178,7 +126,16 @@ class ViCareBridge:
         on_new_valve: Callable[[Valve], None] | None = None,
         on_cache_changed: Callable[[BridgeCache], None] | None = None,
     ) -> None:
-        raise NotImplementedError("T14")
+        self._core = BridgeCore(
+            connection,
+            clock=clock,
+            cache=cache,
+            on_update=on_update,
+            on_new_valve=on_new_valve,
+            on_cache_changed=on_cache_changed,
+        )
+        self._unsubscribe: list[Callable[[], None]] = []
+        self._node_unsubscribe: list[Callable[[], None]] = []
 
     def attach(self) -> Callable[[], None]:
         """Register the connection listeners and push ``preferred_short``/``avoid_shorts`` from
@@ -190,15 +147,71 @@ class ViCareBridge:
         join, so a bridge push can never erase a conflicting short; likewise the bridge never
         re-sets ``preferred_short`` after an address conflict cleared it (it forgets the cached
         own short on the node's address-conflict callback)."""
-        raise NotImplementedError("T14")
+        core = self._core
+        changes: dict[str, object] = {"avoid_shorts": core.known_shorts()}
+        if core.own_short is not None:
+            changes["preferred_short"] = core.own_short
+        core.connection.update_node_config(**changes)
+        self._unsubscribe.append(core.connection.add_ready_listener(self._on_ready))
+        return self._detach
+
+    def _detach(self) -> None:
+        for unsubscribe in (*self._unsubscribe, *self._node_unsubscribe):
+            unsubscribe()
+        self._unsubscribe.clear()
+        self._node_unsubscribe.clear()
+
+    # --- READY (synchronous) ---
+
+    def _on_ready(self, gen: Generation) -> None:
+        core = self._core
+        for unsubscribe in self._node_unsubscribe:
+            unsubscribe()
+        core.start_generation(gen)
+        core.own_short = gen.join.own_short
+        core.zdd_eui = str(gen.join.zdd_eui)
+        node = gen.node
+        self._node_unsubscribe = [
+            node.on_report(lambda event: self._on_report(gen, event)),
+            node.on_device_annce(lambda annce, _src: self._on_annce(gen, annce)),
+            node.on_address_conflict(lambda: self._on_conflict(gen)),
+        ]
+        core.changed()
+        bridge_discovery.spawn_safely(
+            core, gen, bridge_discovery.discovery_task(core, gen), "vicare discovery"
+        )
+
+    def _on_report(self, gen: Generation, event: ReportEvent) -> None:
+        core = self._core
+        if not core.is_current(gen):
+            return
+        eui = core.eui_for_short(event.src_short, event.src_ieee)
+        if eui is None:
+            return
+        changed = core.apply(eui, event.cluster, event.records, event.manufacturer_code)
+        if core.responded(eui) or changed:
+            core.changed()
+
+    def _on_annce(self, gen: Generation, annce: DeviceAnnce) -> None:
+        bridge_discovery.on_device_annce(self._core, gen, annce)
+
+    def _on_conflict(self, gen: Generation) -> None:
+        core = self._core
+        if core.gen is not gen or core.own_short is None:
+            return
+        _LOGGER.info("address conflict on our short: forgetting it")
+        core.own_short = None
+        core.changed()
+
+    # --- public API ---
 
     def snapshot(self) -> BridgeSnapshot:
         """Current state; cheap, never awaits, safe in any connection state."""
-        raise NotImplementedError("T14")
+        return self._core.snapshot()
 
     async def poll(self) -> BridgeSnapshot:
         """One poll cycle (module docstring); never raises for valve failures."""
-        raise NotImplementedError("T14")
+        return await bridge_poll.poll(self._core)
 
     async def set_setpoint(self, eui: Eui64, celsius: float) -> SetpointStatus:
         """Write a setpoint and return at the acknowledgement (module docstring).
@@ -209,10 +222,10 @@ class ViCareBridge:
         ``ConnectionLostError`` (not READY, or lost meanwhile). ``CancelledError`` of the caller
         propagates after the cleanup described in the module docstring.
         """
-        raise NotImplementedError("T14")
+        return await bridge_setpoint.set_setpoint(self._core, eui, celsius)
 
     def export_cache(self) -> BridgeCache:
-        raise NotImplementedError("T14")
+        return self._core.export_cache()
 
 
 __all__ = [
