@@ -18,8 +18,10 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE
+from homeassistant.core import Event, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import EventStateChangedData, async_track_state_change_event
 
 from conftest import our_tasks
 from vicare_local_ble import valves
@@ -28,6 +30,7 @@ from vicare_local_ble.testing import valve_table as vt
 from vicare_local_ble.zigbee_direct.codec.zcl import ZclCommandId, ZclStatus
 from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
 from vicare_local_ble.zigbee_direct.errors import RouteError, SequenceExhaustedError
+from vicare_local_ble.zigbee_direct.routing import NWK_STATUS_NON_TREE_LINK_FAILURE
 
 if TYPE_CHECKING:
     from custom_components.vicare_local_ble.coordinator import VicareCoordinator
@@ -209,6 +212,41 @@ async def test_route_and_sequence_failures_revert_and_raise(
     assert info.value.translation_key == "write_failed"
     assert _state(hass, entity).attributes[ATTR_TEMPERATURE] == 22.0
     assert not status(coordinator, valve.eui).pending
+
+
+async def test_real_route_failure_shows_optimistic_then_reverts(
+    hass: HomeAssistant, sim: Sim
+) -> None:
+    """Through the real bridge: a Network Status route error fails the in-flight write."""
+    coordinator = await loaded(sim)
+    valve = sim.inst.valves[0]
+    entity = entity_id(hass, "climate", valve.eui, "thermostat")
+    assert _state(hass, entity).attributes[ATTR_TEMPERATURE] == 22.0
+    seen: list[float | None] = []
+
+    @callback
+    def record(_event: Event[EventStateChangedData]) -> None:
+        seen.append(_state(hass, entity).attributes[ATTR_TEMPERATURE])
+
+    unsub = async_track_state_change_event(hass, [entity], record)
+    call = asyncio.ensure_future(_set(hass, entity, 25.0))
+    await sim.drive_until(lambda: _state(hass, entity).attributes[ATTR_TEMPERATURE] == 25.0)
+    assert not call.done()  # the optimistic target was visible while the write is in flight
+    assert status(coordinator, valve.eui).requested_c == 25.0
+    own_short = sim.runtime.bridge.snapshot().own_short
+    assert own_short is not None
+    sim.inst.network._status_later(own_short, NWK_STATUS_NON_TREE_LINK_FAILURE, about=valve.short)
+    with pytest.raises(HomeAssistantError) as info:
+        await sim.drive(call)
+    unsub()
+    assert not isinstance(info.value, ServiceValidationError)
+    assert info.value.translation_key == "write_failed"
+    assert isinstance(info.value.__cause__, RouteError)
+    assert 25.0 in seen
+    state = _state(hass, entity)
+    assert state.attributes[ATTR_TEMPERATURE] == 22.0
+    assert state.attributes["setpoint_pending"] is False
+    assert status(coordinator, valve.eui).requested_c is None
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf, 7.5, 30.5, 99.0])
