@@ -16,18 +16,17 @@ Every handshake TLV is ``tag(1) | len-1 (1) | value(len)``. Unknown TLVs are
 ignored; duplicate known TLVs and malformed TLVs are rejected. Whether SE2
 echoes the method TLV is not observed in research; it is validated if present.
 
-Size note: this module is near the ~500-line limit. When T3 adds per-characteristic tracking
-and counter-model detection, ``SessionCipher`` and ``CounterModel`` may move to
-``session_cipher.py`` (re-exported here so existing imports keep working).
+``CounterModel`` and the incoming-counter tracker live in ``counters.py`` (re-exported here).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum, StrEnum
+from enum import Enum
 from typing import TYPE_CHECKING, Final
 
+from vicare_local_ble.zigbee_direct.counters import CounterModel, IncomingCounters
 from vicare_local_ble.zigbee_direct.crypto import (
     LABEL_KC_2_U,
     LABEL_KC_2_V,
@@ -132,32 +131,22 @@ def _uuid(value: str | bytes) -> bytes:
 # --- session cipher ------------------------------------------------------------------------
 
 
-class CounterModel(StrEnum):
-    """How the ZDD numbers its outgoing frames across characteristics (spec §1.1, PN §5.9).
-
-    * ``SHARED``: one counter for the whole session; Tunnel's first counter is above the Status
-      counter and no value repeats across characteristics.
-    * ``PER_CHARACTERISTIC``: a counter value was accepted on two characteristics (the ZDD then
-      reuses CCM nonces across characteristics; detected and reported, never rejected).
-    * ``UNKNOWN``: not enough evidence yet.
-    """
-
-    UNKNOWN = "unknown"
-    SHARED = "shared"
-    PER_CHARACTERISTIC = "per_characteristic"
-
-
 class SessionCipher:
     """Encrypts/decrypts GATT values of an established session.
 
-    One counter pair is shared across all characteristics (proven live; research
-    zvd_client.py:280-296). ``outgoing_counter`` is the next counter to send
-    (starts at 1, never reused, never rolled back: a failed write burns it).
-    ``incoming_counter`` is the last accepted peer counter (starts at 0); an
-    incoming frame must carry a strictly greater counter. The replay check runs
-    before the MIC and the counter advances only after the MIC passes. After
-    counter 0xFFFFFFFF has been used, ``encrypt`` raises ``CounterExhaustedError``;
-    reconnect with a new handshake.
+    Outgoing: one counter for the whole session (``outgoing_counter`` is the next counter to
+    send, starts at 1, never reused, never rolled back: a failed write burns it). We only write
+    to Authenticate (before the session) and Tunnel, so our CCM nonces are never reused.
+
+    Incoming: the last accepted counter is tracked per characteristic UUID and must be strictly
+    greater on that characteristic. Whether the ZDD uses one counter for all characteristics or
+    one per characteristic is NOT proven (PN §5.9); both are accepted, and ``counter_model()``
+    reports what was observed. Residual risk: the CCM nonce has no characteristic in it, so a
+    per-characteristic ZDD reuses nonces across characteristics under one key (leaking the XOR of
+    those plaintexts and weakening authenticity for them). That is a ZDD flaw we cannot fix
+    client-side. The replay check runs before the MIC and the counter advances only after the
+    MIC passes. After counter 0xFFFFFFFF has been used, ``encrypt`` raises
+    ``CounterExhaustedError``; reconnect with a new handshake.
     """
 
     __slots__ = ("_incoming", "_key", "_outgoing", "_own_eui", "_peer_eui")
@@ -178,7 +167,7 @@ class SessionCipher:
         self._own_eui = own_eui
         self._peer_eui = peer_eui
         self._outgoing = _initial_outgoing_counter
-        self._incoming = 0
+        self._incoming = IncomingCounters()
 
     @property
     def own_eui(self) -> Eui64:
@@ -195,8 +184,8 @@ class SessionCipher:
 
     @property
     def incoming_counter(self) -> int:
-        """Highest peer counter accepted so far (0 before any frame)."""
-        return self._incoming
+        """Highest peer counter accepted on any characteristic (0 before any frame)."""
+        return self._incoming.highest
 
     def encrypt(self, service_uuid: str | bytes, char_uuid: str | bytes, plaintext: bytes) -> bytes:
         """Seal ``plaintext`` as ``counter_LE(4) || ciphertext || MIC(4)``."""
@@ -211,29 +200,32 @@ class SessionCipher:
         """Verify and open a peer frame.
 
         Raises ``DecodeError`` (too short), ``ReplayError`` (counter not
-        strictly increasing; checked before the MIC) or ``AuthenticationError``.
+        strictly increasing per characteristic; checked before the MIC) or ``AuthenticationError``.
         """
         svc, chr_ = _uuid(service_uuid), _uuid(char_uuid)
         counter = session_frame_counter(frame)
-        if counter <= self._incoming:
-            raise ReplayError(f"frame counter {counter} <= last accepted {self._incoming}")
+        if self._incoming.is_replay(chr_, counter):
+            raise ReplayError(
+                f"frame counter {counter} <= last accepted {self._incoming.last(chr_)} "
+                "on this characteristic"
+            )
         plaintext = decrypt_session_frame(self._key, self._peer_eui, svc, chr_, frame)
-        self._incoming = counter
+        self._incoming.accept(chr_, counter)
         return plaintext
 
     def counter_model(self) -> CounterModel:
         """Detected ZDD counter model from the counters accepted so far (spec §1.1).
 
-        Phase-2 task T3 implements this together with per-characteristic incoming tracking
-        (``dict[bytes, int]`` keyed by characteristic UUID bytes). Pure and cheap; the
-        transport calls it after the first Tunnel indication and logs the result at INFO once.
+        Never rejects a session. ``PER_CHARACTERISTIC`` is sticky and wins over ``SHARED``;
+        ``UNKNOWN`` until both Status and Tunnel have been seen. Pure and cheap; the transport
+        calls it after each accepted frame and logs the first non-UNKNOWN result at INFO.
         """
-        raise NotImplementedError("T3")
+        return self._incoming.model()
 
     def __repr__(self) -> str:
         return (
             f"SessionCipher(own_eui={self._own_eui}, peer_eui={self._peer_eui}, "
-            f"outgoing_counter={self._outgoing}, incoming_counter={self._incoming})"
+            f"outgoing_counter={self._outgoing}, incoming_counter={self.incoming_counter})"
         )
 
 

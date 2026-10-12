@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
+from fixtures import golden as g
 from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
 from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
     AssociationType,
@@ -211,6 +214,31 @@ def test_route_reply_both_euis_is_0x30_spec_correct() -> None:
     """Research sent 0x20 with both EUIs live; spec-correct 0x30 is unverified live."""
     reply = RouteReply(1, 0x4B4B, PLACEHOLDER, originator_ieee=VALVE_EUI, responder_ieee=ZVD_EUI)
     assert reply.encode()[1] == 0x30
+
+
+def test_route_reply_options_override_matches_golden_live_payload() -> None:
+    reply = RouteReply(
+        route_id=7,
+        originator=g.VALVE_SHORT,
+        responder=g.ZVD_SHORT,
+        originator_ieee=g.VALVE_EUI,
+        responder_ieee=g.ZVD_EUI,
+        options_override=0x20,
+    )
+    payload = reply.encode()
+    assert payload == g.RREP_LIVE[-len(payload) :]  # 02 20 rid orig own 00 EUI_orig EUI_own
+    assert payload[:3] == bytes.fromhex("022007")
+    assert reply.options == 0x30  # derived value untouched
+    spec = replace(reply, options_override=None)
+    assert spec.encode()[1] == 0x30
+    assert spec.encode()[2:] == payload[2:]  # only the options byte differs
+
+
+def test_route_reply_options_override_validation_and_decode_ignores_it() -> None:
+    with pytest.raises(EncodeError):
+        RouteReply(1, 2, 3, options_override=0x100)
+    reply = RouteReply(1, 2, 3, originator_ieee=VALVE_EUI, options_override=0x20)
+    assert RouteReply.decode(reply.encode()).options_override is None
 
 
 def test_route_reply_multicast_and_path_cost() -> None:

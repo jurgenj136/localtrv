@@ -212,7 +212,10 @@ class RouteReply:
     responder IEEE present, bit 6 multicast. With both EUIs this yields 0x30,
     which is spec-correct but unverified live: the research client sent 0x20
     with both EUIs appended (research tools/zvd_tunnel.py ``build_route_reply``)
-    and that worked against the installation. Verify 0x30 in phase 2.
+    and that worked against the installation.
+
+    ``options_override`` replaces the options byte on ``encode`` only (live mode: 0x20) and
+    every present EUI is still appended. ``decode`` stays spec-derived and never sets it.
     """
 
     route_id: int
@@ -223,12 +226,15 @@ class RouteReply:
     responder_ieee: Eui64 | None = None
     multicast: bool = False
     tlvs: bytes = b""
+    options_override: int | None = None
 
     def __post_init__(self) -> None:
         _check("route_id", self.route_id, 0xFF)
         _check("originator", self.originator, 0xFFFF)
         _check("responder", self.responder, 0xFFFF)
         _check("path_cost", self.path_cost, 0xFF)
+        if self.options_override is not None:
+            _check("options_override", self.options_override, 0xFF)
 
     @property
     def options(self) -> int:
@@ -239,7 +245,8 @@ class RouteReply:
         )
 
     def encode(self) -> bytes:
-        out = bytearray((NwkCommandId.ROUTE_REPLY, self.options, self.route_id))
+        options = self.options if self.options_override is None else self.options_override
+        out = bytearray((NwkCommandId.ROUTE_REPLY, options, self.route_id))
         out += self.originator.to_bytes(2, "little")
         out += self.responder.to_bytes(2, "little")
         out.append(self.path_cost)
