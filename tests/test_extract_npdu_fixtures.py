@@ -5,13 +5,22 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+from fixtures import golden as g
+from vicare_local_ble.zigbee_direct.clock import VirtualClock
+from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
+from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
+from vicare_local_ble.zigbee_direct.debug import NPDU_LOGGER, NpduRecorder
+
 if TYPE_CHECKING:
     from types import ModuleType
+
+    from vicare_local_ble.zigbee_direct.debug import NpduRecord
 
 
 def _load() -> ModuleType:
@@ -121,3 +130,73 @@ def test_main_end_to_end(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
 def test_stdin() -> None:
     lines = ex.read_input("-", io.StringIO("a\nb\n"))
     assert lines == ["a", "b"]
+
+
+# --- --from-ha-log: the NPDU recorder's output ----------------------------------------------
+
+HA_PREFIX = "2026-10-12 10:00:00.123 DEBUG (MainThread) [vicare_local_ble.npdu] "
+
+
+def _recorder_log(caplog: pytest.LogCaptureFixture) -> tuple[list[str], list[NpduRecord]]:
+    caplog.set_level(logging.DEBUG, logger=NPDU_LOGGER)
+    rec = NpduRecorder(clock=VirtualClock(start=5.0))
+    rec.tx(TunnelNpdu(g.COMMISSIONING_REQUEST, nwk_security=False))
+    rec.rx(TunnelNpdu(g.MGMT_LQI_RSP, nwk_security=True))
+    rec.rx(TunnelNpdu(g.h("08 00 34 12 00 00 1E 10", "01 22 05 01 02 03"), nwk_security=True))
+    rec.rx(TunnelNpdu(g.h("09 00 34 12 00 00 1E 11", "04 00"), nwk_security=True))
+    rec.rx(TunnelNpdu(g.ZCL_READ_RSP, nwk_security=True))
+    lines = [r.getMessage() for r in caplog.records if r.name == NPDU_LOGGER]
+    return lines, list(rec.records())
+
+
+def test_from_ha_log_round_trip(caplog: pytest.LogCaptureFixture) -> None:
+    lines, records = _recorder_log(caplog)
+    assert len(lines) == 5
+    log = [HA_PREFIX + line for line in lines] + ["2026-10-12 INFO unrelated line"]
+    recs, skipped = ex.extract_ha_log(log, [])
+    hexed = [r for r in records if r.npdu.hex is not None]
+    assert [r["hex"] for r in recs] == [r.npdu.hex for r in hexed]
+    assert [r["kind"] for r in recs] == ["npdu_tx", "npdu_rx", "npdu_rx"]
+    assert recs[1]["src_short"] == "0x0000"
+    assert skipped == {"redacted:aps_command": 1, "redacted:undecodable": 1}
+    # Every extracted fixture is a decodable NWK frame.
+    for r in recs:
+        NwkFrame.decode(bytes.fromhex(str(r["hex"])))
+
+
+def test_from_ha_log_accepts_cut_output_and_skips_malformed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lines, _ = _recorder_log(caplog)
+    cut = [line.split(" ", 1)[1] for line in lines]  # grep NPDU | cut -d' ' -f2- (bare JSON)
+    bad = [
+        "x NPDU {not json}",
+        'NPDU {"dir":"up","hex":"00"}',
+        'NPDU {"dir":"rx","hex":"0g"}',
+        "NPDU []",
+        "{}",
+    ]
+    recs, skipped = ex.extract_ha_log(cut + bad, [])
+    assert len(recs) == 3
+    assert skipped["malformed"] == 5
+
+
+def test_from_ha_log_short_frame_has_no_src() -> None:
+    recs, _ = ex.extract_ha_log(['NPDU {"dir":"rx","flags":0,"hex":"0800","t":1.0}'], [])
+    assert recs == [{"kind": "npdu_rx", "src_short": None, "hex": "0800"}]
+
+
+def test_from_ha_log_main(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines, _ = _recorder_log(caplog)
+    f = tmp_path / "home-assistant.log"
+    f.write_text("\n".join(HA_PREFIX + line for line in lines) + "\n")
+    assert ex.main(["--from-ha-log", str(f)]) == 0
+    cap = capsys.readouterr()
+    rows = [json.loads(line) for line in cap.out.splitlines()]
+    assert len(rows) == 3
+    assert set(rows[0]) == {"kind", "src_short", "hex"}
+    assert "skipped" in cap.err
+    assert ex.main(["--from-ha-log", str(f), str(f)]) == 2
+    assert ex.main([]) == 2

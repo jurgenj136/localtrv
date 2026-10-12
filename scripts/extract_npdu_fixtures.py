@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract NPDU/payload hex from saved research-client terminal output.
+"""Extract NPDU/payload hex from saved research-client output or a Home Assistant log.
 
 Input is an explicit text file (or ``-`` for stdin) holding the stdout of the
 research client (``tools/zvd_client.py``). Only hex printed by these known,
@@ -17,6 +17,14 @@ key material. Lines of that shape are never matched.
 
 Defensive: unrecognised lines containing a bare 16-byte (32 hex chars) blob are
 dropped and counted, never emitted.
+
+``--from-ha-log PATH`` instead reads the library's NPDU debug log (logger
+``vicare_local_ble.npdu``): every line holding ``NPDU {json}`` after any HA log
+prefix, or a bare JSON object (the ``grep NPDU home-assistant.log | cut -d' '
+-f2-`` form). Records are already redacted by the recorder; suppressed ones
+(``"redacted"``: APS command, ZCL secret, undecodable header-only) carry no
+payload and are skipped and counted, as are malformed lines. Kind is
+``npdu_rx`` / ``npdu_tx``; ``src_short`` is the NWK source from the header.
 
 Output: JSON lines ``{"kind", "src_short", "hex"}`` on stdout, summary on
 stderr. Refuses paths containing ``.viessmann-local`` and files over 5 MB.
@@ -67,6 +75,10 @@ PATTERNS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
         ),
     ),
 )
+_NPDU_LINE: Final = re.compile(r"(?:^|\s)NPDU (?P<json>\{.*\})\s*$")
+_BARE_JSON: Final = re.compile(r"^\s*(?P<json>\{.*\})\s*$")
+_HEX_ONLY: Final = re.compile(r"^(?:[0-9a-fA-F]{2})+$")
+NWK_HEADER_MIN_LEN: Final = 8
 _BARE_16: Final = re.compile(r"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}){16}(?![0-9A-Fa-f])")
 
 
@@ -131,6 +143,54 @@ def extract(
     return records, dropped
 
 
+def _parse_npdu_json(line: str) -> dict[str, object] | None:
+    m = _NPDU_LINE.search(line) or _BARE_JSON.match(line)
+    if m is None:
+        return None
+    try:
+        obj = json.loads(m.group("json"))
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def extract_ha_log(
+    lines: list[str], pairs: list[tuple[bytes, bytes]]
+) -> tuple[list[dict[str, str | None]], dict[str, int]]:
+    """Parse recorder lines; return (records, skip counts by reason)."""
+    records: list[dict[str, str | None]] = []
+    skipped: dict[str, int] = {}
+
+    def skip(reason: str) -> None:
+        skipped[reason] = skipped.get(reason, 0) + 1
+
+    for line in lines:
+        if "NPDU" not in line and not line.lstrip().startswith("{"):
+            continue
+        obj = _parse_npdu_json(line)
+        if obj is None:
+            if "NPDU" in line:
+                skip("malformed")
+            continue
+        direction, hex_text = obj.get("dir"), obj.get("hex")
+        if "redacted" in obj:
+            skip(f"redacted:{obj['redacted']}")
+            continue
+        if (
+            direction not in ("rx", "tx")
+            or not isinstance(hex_text, str)
+            or not _HEX_ONLY.match(hex_text)
+        ):
+            skip("malformed")
+            continue
+        raw = redact(bytes.fromhex(hex_text), pairs)
+        src_text: str | None = None
+        if len(raw) >= NWK_HEADER_MIN_LEN:
+            src_text = f"0x{int.from_bytes(raw[4:6], 'little'):04X}"
+        records.append({"kind": f"npdu_{direction}", "src_short": src_text, "hex": raw.hex()})
+    return records, skipped
+
+
 def read_input(path: str, stdin: TextIO | None = None) -> list[str]:
     if path == "-":
         return (stdin or sys.stdin).read().splitlines()
@@ -149,7 +209,12 @@ def main(argv: list[str] | None = None) -> int:
         epilog="REDACTION IS BEST-EFFORT, NOT A GUARANTEE: review output before sharing. "
         "Commissioning Status dumps (may hold key material) are never extracted.",
     )
-    parser.add_argument("input", help="saved terminal-output text file, or - for stdin")
+    parser.add_argument("input", nargs="?", help="saved terminal-output text file, or - for stdin")
+    parser.add_argument(
+        "--from-ha-log",
+        metavar="PATH",
+        help="Home Assistant log (or - for stdin) with NPDU debug lines, instead of INPUT",
+    )
     parser.add_argument(
         "--redact-eui",
         action="append",
@@ -165,18 +230,31 @@ def main(argv: list[str] | None = None) -> int:
         help="short address to replace (LE occurrences) with 0x5A01, 0x5A02, ...",
     )
     args = parser.parse_args(argv)
+    if (args.input is None) == (args.from_ha_log is None):
+        print("error: give exactly one of INPUT or --from-ha-log PATH", file=sys.stderr)
+        return 2
     try:
         euis = [parse_eui(e) for e in args.redact_eui]
         shorts = [parse_short(s) for s in args.redact_short]
-        lines = read_input(args.input)
+        lines = read_input(args.from_ha_log if args.from_ha_log is not None else args.input)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    records, dropped = extract(lines, build_replacements(euis, shorts))
+    pairs = build_replacements(euis, shorts)
     print(
         "# NOTE: redaction is best-effort, not a guarantee; review before sharing.",
         file=sys.stderr,
     )
+    if args.from_ha_log is not None:
+        ha_records, skipped = extract_ha_log(lines, pairs)
+        for rec in ha_records:
+            print(json.dumps(rec))
+        print(
+            f"# extracted {len(ha_records)} NPDU record(s); skipped {skipped}",
+            file=sys.stderr,
+        )
+        return 0
+    records, dropped = extract(lines, pairs)
     for rec in records:
         print(json.dumps(rec))
     kinds: dict[str, int] = {}
