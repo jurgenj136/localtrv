@@ -16,6 +16,8 @@ CONF_VALIDATE: Final = "validate"
 # Option keys.
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_ROUTE_REPLY_MODE: Final = "route_reply_mode"
+# Options-flow section holding the advanced options (route_reply_mode).
+SECTION_ADVANCED: Final = "advanced"
 
 DEFAULT_SCAN_INTERVAL: Final = 300  # seconds
 MIN_SCAN_INTERVAL: Final = 60

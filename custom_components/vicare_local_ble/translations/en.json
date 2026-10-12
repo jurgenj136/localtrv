@@ -30,6 +30,9 @@
         "description": "The R0 rejected the stored network key. Enter the current key.",
         "data": {
           "network_key": "Network key"
+        },
+        "data_description": {
+          "network_key": "32 hexadecimal characters."
         }
       }
     },
@@ -52,12 +55,21 @@
       "init": {
         "title": "ViCare Local options",
         "data": {
-          "scan_interval": "Poll interval (seconds)",
-          "route_reply_mode": "Route reply mode"
+          "scan_interval": "Poll interval (seconds)"
         },
         "data_description": {
-          "scan_interval": "How often the valves are polled, 60 to 3600 seconds. Valves are battery powered and answer slowly.",
-          "route_reply_mode": "Advanced. How the integration answers Zigbee route requests."
+          "scan_interval": "How often the valves are polled, 60 to 3600 seconds. Valves are battery powered and answer slowly."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced",
+            "data": {
+              "route_reply_mode": "Route reply mode"
+            },
+            "data_description": {
+              "route_reply_mode": "How the integration answers Zigbee route requests. Leave on Live unless asked to change it."
+            }
+          }
         }
       }
     }
