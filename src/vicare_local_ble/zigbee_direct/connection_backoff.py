@@ -30,10 +30,11 @@ class Backoff:
         self._jitter = jitter
         self._index = 0
 
-    def next_delay(self, rng: random.Random) -> float:
+    def next_delay(self, rng: random.Random) -> tuple[float, float]:
+        """``(base, jittered)`` for the next wait; steps on (up to the cap)."""
         base = self._schedule[min(self._index, len(self._schedule) - 1)]
         self._index = min(self._index + 1, len(self._schedule) - 1)
-        return base * (1.0 + rng.uniform(-self._jitter, self._jitter))
+        return base, base * (1.0 + rng.uniform(-self._jitter, self._jitter))
 
     def reset(self) -> None:
         self._index = 0
@@ -42,8 +43,8 @@ class Backoff:
 class BackoffWait:
     """One backoff wait at a time; ``shorten`` cuts a long wait's remainder (``notify_seen``).
 
-    A wait of at least ``threshold`` seconds is shortened once, to ``shortened`` seconds from
-    the moment ``shorten`` is called, unless less than that remains already.
+    A wait whose un-jittered base is at least ``threshold`` seconds is shortened once, to
+    ``shortened`` seconds from the moment ``shorten`` is called, unless less remains already.
     """
 
     __slots__ = (
@@ -65,12 +66,13 @@ class BackoffWait:
         self._deadline = 0.0
         self._shortenable = False
 
-    async def wait(self, delay: float) -> None:
-        """Sleep ``delay`` seconds on the clock (cancellable; ``shorten`` may end it early)."""
+    async def wait(self, delay: float, *, base: float) -> None:
+        """Sleep ``delay`` seconds on the clock (cancellable; ``shorten`` may end it early if
+        ``base``, the un-jittered schedule step, reaches the threshold)."""
         future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self._future = future
         self._deadline = self._clock.now() + delay
-        self._shortenable = delay >= self._threshold
+        self._shortenable = base >= self._threshold
         self._handle = self._clock.call_later(delay, lambda: _wake(future))
         try:
             await future

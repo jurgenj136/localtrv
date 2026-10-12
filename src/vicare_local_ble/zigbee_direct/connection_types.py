@@ -31,6 +31,8 @@ SEEN_SHORTEN_THRESHOLD: Final = 30.0
 SEEN_SHORTENED_WAIT: Final = 2.0
 DISCONNECT_TIMEOUT: Final = 5.0
 AUTH_FAILURES_TO_STOP: Final = 2
+#: Seconds spawned tasks get to finish after cancellation at teardown (then WARNING).
+SPAWNED_TASKS_TIMEOUT: Final = 10.0
 CONNECT_MAX_ATTEMPTS: Final = 3
 #: Consecutive connect failures that log the single-client WARNING.
 CONNECT_FAILURE_WARNING: Final = 3
@@ -122,6 +124,7 @@ __all__ = [
     "DISCONNECT_TIMEOUT",
     "SEEN_SHORTENED_WAIT",
     "SEEN_SHORTEN_THRESHOLD",
+    "SPAWNED_TASKS_TIMEOUT",
     "ConnectionIssue",
     "ConnectionState",
     "ConnectionStats",

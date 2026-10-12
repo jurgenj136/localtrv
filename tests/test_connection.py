@@ -352,7 +352,7 @@ async def test_stop_is_idempotent_and_leaves_no_tasks() -> None:
     await r.clock.run_task(asyncio.gather(first, second))
     await stop(r)  # and again afterwards
     assert r.conn.state is S.STOPPED
-    assert r.sequence()[-2:] == [S.IDLE, S.STOPPED]  # left READY first
+    assert r.sequence()[-2:] == [S.READY, S.STOPPED]  # straight to STOPPED, no IDLE
     assert r.conn.current is None
     assert gen.node.closed
     assert r.inst.r0.client is None  # disconnected

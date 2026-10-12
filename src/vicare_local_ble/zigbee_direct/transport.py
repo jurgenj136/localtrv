@@ -68,6 +68,7 @@ from vicare_local_ble.zigbee_direct.errors import (
     AuthenticationError,
     DecodeError,
     EncodeError,
+    HandshakeRejectedError,
     ReplayError,
     TransportError,
 )
@@ -208,6 +209,7 @@ class ZigbeeDirectTransport:
         "_own_eui",
         "_psk",
         "_recorder",
+        "_rejection",
         "_session",
         "_stats",
         "_tunnel_subscribed",
@@ -245,6 +247,7 @@ class ZigbeeDirectTransport:
         self._tunnel_subscribed = False
         self._mic_streak = 0
         self._model_logged = False
+        self._rejection: HandshakeRejectedError | None = None
 
     def __repr__(self) -> str:
         state = "closed" if self._closed else "open" if self._session else "new"
@@ -266,6 +269,8 @@ class ZigbeeDirectTransport:
             return await self._open()
         except BaseException as exc:
             _LOGGER.debug("open failed: %s", type(exc).__name__)
+            if isinstance(exc, HandshakeRejectedError):
+                self._rejection = exc  # recorded before the cleanup awaits (it may be cancelled)
             await self._shutdown()
             raise
         finally:
@@ -388,6 +393,12 @@ class ZigbeeDirectTransport:
     def broken(self) -> bool:
         """True once a write failed or the counter is in doubt; the session must be replaced."""
         return self._writer is not None and self._writer.broken
+
+    @property
+    def rejection(self) -> HandshakeRejectedError | None:
+        """The ``HandshakeRejectedError`` of a failed ``open()``, set before its cleanup runs
+        (so it is known even if the cleanup is cancelled, e.g. by a disconnect)."""
+        return self._rejection
 
     @property
     def closed(self) -> bool:

@@ -265,16 +265,27 @@ async def test_long_write_issue_raised_and_cleared() -> None:
     assert (ConnectionIssue.LONG_WRITE_UNSUPPORTED, True) in issues
     assert r.conn.stats.last_failure == "transport:long_write_unsupported"
     assert r.conn.stats.last_transport_error == "long_write_unsupported"
-    r.conn.request_rejoin(gen2, "same mtu")
+    # gen2 opened at the same MTU: cleared, and raised again when it fails again
+    assert (ConnectionIssue.LONG_WRITE_UNSUPPORTED, False) in issues
+    assert r.conn.issues == {ConnectionIssue.MTU_TOO_SMALL}
+    task = r.conn.spawn(gen2, _large_read(r, gen2), name="large read")
+    await run_until(r.clock, lambda: r.conn.state is S.BACKOFF)
+    assert issues.count((ConnectionIssue.LONG_WRITE_UNSUPPORTED, True)) == 2
+    assert r.conn.issues == {ConnectionIssue.MTU_TOO_SMALL, ConnectionIssue.LONG_WRITE_UNSUPPORTED}
+    late: list[tuple[ConnectionIssue, bool]] = []
+    r.conn.add_issue_listener(lambda issue, active: late.append((issue, active)))
+    assert sorted(late) == [  # replayed to a late listener
+        (ConnectionIssue.LONG_WRITE_UNSUPPORTED, True),
+        (ConnectionIssue.MTU_TOO_SMALL, True),
+    ]
     gen3 = await ready_again(r, gen2.number)
-    assert (ConnectionIssue.LONG_WRITE_UNSUPPORTED, False) not in issues
+    assert task.done()
+    assert issues[-1] == (ConnectionIssue.LONG_WRITE_UNSUPPORTED, False)  # reopened, same MTU
     r.inst.r0.mtu_size = 247
     r.conn.request_rejoin(gen3, "bigger mtu")
     await ready_again(r, gen3.number)
-    assert issues[-2:] == [
-        (ConnectionIssue.MTU_TOO_SMALL, False),
-        (ConnectionIssue.LONG_WRITE_UNSUPPORTED, False),
-    ]
+    assert issues[-1] == (ConnectionIssue.MTU_TOO_SMALL, False)
+    assert r.conn.issues == frozenset()
     await stop(r)
 
 

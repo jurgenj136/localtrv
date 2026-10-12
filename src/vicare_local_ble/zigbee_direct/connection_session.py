@@ -43,6 +43,7 @@ class Session:
     """
 
     __slots__ = (
+        "clear_cache",
         "client",
         "conflicted",
         "ended",
@@ -62,6 +63,7 @@ class Session:
         self.lost: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self.conflicted = False
         self.ended = False
+        self.clear_cache = False  # stale GATT cache: clear the client cache before teardown
 
     def fail(self, reason: str) -> bool:
         """Record the first trigger; False if the session already failed or is ending."""
@@ -84,14 +86,25 @@ class Session:
         if exc is not None:
             _LOGGER.warning("task %s failed: %s: %s", task.get_name(), type(exc).__name__, exc)
 
-    async def teardown(self, clock: Clock, *, disconnect_timeout: float) -> NodeStats | None:
-        """Ordered teardown; returns a final snapshot of the node's stats (if any node)."""
+    async def teardown(
+        self, clock: Clock, *, disconnect_timeout: float, tasks_timeout: float
+    ) -> NodeStats | None:
+        """Ordered teardown; returns a final snapshot of the node's stats (if any node).
+
+        Spawned tasks get ``tasks_timeout`` to finish after cancellation; stragglers are logged
+        at WARNING by name and the teardown continues without them.
+        """
         self.ended = True
         tasks = list(self.tasks)
         for task in tasks:
             task.cancel()
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                async with clock.timeout(tasks_timeout):
+                    await asyncio.wait(tasks)
+            except TimeoutError:
+                names = sorted(t.get_name() for t in tasks if not t.done())
+                _LOGGER.warning("tasks ignored cancellation at teardown: %s", ", ".join(names))
         snapshot: NodeStats | None = None
         if self.node is not None:
             snapshot = dataclasses.replace(self.node.stats)
@@ -152,7 +165,25 @@ async def run_validation(
             return info.zdd_eui
     finally:
         if client is not None:
-            await disconnect_client(client, clock, disconnect_timeout)
+            await run_protected(disconnect_client(client, clock, disconnect_timeout))
 
 
-__all__ = ["Session", "disconnect_client", "run_validation"]
+async def run_protected[T](coro: Coroutine[Any, Any, T]) -> T:
+    """Run ``coro`` in its own task to completion even if the caller is cancelled (any number
+    of times) meanwhile; the caller's cancellation is re-raised once it is done."""
+    task = asyncio.get_running_loop().create_task(coro)
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.done():
+                raise
+            cancelled = True
+            continue
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
+
+
+__all__ = ["Session", "disconnect_client", "run_protected", "run_validation"]

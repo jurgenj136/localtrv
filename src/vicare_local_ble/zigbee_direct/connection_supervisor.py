@@ -6,10 +6,12 @@ holds all state; ``ZdConnection`` adds the public API on top.
 Supervisor (``_run``): one cycle per attempt. A cycle builds a ``Session``, runs the attempt
 (resolve, connect, ``transport.open``, ``node.join``) as a child task raced against the
 session's ``lost`` future (a disconnect, transport fatal or address conflict during the attempt
-aborts it), and on success becomes READY and waits for ``lost``. The cycle always ends with the
-ordered teardown (``_end_session``). ``stop()`` cancels the supervisor only while it waits
-(``_interruptible``: attempt, READY, backoff), never inside a teardown, so the teardown order
-always completes.
+aborts it), and on success becomes READY and waits for ``lost``. A handshake rejection recorded
+by the transport (``transport.rejection``) is authoritative even if a disconnect won that race.
+The cycle always ends with the ordered teardown, run through ``run_protected`` so neither
+``stop()`` (which always cancels the supervisor) nor a repeated cancel can cut it short. An
+unexpected exception in a cycle is logged, fails a pending ``start()`` and is retried after the
+backoff; ``stop()`` waits for the supervisor task itself (its done callback).
 """
 
 from __future__ import annotations
@@ -19,12 +21,12 @@ import contextlib
 import dataclasses
 import logging
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from bleak_retry_connector import BleakClientWithServiceCache
 
 from vicare_local_ble.zigbee_direct.connection_backoff import Backoff, BackoffWait
-from vicare_local_ble.zigbee_direct.connection_session import Session
+from vicare_local_ble.zigbee_direct.connection_session import Session, run_protected
 from vicare_local_ble.zigbee_direct.connection_types import (
     AUTH_FAILURES_TO_STOP,
     BACKOFF_JITTER,
@@ -35,6 +37,7 @@ from vicare_local_ble.zigbee_direct.connection_types import (
     DISCONNECT_TIMEOUT,
     SEEN_SHORTEN_THRESHOLD,
     SEEN_SHORTENED_WAIT,
+    SPAWNED_TASKS_TIMEOUT,
     ConnectionIssue,
     ConnectionState,
     ConnectionStats,
@@ -56,6 +59,7 @@ if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
 _LOGGER = logging.getLogger("vicare_local_ble.zigbee_direct.connection")
+_MISSING: Final = "missing_characteristic"
 
 
 class ConnectionCore:
@@ -95,9 +99,8 @@ class ConnectionCore:
         self._current: Generation | None = None
         self._supervisor: asyncio.Task[None] | None = None
         self._first_ready: asyncio.Future[Generation] | None = None
-        self._stop_done: asyncio.Future[None] | None = None
+        self._finished: asyncio.Future[None] | None = None
         self._stopping = False
-        self._interruptible = False
         self._backoff = Backoff(BACKOFF_SCHEDULE, BACKOFF_JITTER)
         self._wait = BackoffWait(
             clock, threshold=SEEN_SHORTEN_THRESHOLD, shortened=SEEN_SHORTENED_WAIT
@@ -118,63 +121,100 @@ class ConnectionCore:
 
     # --- supervisor ---
 
+    def _start_supervisor(self) -> None:
+        loop = asyncio.get_running_loop()
+        self._finished = loop.create_future()
+        task = loop.create_task(self._run(), name=f"{self._name} connection")
+        task.add_done_callback(self._supervisor_done)
+        self._supervisor = task
+
+    def _supervisor_done(self, task: asyncio.Task[None]) -> None:
+        """Runs however the supervisor ended (even cancelled before its first step)."""
+        if not task.cancelled() and task.exception() is not None:  # pragma: no cover - bug
+            exc = task.exception()
+            _LOGGER.error("%s: connection supervisor died", self._name, exc_info=exc)
+            self._resolve_first(exc if exc is not None else RuntimeError("supervisor died"))
+            self._stopping = True
+        if self._stopping:
+            self._set_state(ConnectionState.STOPPED)
+        if self._finished is not None and not self._finished.done():
+            self._finished.set_result(None)
+
     async def _run(self) -> None:
-        try:
-            while True:
+        while True:
+            try:
                 outcome = await self._cycle()
-                if self._stopping:
-                    return
-                if outcome is _Outcome.AUTH_FAILED:
-                    _LOGGER.warning("%s rejected the network key twice: giving up", self._name)
-                    self._set_state(ConnectionState.AUTH_FAILED)
-                    self._resolve_first(self._auth_error or HandshakeRejectedError("rejected"))
-                    return
-                if outcome is _Outcome.BACKOFF:
-                    delay = self._backoff.next_delay(self._rng)
-                    self._stats.backoff = delay
-                    self._set_state(ConnectionState.BACKOFF)
-                    _LOGGER.info("%s: next attempt in %.1f s", self._name, delay)
-                    self._interruptible = True
-                    try:
-                        await self._wait.wait(delay)
-                    finally:
-                        self._interruptible = False
-        except Exception:  # pragma: no cover - a bug; never leave it unlogged
-            _LOGGER.exception("%s: connection supervisor failed", self._name)
-        finally:
-            if self._stopping:
-                self._set_state(ConnectionState.STOPPED)
+            except Exception as exc:
+                _LOGGER.exception("%s: connection cycle failed unexpectedly", self._name)
+                self._stats.last_failure = "error"
+                self._resolve_first(exc)
+                outcome = _Outcome.BACKOFF
+            if self._stopping:  # pragma: no cover - stop() cancels the cycle instead
+                return
+            if outcome is _Outcome.AUTH_FAILED:
+                _LOGGER.warning("%s rejected the network key twice: giving up", self._name)
+                self._set_state(ConnectionState.AUTH_FAILED)
+                self._resolve_first(self._auth_error or HandshakeRejectedError("rejected"))
+                return
+            if outcome is _Outcome.BACKOFF:
+                base, delay = self._backoff.next_delay(self._rng)
+                self._stats.backoff = delay
+                self._set_state(ConnectionState.BACKOFF)
+                _LOGGER.info("%s: next attempt in %.1f s", self._name, delay)
+                await self._wait.wait(delay, base=base)
 
     async def _cycle(self) -> _Outcome:
-        """One attempt and, once READY, the generation until a trigger; then the teardown."""
+        """One attempt and, once READY, the generation until a trigger; then the teardown.
+
+        Any wait here may be cancelled by ``stop()``; the teardown in ``finally`` runs
+        protected (``run_protected``), so it always completes in order.
+        """
         session = Session()
         self._session = session
         attempt = asyncio.get_running_loop().create_task(
             self._establish(session), name=f"{self._name} attempt"
         )
         try:
-            try:
-                self._interruptible = True
-                await asyncio.wait((attempt, session.lost), return_when=asyncio.FIRST_COMPLETED)
-            finally:
-                self._interruptible = False
-                if not attempt.done():
-                    attempt.cancel()
+            await asyncio.wait((attempt, session.lost), return_when=asyncio.FIRST_COMPLETED)
+            if not attempt.done():  # a trigger won: abort the attempt
+                attempt.cancel()
                 await asyncio.wait((attempt,))
-                error = None if attempt.cancelled() else attempt.exception()
+            error = None if attempt.cancelled() else attempt.exception()
+            rejection = session.transport.rejection if session.transport is not None else None
+            if rejection is not None:  # authoritative, even if a disconnect raced it
+                return self._attempt_error(rejection)
             if session.lost.done():
-                return self._failed(session.lost.result())
+                return await self._lost(session, session.lost.result())
             if error is None:
                 self._become_ready(session, attempt.result())
-                self._interruptible = True
-                try:
-                    reason = await session.lost
-                finally:
-                    self._interruptible = False
-                return self._failed(reason)
+                return await self._lost(session, await session.lost)
             return self._attempt_error(error)
         finally:
-            await self._end_session(session)
+            await run_protected(self._finish(session, attempt))
+
+    async def _lost(self, session: Session, reason: str) -> _Outcome:
+        if reason == f"transport:{_MISSING}" and self._clear_cache_due(session):
+            self._auth_streak = 0
+            return _Outcome.IMMEDIATE
+        return self._failed(reason)
+
+    def _clear_cache_due(self, session: Session) -> bool:
+        """Start the once-only stale-cache recovery for this session's client if allowed."""
+        if self._cache_cleared or session.client is None:
+            return False
+        session.clear_cache = True
+        self._cache_cleared = True
+        return True
+
+    async def _finish(self, session: Session, attempt: asyncio.Task[JoinInfo]) -> None:
+        if not attempt.done():
+            attempt.cancel()
+        await asyncio.wait((attempt,))
+        if not attempt.cancelled():
+            attempt.exception()  # retrieved
+        if session.clear_cache and session.client is not None:
+            await self._clear_cache(session.client)
+        await self._end_session(session)
 
     async def _establish(self, session: Session) -> JoinInfo:
         self._stats.attempts += 1
@@ -213,8 +253,7 @@ class ConnectionCore:
             raise
         except TransportError as exc:
             self._stats.last_transport_error = exc.reason
-            if exc.reason == "missing_characteristic" and not self._cache_cleared:
-                await self._clear_cache(client)
+            if exc.reason == _MISSING and self._clear_cache_due(session):
                 raise _CacheClearedError from exc
             raise _AttemptFailedError(f"transport:{exc.reason}") from exc
         except Exception as exc:
@@ -230,6 +269,9 @@ class ConnectionCore:
         try:
             return await node.join()
         except Exception as exc:
+            cause = _transport_error(exc)
+            if cause is not None and cause.reason == _MISSING and self._clear_cache_due(session):
+                raise _CacheClearedError from exc
             raise _AttemptFailedError("join") from exc
 
     def _become_ready(self, session: Session, join: JoinInfo) -> None:
@@ -258,9 +300,11 @@ class ConnectionCore:
             if since is not None and self._clock.now() - since >= BACKOFF_RESET_AFTER:
                 self._backoff.reset()
             self._stats.ready_since = None
-            self._set_state(ConnectionState.IDLE if self._stopping else ConnectionState.BACKOFF)
+            self._set_state(ConnectionState.STOPPED if self._stopping else ConnectionState.BACKOFF)
             _LOGGER.info("generation %d ended", gen.number)
-        snapshot = await session.teardown(self._clock, disconnect_timeout=DISCONNECT_TIMEOUT)
+        snapshot = await session.teardown(
+            self._clock, disconnect_timeout=DISCONNECT_TIMEOUT, tasks_timeout=SPAWNED_TASKS_TIMEOUT
+        )
         if snapshot is not None:
             self._last_node_stats = snapshot
         self._session = None
@@ -348,12 +392,11 @@ class ConnectionCore:
         self._stats.mtu = info.mtu
         self._stats.mtu_low = info.mtu_low
         self._set_issue(ConnectionIssue.MTU_TOO_SMALL, active=info.mtu_low)
-        if self._long_write_mtu is not None and info.mtu > self._long_write_mtu:
+        if self._long_write_mtu is not None and info.mtu >= self._long_write_mtu:
             self._long_write_mtu = None
             self._set_issue(ConnectionIssue.LONG_WRITE_UNSUPPORTED, active=False)
 
     async def _clear_cache(self, client: GattClient) -> None:
-        self._cache_cleared = True
         self._stats.cache_clears += 1
         _LOGGER.info("%s: GATT characteristic missing; clearing the service cache", self._name)
         try:
@@ -401,7 +444,19 @@ class _AttemptFailedError(Exception):
 
 
 class _CacheClearedError(Exception):
-    """Stale GATT cache cleared: reconnect at once."""
+    """Stale GATT cache: clear it and reconnect at once."""
+
+
+def _transport_error(exc: BaseException) -> TransportError | None:
+    """The ``TransportError`` that ``exc`` is or was caused by (node APIs chain it)."""
+    seen: BaseException | None = exc
+    for _ in range(8):  # bounded walk of the cause chain
+        if seen is None:
+            return None
+        if isinstance(seen, TransportError):
+            return seen
+        seen = seen.__cause__ or seen.__context__
+    return None  # pragma: no cover - absurdly long chain
 
 
 def subscribe[C](listeners: list[C], cb: C) -> Callable[[], None]:

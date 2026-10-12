@@ -64,7 +64,7 @@ from bleak_retry_connector import establish_connection
 
 from vicare_local_ble.zigbee_direct.clock import LoopClock
 from vicare_local_ble.zigbee_direct.connection_session import run_validation
-from vicare_local_ble.zigbee_direct.connection_supervisor import ConnectionCore, subscribe
+from vicare_local_ble.zigbee_direct.connection_supervisor import ConnectionCore, emit, subscribe
 from vicare_local_ble.zigbee_direct.connection_types import (
     AUTH_FAILURES_TO_STOP,
     BACKOFF_JITTER,
@@ -146,7 +146,14 @@ class ZdConnection(ConnectionCore):
 
     def add_issue_listener(self, cb: Callable[[ConnectionIssue, bool], None]) -> Callable[[], None]:
         """``cb(issue, active)`` when a repair condition appears (``mtu_low`` at open, a
-        ``long_write_unsupported`` transport error) or clears (a later session without it)."""
+        ``long_write_unsupported`` transport error) or clears (a later session without it).
+
+        Issues already active are replayed to ``cb`` synchronously before this returns.
+        ``mtu_too_small`` clears at a later open with a normal MTU; ``long_write_unsupported``
+        clears at a later successful open whose MTU is at least the one it failed at (and is
+        raised again if it fails again). ``issues`` is the current snapshot."""
+        for issue in sorted(self._issues):
+            emit([cb], issue, True)  # replay: a late listener still learns the active issues
         return subscribe(self._issue_listeners, cb)
 
     # --- generation API ---
@@ -206,10 +213,9 @@ class ZdConnection(ConnectionCore):
         """
         if self._supervisor is not None or self._stopping:
             raise RuntimeError("connection already started")
-        loop = asyncio.get_running_loop()
-        first: asyncio.Future[Generation] = loop.create_future()
+        first: asyncio.Future[Generation] = asyncio.get_running_loop().create_future()
         self._first_ready = first
-        self._supervisor = loop.create_task(self._run(), name=f"{self._name} connection")
+        self._start_supervisor()
         try:
             async with self._clock.timeout(first_ready_timeout):
                 return await first
@@ -220,22 +226,15 @@ class ZdConnection(ConnectionCore):
     async def stop(self) -> None:
         """Idempotent: stop the supervisor, run the teardown, then state STOPPED. Leaves no
         tasks behind."""
-        if self._stop_done is not None:
-            await asyncio.shield(self._stop_done)
-            return
-        done: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        self._stop_done = done
         self._stopping = True
-        try:
-            self._resolve_first(ConnectionLostError("connection stopped"))
-            supervisor = self._supervisor
-            if supervisor is not None and not supervisor.done():
-                if self._interruptible:
-                    supervisor.cancel()
-                await asyncio.wait((supervisor,))
-            self._set_state(ConnectionState.STOPPED)
-        finally:
-            done.set_result(None)
+        self._resolve_first(ConnectionLostError("connection stopped"))
+        supervisor = self._supervisor
+        if supervisor is not None and not supervisor.done():
+            supervisor.cancel()  # the teardown inside is protected and completes in order
+        if self._finished is not None:
+            # completion of the supervisor itself: a cancelled stop() never fakes it
+            await asyncio.shield(self._finished)
+        self._set_state(ConnectionState.STOPPED)
 
     # --- properties ---
 
@@ -247,6 +246,11 @@ class ZdConnection(ConnectionCore):
     def current(self) -> Generation | None:
         """The READY generation, or ``None`` outside READY."""
         return self._current
+
+    @property
+    def issues(self) -> frozenset[ConnectionIssue]:
+        """Repair issues active now (snapshot)."""
+        return frozenset(self._issues)
 
     @property
     def stats(self) -> ConnectionStats:
