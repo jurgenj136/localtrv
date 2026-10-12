@@ -29,7 +29,13 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from vicare_local_ble.zigbee_direct.codec.nwk_commands import many_to_one_route_request_npdu
 from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, RouteError
-from vicare_local_ble.zigbee_direct.frames import DEFAULT_RADIUS, device_annce_npdu
+from vicare_local_ble.zigbee_direct.frames import (
+    DEFAULT_RADIUS,
+    LIVE_ROUTE_REPLY_OPTIONS,
+    device_annce_npdu,
+    route_reply_npdu,
+)
+from vicare_local_ble.zigbee_direct.node_types import RouteReplyMode
 from vicare_local_ble.zigbee_direct.requests import SeqAllocator
 
 if TYPE_CHECKING:
@@ -47,11 +53,27 @@ if TYPE_CHECKING:
 
 #: At most one RREP per originator in this many seconds (on top of the (orig, rid) dedupe).
 RREP_MIN_INTERVAL: Final = 2.0
-#: At most one MTORR triggered by Network Status 0x02 in this many seconds.
+#: At most one MTORR triggered by a route-failure Network Status in this many seconds.
 MTORR_ON_ROUTE_FAILURE_INTERVAL: Final = 30.0
-#: Network Status codes with a dedicated reaction.
-NWK_STATUS_NO_ROUTE: Final = 0x02
+#: NWK Network Status codes (Zigbee R23 3.4.3.3.1, table "Status Codes for Network Status").
+NWK_STATUS_NO_ROUTE_AVAILABLE: Final = 0x00
+NWK_STATUS_TREE_LINK_FAILURE: Final = 0x01
+NWK_STATUS_NON_TREE_LINK_FAILURE: Final = 0x02
+NWK_STATUS_SOURCE_ROUTE_FAILURE: Final = 0x0B
+NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE: Final = 0x0C
 NWK_STATUS_ADDRESS_CONFLICT: Final = 0x0D
+#: Statuses (addressed to us) that schedule the rate-limited MTORR.
+ROUTE_FAILURE_STATUSES: Final = frozenset(
+    {
+        NWK_STATUS_NO_ROUTE_AVAILABLE,
+        NWK_STATUS_TREE_LINK_FAILURE,
+        NWK_STATUS_NON_TREE_LINK_FAILURE,
+        NWK_STATUS_SOURCE_ROUTE_FAILURE,
+        NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE,
+    }
+)
+#: Hard cap on the dedupe set (oldest key dropped first), against RREQ floods.
+_MAX_DEDUPE_ENTRIES: Final = 256
 #: Shorts at or above this are broadcast addresses (never noted in the neighbor table).
 _FIRST_BROADCAST: Final = 0xFFF8
 
@@ -144,10 +166,21 @@ class RoutingHost(Protocol):
 class Router:
     """Routing logic for one node (one generation)."""
 
-    __slots__ = ("_host", "_last_failure_mtorr", "_periodic", "_route_ids")
+    __slots__ = (
+        "_host",
+        "_last_failure_mtorr",
+        "_last_rrep",
+        "_periodic",
+        "_route_ids",
+        "_rreq_expiry",
+    )
 
     def __init__(self, host: RoutingHost) -> None:
         self._host = host
+        #: ``(originator, route_id)`` -> expiry time, oldest first.
+        self._rreq_expiry: dict[tuple[int, int], float] = {}
+        #: originator -> time of its last RREP (only while inside ``RREP_MIN_INTERVAL``).
+        self._last_rrep: dict[int, float] = {}
         self._route_ids = SeqAllocator(1)
         self._periodic: asyncio.Task[None] | None = None
         self._last_failure_mtorr: float | None = None
@@ -203,8 +236,10 @@ class Router:
           (``host.pending.fail_dst``) ONLY if the NWK ``frame.dst == own_short`` (a unicast
           status about our own traffic; broadcast statuses about others never fail requests).
           Before the join completed nothing is pending, so this is skipped.
-        * 0x02 (no route), under the same condition, also schedules one MTORR, at most every
-          ``MTORR_ON_ROUTE_FAILURE_INTERVAL`` seconds.
+        * A route failure (``ROUTE_FAILURE_STATUSES``: 0x00 no route available, 0x01 tree
+          link, 0x02 non-tree link, 0x0B source route, 0x0C many-to-one route), under the same
+          condition, also schedules one MTORR, at most every
+          ``MTORR_ON_ROUTE_FAILURE_INTERVAL`` seconds (shared across codes).
         * 0x0D (address conflict): whenever ``status.destination == own_short``, regardless of
           the frame's NWK dst (conflicts are usually broadcast), call
           ``host.fire_address_conflict()``.
@@ -227,7 +262,7 @@ class Router:
             failed = host.pending.fail_dst(about, RouteError(about, code))
             if failed:
                 _LOGGER.debug("%d request(s) to 0x%04X failed with a route error", failed, about)
-            if code == NWK_STATUS_NO_ROUTE:
+            if code in ROUTE_FAILURE_STATUSES:
                 self._schedule_failure_mtorr()
         if code == NWK_STATUS_ADDRESS_CONFLICT and about == own:
             host.fire_address_conflict()
@@ -245,6 +280,10 @@ class Router:
 
         T11 (minimal): count ``stats.rreq_seen`` and return.
 
+        Counting (T12): ``stats.rreq_seen`` counts every Route Request from another node,
+        whatever its destination; echoes of our own MTORRs (NWK src == our short, or src IEEE ==
+        our EUI) are not counted. ``stats.rrep_sent`` counts the replies actually sent.
+
         T12 (full responder): answer only if ``request.dst == own_short`` and the mode is not
         ``RouteReplyMode.OFF`` (others are counted and ignored). Dedupe on
         ``(frame.src, route_id)`` for ``config.rreq_dedupe_ttl``; at most one RREP per
@@ -252,13 +291,79 @@ class Router:
         ``neighbors.ieee_for(frame.src)``, else omitted. The RREP
         (``frames.route_reply_npdu``) is sent from a ``host.start_task``.
         """
-        self._host.stats.rreq_seen += 1
+        try:
+            self._on_route_request(frame, request)
+        except Exception as exc:  # never raise into the notify callback
+            _LOGGER.debug("RREQ handling failed: %s", type(exc).__name__)
+
+    def _on_route_request(self, frame: NwkFrame, request: RouteRequest) -> None:
+        host = self._host
+        originator, route_id = frame.src, request.route_id
+        try:
+            own: int | None = host.own_short
+        except RuntimeError:  # not joined yet: no short to answer for
+            own = None
+        if originator == own or (frame.src_ieee is not None and frame.src_ieee == host.own_eui):
+            return  # our own MTORR relayed back
+        host.stats.rreq_seen += 1
         _LOGGER.debug(
-            "RREQ seen from 0x%04X for 0x%04X (route id %d)",
-            frame.src,
-            request.dst,
-            request.route_id,
+            "RREQ seen from 0x%04X for 0x%04X (route id %d)", originator, request.dst, route_id
         )
+        if own is None:
+            return
+        mode = host.config.route_reply_mode
+        if request.dst != own or mode is RouteReplyMode.OFF:
+            return
+        now = host.clock.now()
+        self._prune(now)
+        key = (originator, route_id)
+        if key in self._rreq_expiry:
+            _LOGGER.debug("RREQ from 0x%04X (route id %d) deduped", originator, route_id)
+            return
+        if originator in self._last_rrep:
+            _LOGGER.debug("RREQ from 0x%04X rate limited", originator)
+            return
+        # Only an answered RREQ enters the dedupe set: a rate-limited one may be answered when
+        # the originator retries it after RREP_MIN_INTERVAL.
+        self._rreq_expiry[key] = now + host.config.rreq_dedupe_ttl
+        if len(self._rreq_expiry) > _MAX_DEDUPE_ENTRIES:
+            del self._rreq_expiry[next(iter(self._rreq_expiry))]
+        self._last_rrep[originator] = now
+        originator_ieee = frame.src_ieee
+        if originator_ieee is None:
+            originator_ieee = host.neighbors.ieee_for(originator)
+        npdu = route_reply_npdu(
+            originator=originator,
+            own_short=own,
+            own_eui=host.own_eui,
+            nwk_seq=host.allocators.nwk.next(),
+            route_id=route_id,
+            originator_ieee=originator_ieee,
+            options_override=LIVE_ROUTE_REPLY_OPTIONS if mode is RouteReplyMode.LIVE else None,
+        )
+        host.start_task(self._send_rrep(npdu, originator, route_id), name="rrep")
+
+    def _prune(self, now: float) -> None:
+        """Drop expired dedupe keys and finished rate-limit windows (both dicts are in
+        insertion order, which is time order, so pruning stops at the first live entry)."""
+        expiry = self._rreq_expiry
+        while expiry:
+            key = next(iter(expiry))
+            if expiry[key] > now:
+                break
+            del expiry[key]
+        last = self._last_rrep
+        while last:
+            originator = next(iter(last))
+            if now - last[originator] < RREP_MIN_INTERVAL:
+                break
+            del last[originator]
+
+    async def _send_rrep(self, npdu: bytes, originator: int, route_id: int) -> None:
+        host = self._host
+        await host.send_secure(npdu)
+        host.stats.rrep_sent += 1
+        _LOGGER.debug("RREP sent to 0x%04X (route id %d)", originator, route_id)
 
     def start_periodic(self) -> None:
         """Start the periodic MTORR task (one ``send_mtorr`` every ``config.mtorr_interval``,
@@ -267,6 +372,10 @@ class Router:
         cancellation or ``ConnectionLostError``. T11 implements; T12 may harden."""
         task = self._periodic
         if task is not None and not task.done():
+            return
+        interval = self._host.config.mtorr_interval
+        if not interval > 0:  # 0, negative or NaN would flood the link: periodic MTORR off
+            _LOGGER.debug("periodic MTORR disabled (interval %r)", interval)
             return
         self._periodic = self._host.start_task(self._periodic_mtorr(), name="mtorr-periodic")
 
@@ -293,7 +402,12 @@ class Router:
 __all__ = [
     "MTORR_ON_ROUTE_FAILURE_INTERVAL",
     "NWK_STATUS_ADDRESS_CONFLICT",
-    "NWK_STATUS_NO_ROUTE",
+    "NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE",
+    "NWK_STATUS_NON_TREE_LINK_FAILURE",
+    "NWK_STATUS_NO_ROUTE_AVAILABLE",
+    "NWK_STATUS_SOURCE_ROUTE_FAILURE",
+    "NWK_STATUS_TREE_LINK_FAILURE",
+    "ROUTE_FAILURE_STATUSES",
     "RREP_MIN_INTERVAL",
     "NeighborTable",
     "Router",

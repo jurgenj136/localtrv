@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Final
 
 from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID, ApsDataFrame, ApsDeliveryMode
 from vicare_local_ble.zigbee_direct.codec.nwk import DISCOVER_ROUTE_ENABLE, NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import DEFAULT_ZVD_CAPABILITY
+from vicare_local_ble.zigbee_direct.codec.nwk_commands import DEFAULT_ZVD_CAPABILITY, RouteReply
 from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce, ZdoCluster
 from vicare_local_ble.zigbee_direct.types import BROADCAST_RX_ON
 
@@ -150,7 +150,25 @@ def route_reply_npdu(
     <own> 00 EUI_orig EUI_own``; SPEC mode passes ``None`` (derived options, 0x30 with both
     EUIs). ``originator_ieee=None`` omits that EUI (unknown originator).
     """
-    raise NotImplementedError("T12")
+    reply = RouteReply(
+        route_id=route_id,
+        originator=originator,
+        responder=own_short,
+        path_cost=0,
+        originator_ieee=originator_ieee,
+        responder_ieee=own_eui,
+        options_override=options_override,
+    )
+    return NwkFrame(
+        frame_type=NwkFrameType.COMMAND,
+        dst=originator,
+        src=own_short,
+        radius=radius,
+        seq=nwk_seq,
+        payload=reply.encode(),
+        discover_route=DISCOVER_ROUTE_ENABLE,
+        security=True,
+    ).encode()
 
 
 __all__ = [
