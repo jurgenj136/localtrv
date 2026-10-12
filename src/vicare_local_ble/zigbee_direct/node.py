@@ -18,12 +18,14 @@ Tasks
 
 Requests
     ``zdo_request``/``zcl_read``/``zcl_write`` take the per-destination lock, then the global
-    ``max_in_flight`` semaphore, allocate the ZDO seq or TSN (skipping values in use or retired),
-    and register the pending entry BEFORE sending. Then up to ``request_attempts`` attempts;
-    each attempt sends (new NWK seq, new APS counter, same ZDO seq/TSN) and awaits
-    ``asyncio.shield(pending.future)`` inside ``clock.timeout(request_timeout)``. The shield
-    matters: an attempt timeout cancels only the wait, never the pending future, so a late
-    answer to attempt 1 that arrives during attempt 2 still resolves the request. Only
+    ``max_in_flight`` semaphore, allocate the ZDO seq or TSN (skipping values whose
+    ``(dst, kind, seq)`` key is pending or retired for that destination; all 256 in use ->
+    ``SequenceExhaustedError``), and register the pending entry BEFORE sending. Then up to
+    ``request_attempts`` attempts; each attempt sends (new NWK seq, new APS counter, same ZDO
+    seq/TSN) and awaits ``asyncio.shield(pending.future)`` inside
+    ``clock.timeout(request_timeout)``. The shield matters: an attempt timeout cancels only the
+    wait, never the pending future, so a late answer to attempt 1 that arrives during attempt 2
+    still resolves the request, and an answer racing the last timeout still wins. Only
     ``PendingMap.retire`` (in a ``finally`` once the request ends) or ``node.close`` completes
     or cancels a pending future. Errors: ``RequestTimeoutError`` after the last attempt,
     ``RouteError`` from Network Status, ``ZclStatusError(status)`` for a matched ZCL Default
@@ -48,8 +50,10 @@ Join (``join``): STATUS -> COMMISSIONING -> ANNOUNCED -> ROUTED, exactly as spec
 
 Listeners
     ``on_report``/``on_device_annce``/``on_address_conflict`` return an unsubscribe callable.
-    Listeners are called synchronously from ingress (or from a node task for address
-    conflicts); exceptions are logged and swallowed; they must not await.
+    Listeners are called synchronously from ingress (the BLE notify callback), address-conflict
+    listeners included; exceptions are logged and swallowed; they must not await. The conflict
+    listeners fire once per Network Status 0x0D frame naming our short (several frames, several
+    calls: the connection, T13, de-duplicates).
 
 Logging (logger ``vicare_local_ble.zigbee_direct.node``): INFO join result (shorts, never
 keys); DEBUG pending lifecycle, RREP, fallback hits, late drops.
@@ -198,7 +202,8 @@ class ZigbeeDirectNode:
         return self._core.on_device_annce(cb)
 
     def on_address_conflict(self, cb: Callable[[], None]) -> Unsubscribe:
-        """``cb()`` when a Network Status 0x0D names our own short."""
+        """``cb()`` synchronously from ingress for every Network Status 0x0D frame naming our
+        own short (may fire more than once; the caller de-duplicates)."""
         return self._core.on_address_conflict(cb)
 
     def note_neighbors(self, neighbors: Iterable[Neighbor]) -> None:
@@ -238,8 +243,10 @@ class ZigbeeDirectNode:
 
     async def close(self, exc: BaseException | None = None) -> None:
         """Idempotent. Fail pending futures and the join with ``exc`` (default
-        ``ConnectionLostError``), cancel and await node tasks, drop listeners. Does not close
-        the transport. Afterwards every API raises ``ConnectionLostError``."""
+        ``ConnectionLostError``; the one instance is shared by every failed future), cancel and
+        await node tasks, drop listeners. Does not close the transport. A concurrent second
+        call waits until the first finished (except from a node-owned task, which returns at
+        once to avoid awaiting itself). Afterwards every API raises ``ConnectionLostError``."""
         await self._core.close(exc)
 
 

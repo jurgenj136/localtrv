@@ -3,13 +3,16 @@
 Private helper of ``node.py`` (see the ``ZigbeeDirectNode`` docstring "Requests"):
 
 1. per-destination lock, then the global ``max_in_flight`` semaphore;
-2. allocate the ZDO seq / ZCL TSN, skipping values pending or retired within the late window;
+2. allocate the ZDO seq / ZCL TSN, skipping values whose ``(dst, kind, seq)`` key is pending
+   or retired within the late window (per destination: matching is per source);
 3. register the pending entry BEFORE the first send (a response racing the write still
    matches);
 4. up to ``request_attempts`` attempts, each a new NWK seq (and APS counter for ZCL) with the
    same ZDO seq / TSN, awaiting ``asyncio.shield(future)`` inside ``clock.timeout``: an attempt
    timeout never cancels the future, so a late answer to attempt 1 resolves attempt 2;
-5. ``PendingMap.retire`` in a ``finally`` exactly once (success, timeout, error, cancel).
+5. an answer that arrived in the same loop iteration as the last attempt's timeout still
+   wins over ``RequestTimeoutError``;
+6. ``PendingMap.retire`` in a ``finally`` exactly once (success, timeout, error, cancel).
 """
 
 from __future__ import annotations
@@ -90,13 +93,13 @@ async def _attempts(
 ) -> PendingResult:
     pending_map, config = core.pending, core.config
     allocator = core.allocators.zdo if kind == "zdo" else core.allocators.tsn
-    seq = allocator.next(skip=lambda value: pending_map.seq_in_use(kind, value))
+    seq = allocator.next(skip=lambda value: pending_map.key_in_use((dst, kind, value)))
     envelope = envelope_for(seq)
     pending = pending_map.register(envelope)
     _LOGGER.debug("pending %s seq %d to 0x%04X registered", kind, seq, dst)
     try:
         for attempt in range(config.request_attempts):
-            if pending.future.done():  # pragma: no cover - answered between timeout and resend
+            if pending.future.done():  # answered in the same iteration as the timeout
                 return pending.future.result()
             if attempt:
                 core.stats.retransmits += 1
@@ -107,6 +110,8 @@ async def _attempts(
                     return await asyncio.shield(pending.future)
             except TimeoutError:
                 _LOGGER.debug("%s seq %d to 0x%04X: attempt %d timed out", kind, seq, dst, attempt)
+        if pending.future.done():  # answered in the same iteration as the last timeout
+            return pending.future.result()
         core.stats.timeouts += 1
         raise RequestTimeoutError(dst, kind, seq)
     finally:

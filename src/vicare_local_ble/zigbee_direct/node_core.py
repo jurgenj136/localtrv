@@ -78,6 +78,7 @@ class NodeCore:
         self._dst_locks: dict[int, asyncio.Lock] = {}
         self.in_flight = asyncio.Semaphore(config.max_in_flight)
         self._closed = False
+        self._closing: asyncio.Future[None] | None = None
         self._router = Router(self)
         self._dispatcher = Dispatcher(self)
         transport.set_npdu_handler(self._dispatcher.handle)
@@ -155,17 +156,21 @@ class NodeCore:
         if self._closed:
             coro.close()
             raise ConnectionLostError("node is closed")
-        task = asyncio.get_running_loop().create_task(self._guarded(coro, name), name=name)
+        # The task wraps the coroutine directly: cancelling it before its first step still
+        # closes the coroutine (no "never awaited" warning). Failures are logged by the
+        # done callback, which also marks them retrieved.
+        task = asyncio.get_running_loop().create_task(coro, name=name)
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(self._task_done)
         return task
 
-    @staticmethod
-    async def _guarded(coro: Coroutine[Any, Any, None], name: str) -> None:
-        try:
-            await coro
-        except Exception as exc:
-            _LOGGER.debug("node task %s failed: %s", name, type(exc).__name__)
+    def _task_done(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            _LOGGER.debug("node task %s failed: %s", task.get_name(), type(exc).__name__)
 
     def fire_address_conflict(self) -> None:
         _LOGGER.debug("address conflict for our short")
@@ -224,8 +229,19 @@ class NodeCore:
         return unsubscribe
 
     async def close(self, exc: BaseException | None) -> None:
-        if self._closed:
+        closing = self._closing
+        if closing is not None:
+            if asyncio.current_task() in self._tasks:
+                return  # a node task must not wait for close(), which awaits it
+            await asyncio.shield(closing)
             return
+        closing = self._closing = asyncio.get_running_loop().create_future()
+        try:
+            await self._close(exc)
+        finally:
+            closing.set_result(None)
+
+    async def _close(self, exc: BaseException | None) -> None:
         self._closed = True
         error = exc if exc is not None else ConnectionLostError("node closed")
         self.transport.set_npdu_handler(_drop_npdu)
@@ -233,6 +249,7 @@ class NodeCore:
         join_future = self.join_future
         if join_future is not None and not join_future.done():
             join_future.set_exception(error)
+            join_future.exception()  # retrieved even if join() is not awaiting it right now
         self._join_slot.close()
         self._router.stop()
         current = asyncio.current_task()

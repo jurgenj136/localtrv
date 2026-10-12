@@ -8,6 +8,7 @@ Status is reduced to ``NetworkSummary`` at once and never logged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Final
 
@@ -56,17 +57,8 @@ async def run_join(core: NodeCore) -> JoinInfo:
     if core.join_started:
         raise RuntimeError("join() may be called once")
     core.join_started = True
-    # STATUS
-    try:
-        status = await core.transport.read_commissioning_status()
-    except DecodeError:
-        raise JoinError("malformed Commissioning Status") from None  # never chain: holds keys
-    zdd_short = status.nwk_address
     zdd_eui = core.zdd_eui
-    if status.ieee_address is not None and status.ieee_address != zdd_eui:
-        _LOGGER.warning("Commissioning Status IEEE (TLV 0x08) differs from the SE2 EUI; using SE2")
-    network = NetworkSummary.from_status(status)
-    del status  # the full status holds the network, link and admin keys
+    zdd_short, network = await _read_status(core)
     if zdd_short is None or zdd_short > MAX_SHORT:
         raise JoinError("Commissioning Status has no valid ZDD short (TLV 0x06)")
     # COMMISSIONING
@@ -100,6 +92,35 @@ async def run_join(core: NodeCore) -> JoinInfo:
     return info
 
 
+async def _read_status(core: NodeCore) -> tuple[int | None, NetworkSummary]:
+    """STATUS: read and reduce the Commissioning Status (ZDD short, ``NetworkSummary``).
+
+    The status (and any decode error, whose traceback frames hold the decrypted plaintext as
+    locals) holds the network, link and admin keys. Every failure is turned into a JoinError
+    raised OUTSIDE the ``except`` block, so it has neither ``__cause__`` nor ``__context__``
+    and nothing keeps those frames alive.
+    """
+    failed = False
+    try:
+        status = await core.transport.read_commissioning_status()
+    except DecodeError:
+        failed = True
+    if failed:
+        raise JoinError("malformed Commissioning Status")
+    try:
+        zdd_short = status.nwk_address
+        ieee = status.ieee_address
+        network = NetworkSummary.from_status(status)
+    except Exception:
+        failed = True
+    del status  # the full status holds the network, link and admin keys
+    if failed:
+        raise JoinError("unusable Commissioning Status")
+    if ieee is not None and ieee != core.zdd_eui:
+        _LOGGER.warning("Commissioning Status IEEE (TLV 0x08) differs from the SE2 EUI; using SE2")
+    return zdd_short, network
+
+
 async def _commission(core: NodeCore, zdd_short: int) -> tuple[int, CommissioningResponse]:
     """Up to ``join_attempts`` Commissioning Requests, each with a fresh placeholder/token."""
     config = core.config
@@ -124,14 +145,21 @@ async def _commission(core: NodeCore, zdd_short: int) -> tuple[int, Commissionin
             await core.send(npdu, secure=False)
             try:
                 async with core.clock.timeout(config.join_timeout):
-                    response = await future
+                    # shielded: a timeout never cancels the token's future, so a response
+                    # that arrived in the same iteration as the timeout is still used
+                    response = await asyncio.shield(future)
             except TimeoutError:
+                if future.done() and not future.cancelled():
+                    return placeholder, future.result()
                 _LOGGER.debug(
                     "no Commissioning Response for 0x%04X (attempt %d)", placeholder, attempt + 1
                 )
                 continue
             return placeholder, response
     finally:
+        last = core.join_future
+        if last is not None and last.done() and not last.cancelled():
+            last.exception()  # e.g. failed by close() while we were sending: retrieved
         core.join_future = None
         core.join_slot.close()
     raise JoinError(f"no Commissioning Response after {config.join_attempts} attempt(s)")

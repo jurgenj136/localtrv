@@ -21,18 +21,25 @@ Per NPDU (spec §1.3 "Ingress dispatch"):
    * Others are ignored.
 3. Data frames whose dst is neither ``host.current_short`` nor a broadcast are dropped. Before the
    join completed (``current_short is None``) every data frame is dropped. Otherwise
-   ``ApsDataFrame.decode``:
+   ``ApsDataFrame.decode``; a header that fails to decode or is implausible
+   (``node_match.plausible_aps_header``: profile not ZDO/HA, or a ZDO frame with endpoints
+   other than 0/0 or a cluster outside the standard ZDP table) goes to the fallback (4).
+   A plausible header is final: a body that then fails to decode only counts
+   ``decode_errors`` (no offset scan).
    * ZDO profile: Device_annce -> ``host.neighbors.note`` + ``host.emit_device_annce``;
      responses resolve a pending entry only if ``Envelope.match_zdo`` passes; a retired key
-     counts ``late_drops``; ZDO requests to us are ignored in v1.
-   * HA profile (any non-ZDO profile): ``ZclFrame.decode``. Report Attributes (0x0A,
+     counts ``late_drops``; standard ZDO requests (to us or broadcast) and responses without
+     a decoder are ignored in v1 (not counted as decode errors).
+   * HA profile: ``ZclFrame.decode``. Report Attributes (0x0A,
      server->client) ALWAYS goes to ``host.emit_report`` and never touches pending; everything
      else is matched with ``Envelope.match_zcl`` against the entry for
      ``(src, "zcl", tsn)``.
-4. Fallback: only if the standard APS/ZCL/ZDO decode failed AND ``host.pending.for_src(src)`` is
-   non-empty, run ``scan_for_response(nwk_payload, envelope.expected(), src_short=src)``
-   (strict, ``max_trailing=0``) for each; a ``ScanMatch`` must still pass command, tsn/seq and
-   manufacturer checks. Counted in ``fallback_hits``.
+4. Fallback: only for an undecodable or implausible APS header (3) AND if
+   ``host.pending.for_src(src)`` is non-empty, run ``scan_for_response(nwk_payload,
+   expected, src_short=src)`` (strict, ``max_trailing=0``) for each; a ``ScanMatch`` must still
+   pass command, tsn/seq, direction and manufacturer checks, and a match found at offset 0
+   (APS header known) must also pass the envelope's profile/cluster/endpoint checks. Counted
+   in ``fallback_hits``.
 5. Never reply to anything (reports, broadcasts) in v1.
 
 Logging (logger ``vicare_local_ble.zigbee_direct.node``): DEBUG only, and only decoded,
@@ -75,6 +82,8 @@ from vicare_local_ble.zigbee_direct.node_match import (
     MFR_HEADER_MISSING,
     NO_MATCH,
     ZDO_RESPONSE_TYPES,
+    aps_header_matches,
+    plausible_aps_header,
     zcl_command_verdict,
     zdo_verdict,
 )
@@ -98,8 +107,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger("vicare_local_ble.zigbee_direct.node")
 #: Shorts at or above this are broadcast addresses.
 _FIRST_BROADCAST: Final = 0xFFF8
-#: Known ZDO clusters; any other cluster on profile 0 means the APS header did not decode.
-_KNOWN_ZDO_CLUSTERS: Final = frozenset(ZdoCluster)
 
 
 class DispatchHost(Protocol):
@@ -210,10 +217,13 @@ class Dispatcher:
         if current is None or (frame.dst != current and frame.dst < _FIRST_BROADCAST):
             _LOGGER.debug("data frame for 0x%04X dropped", frame.dst)
             return
+        failed = False
         try:
             aps = ApsDataFrame.decode(frame.payload)
         except DecodeError:
-            self._fallback(frame)
+            failed = True
+        if failed or not plausible_aps_header(aps):
+            self._fallback(frame)  # garbled header (quirk): the only case that is scanned
             return
         if aps.profile_id == ZDO_PROFILE_ID:
             self._zdo(frame, aps, current)
@@ -229,7 +239,7 @@ class Dispatcher:
             try:
                 annce = DeviceAnnce.decode(aps.payload)
             except DecodeError:
-                self._fallback(frame)
+                self._undecodable(frame, "Device_annce")
                 return
             if frame.src == current:
                 return  # our own announcement
@@ -239,16 +249,13 @@ class Dispatcher:
             host.emit_device_annce(annce, frame.src)
             return
         decoder = ZDO_RESPONSE_DECODERS.get(cluster)
-        if decoder is None:
-            if cluster in _KNOWN_ZDO_CLUSTERS:  # a ZDO request to us: ignored in v1
-                _LOGGER.debug("ZDO cluster 0x%04X from 0x%04X ignored", cluster, frame.src)
-            else:  # no ZDO cluster at all: the APS header is garbled (quirk), try the fallback
-                self._fallback(frame)
+        if decoder is None:  # a standard ZDO request (to us or broadcast): ignored in v1
+            _LOGGER.debug("ZDO cluster 0x%04X from 0x%04X ignored", cluster, frame.src)
             return
         try:
             response = decoder(aps.payload)
         except DecodeError:
-            self._fallback(frame)
+            self._undecodable(frame, f"ZDO 0x{cluster:04X}")
             return
         key: PendingKey = (frame.src, "zdo", response.seq)
         pending = host.pending.get(key)
@@ -270,7 +277,7 @@ class Dispatcher:
                 return
             command = zcl.global_command()
         except DecodeError:
-            self._fallback(frame)
+            self._undecodable(frame, f"ZCL cluster 0x{aps.cluster_id:04X}")
             return
         if header.direction is not ZclDirection.SERVER_TO_CLIENT:
             _LOGGER.debug("ZCL request from 0x%04X ignored", frame.src)
@@ -325,6 +332,11 @@ class Dispatcher:
 
     # --- fallback ---
 
+    def _undecodable(self, frame: NwkFrame, what: str) -> None:
+        """A plausible APS header with a body that does not decode: counted, never scanned."""
+        self._host.stats.decode_errors += 1
+        _LOGGER.debug("undecodable %s from 0x%04X", what, frame.src)
+
     def _fallback(self, frame: NwkFrame) -> None:
         host = self._host
         for pending in host.pending.for_src(frame.src):
@@ -342,6 +354,8 @@ class Dispatcher:
             match = scan_for_response(frame.payload, expected, src_short=frame.src)
             if not isinstance(match, ScanMatch):
                 continue
+            if match.aps is not None and not aps_header_matches(envelope, match.aps):
+                continue  # found at offset 0: the decoded APS header must fit the envelope
             response = match.response
             result: PendingResult
             if isinstance(response, ZDO_RESPONSE_TYPES):

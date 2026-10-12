@@ -6,14 +6,19 @@ runtime without importing the node. ``node.py`` re-exports every name; import th
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Final, Self
 
 if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.codec.commissioning import ChannelMask, CommissioningStatus
     from vicare_local_ble.zigbee_direct.codec.zcl import AttributeRecord
     from vicare_local_ble.zigbee_direct.types import Eui64
+
+
+#: Smallest enabled periodic MTORR interval (seconds); a flood of MTORRs loads the mesh.
+MIN_MTORR_INTERVAL: Final = 10.0
 
 
 class RouteReplyMode(StrEnum):
@@ -47,7 +52,13 @@ class NodeConfig:
       ``(originator, route_id)`` dedupe set.
     * ``max_in_flight``: global cap on concurrent requests (a per-destination lock serialises
       requests to the same device on top of it).
-    * ``preferred_short``: requested own short if valid and not in ``avoid_shorts``.
+    * ``preferred_short``: requested own short (0x0001..0xFFF7) if not in ``avoid_shorts``.
+
+    ``__post_init__`` raises ``ValueError`` for: non-positive (or NaN/inf) ``request_timeout``,
+    ``join_timeout``, ``rreq_dedupe_ttl``; ``request_attempts``, ``join_attempts``,
+    ``mtorr_count``, ``max_in_flight`` below 1; negative ``late_window`` or ``mtorr_spacing``;
+    a positive ``mtorr_interval`` below ``MIN_MTORR_INTERVAL`` (a value <= 0 or NaN disables
+    the periodic MTORR, T12); a ``preferred_short`` outside 0x0001..0xFFF7.
     * ``avoid_shorts``: shorts never used as the placeholder (known device shorts, a short that
       caused an address conflict).
     """
@@ -65,6 +76,38 @@ class NodeConfig:
     max_in_flight: int = 4
     preferred_short: int | None = None
     avoid_shorts: frozenset[int] = frozenset()
+
+    def __post_init__(self) -> None:
+        """Range checks (``ValueError``); see the class docstring for the rules."""
+        positive = {
+            "request_timeout": self.request_timeout,
+            "join_timeout": self.join_timeout,
+            "rreq_dedupe_ttl": self.rreq_dedupe_ttl,
+        }
+        for name, value in positive.items():
+            if not value > 0 or math.isinf(value):  # also rejects NaN
+                raise ValueError(f"{name} must be a positive number of seconds: {value!r}")
+        for name, count in (
+            ("request_attempts", self.request_attempts),
+            ("join_attempts", self.join_attempts),
+            ("mtorr_count", self.mtorr_count),
+            ("max_in_flight", self.max_in_flight),
+        ):
+            if count < 1:
+                raise ValueError(f"{name} must be >= 1: {count!r}")
+        if not self.late_window >= 0 or math.isinf(self.late_window):
+            raise ValueError(f"late_window must be >= 0 seconds: {self.late_window!r}")
+        if not self.mtorr_spacing >= 0:
+            raise ValueError(f"mtorr_spacing must be >= 0 seconds: {self.mtorr_spacing!r}")
+        interval = self.mtorr_interval
+        if math.isfinite(interval) and 0 < interval < MIN_MTORR_INTERVAL:
+            raise ValueError(
+                f"mtorr_interval must be >= {MIN_MTORR_INTERVAL} s (or <= 0 to disable): "
+                f"{interval!r}"
+            )
+        short = self.preferred_short
+        if short is not None and not 0x0001 <= short <= 0xFFF7:
+            raise ValueError(f"preferred_short must be 0x0001..0xFFF7: {short!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +208,7 @@ class NodeStats:
 
 
 __all__ = [
+    "MIN_MTORR_INTERVAL",
     "JoinInfo",
     "NetworkSummary",
     "NodeConfig",

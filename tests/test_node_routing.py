@@ -11,11 +11,20 @@ import pytest
 from test_node import LOCAL_TEMPERATURE, LOGGER, THERMOSTAT, Rig, rig
 from vicare_local_ble.testing import network_frames as nf
 from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import RouteRequest, decode_nwk_command
+from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
+    NetworkStatus,
+    RouteRequest,
+    decode_nwk_command,
+)
 from vicare_local_ble.zigbee_direct.errors import RouteError
+from vicare_local_ble.zigbee_direct.node import NodeConfig, RouteReplyMode
 from vicare_local_ble.zigbee_direct.requests import PendingMap
 from vicare_local_ble.zigbee_direct.routing import (
     MTORR_ON_ROUTE_FAILURE_INTERVAL,
+    NWK_STATUS_ADDRESS_CONFLICT,
+    NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE,
+    NWK_STATUS_NO_ROUTE_AVAILABLE,
+    ROUTE_FAILURE_STATUSES,
     NeighborTable,
     Router,
 )
@@ -85,7 +94,7 @@ async def test_other_route_status_fails_without_mtorr() -> None:
         valve = r.inst.valves[0]
         task = read(r)
         await r.clock.advance(1.0)
-        r.inject(status_npdu(r, status=0x01, about=valve.short))  # not "no route"
+        r.inject(status_npdu(r, status=0x03, about=valve.short))  # not a route failure
         await r.clock.advance(0)
         with pytest.raises(RouteError):
             await task
@@ -145,11 +154,12 @@ async def test_network_status_before_join_is_ignored() -> None:
         await r.clock.run_task(r.node.join())
 
 
-async def test_route_request_is_counted_and_never_answered(
+async def test_route_request_is_counted_and_not_answered_when_off(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG, logger=LOGGER)
-    async with rig() as r:
+    # T12 answers by default; with RREP off the T11 counting/learning behaviour remains.
+    async with rig(config=NodeConfig(route_reply_mode=RouteReplyMode.OFF)) as r:
         valve = r.inst.valves[0]
         r.inst.network.emit_route_request(valve.short, route_id=7)
         r.inst.network.emit_route_request(valve.short, route_id=8, dst=r.inst.valves[1].short)
@@ -233,3 +243,44 @@ def test_neighbor_table_latest_observation_wins() -> None:
     assert (table.ieee_for(0x2222), table.short_for(b)) == (b, 0x2222)
     table.note(0xFFFD, a)  # broadcasts are never noted
     assert len(table) == 1
+
+
+@pytest.mark.parametrize("code", sorted(ROUTE_FAILURE_STATUSES))
+async def test_every_route_failure_status_schedules_one_mtorr(code: int) -> None:
+    async with rig() as r:
+        about = r.inst.valves[0].short
+        r.inject(status_npdu(r, status=code, about=about))
+        await r.clock.advance(0)
+        assert mtorrs(r) == 3
+
+
+@pytest.mark.parametrize("code", [0x03, 0x0A, NWK_STATUS_ADDRESS_CONFLICT])
+async def test_other_statuses_schedule_no_mtorr(code: int) -> None:
+    async with rig() as r:
+        r.inject(status_npdu(r, status=code, about=r.inst.valves[0].short))
+        await r.clock.advance(0)
+        assert mtorrs(r) == 2
+
+
+async def test_route_failure_mtorr_rate_limit_is_shared_across_codes() -> None:
+    async with rig() as r:
+        about = r.inst.valves[0].short
+        r.inject(status_npdu(r, status=NWK_STATUS_NO_ROUTE_AVAILABLE, about=about))
+        await r.clock.advance(1.0)
+        r.inject(status_npdu(r, status=NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE, about=about))
+        # broadcast route failures never trigger it
+        r.inject(status_npdu(r, status=0x00, about=about, dst=BROADCAST_RX_ON))
+        await r.clock.advance(MTORR_ON_ROUTE_FAILURE_INTERVAL)
+        assert mtorrs(r) == 3
+        r.inject(status_npdu(r, status=0x0B, about=about))
+        await r.clock.advance(0)
+        assert mtorrs(r) == 4
+
+
+async def test_network_status_after_close_never_raises() -> None:
+    async with rig() as r:
+        router, own = r.core.router, r.node.own_short
+        await r.node.close()
+        frame = NwkFrame.decode(status_npdu(r, status=0x02, about=0x0100))
+        router.on_network_status(frame, NetworkStatus(0x02, 0x0100))  # start_task refuses
+        assert frame.dst == own

@@ -24,7 +24,8 @@ from vicare_local_ble.zigbee_direct.codec.zcl import (
 )
 from vicare_local_ble.zigbee_direct.codec.zdo import ActiveEpRsp
 from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiRsp
-from vicare_local_ble.zigbee_direct.errors import RouteError
+from vicare_local_ble.zigbee_direct.errors import RouteError, SequenceExhaustedError
+from vicare_local_ble.zigbee_direct.node_match import aps_header_matches
 from vicare_local_ble.zigbee_direct.requests import (
     MAX_RETIRED,
     Allocators,
@@ -87,7 +88,7 @@ def test_seq_allocator_wraps_and_skips() -> None:
     assert [alloc.next(), alloc.next(), alloc.next()] == [0xFE, 0xFF, 0x00]
     assert alloc.peek() == 1
     assert alloc.next(skip=lambda v: v in {1, 2}) == 3
-    with pytest.raises(RuntimeError, match="256"):
+    with pytest.raises(SequenceExhaustedError, match="256"):
         alloc.next(skip=lambda _v: True)
     with pytest.raises(ValueError, match="range"):
         SeqAllocator(256)
@@ -335,3 +336,15 @@ async def test_join_slot() -> None:
     slot.close()
     assert third.cancelled()
     assert asyncio.isfuture(third)
+
+
+def test_aps_header_matches() -> None:
+    aps, _ = golden_zcl(g.ZCL_READ_RSP)
+    assert aps_header_matches(zcl_envelope(), aps)
+    assert aps_header_matches(zcl_envelope(remote_endpoint=None, local_endpoint=None), aps)
+    assert not aps_header_matches(zcl_envelope(remote_endpoint=2), aps)
+    assert not aps_header_matches(zcl_envelope(local_endpoint=2), aps)
+    assert not aps_header_matches(zcl_envelope(profile_id=0x0109), aps)
+    zdo_aps = ApsDataFrame(cluster_id=0x8005, profile_id=0, payload=g.ACTIVE_EP_RSP_ZDO)
+    assert aps_header_matches(zdo_envelope(), zdo_aps)
+    assert not aps_header_matches(zdo_envelope(cluster_id=0x8004), zdo_aps)

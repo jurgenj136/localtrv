@@ -162,7 +162,10 @@ async def test_envelope_rejects_mismatches(variant: str) -> None:
         r.inject(r.from_valve(src, aps))
         await r.clock.advance(0)
         assert not task.done()
-        assert r.node.stats.unmatched == 1
+        if variant == "profile":  # implausible header: scanned, refused by the envelope
+            assert r.node.stats.decode_errors == 1
+        else:
+            assert r.node.stats.unmatched == 1
         records = await r.clock.run_task(task)
         assert records[0].value != FAKE_VALUE
 

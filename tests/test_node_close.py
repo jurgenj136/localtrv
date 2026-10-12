@@ -143,7 +143,7 @@ async def test_node_tasks_swallow_errors_and_refuse_after_close() -> None:
         task = r.core.start_task(fail(), name="test-fail")
         await r.clock.advance(0)
         assert task.done()
-        assert task.exception() is None
+        assert isinstance(task.exception(), RuntimeError)  # logged, marked retrieved
         await r.node.close()
         coro = fail()
         with pytest.raises(ConnectionLostError):

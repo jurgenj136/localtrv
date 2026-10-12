@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Final, Self
 from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID
 from vicare_local_ble.zigbee_direct.codec.fallback import ExpectedZcl, ExpectedZdo
 from vicare_local_ble.zigbee_direct.codec.zcl import ZclCommandId
+from vicare_local_ble.zigbee_direct.errors import SequenceExhaustedError
 from vicare_local_ble.zigbee_direct.node_match import (
     default_response_command,
     zcl_verdict,
@@ -71,7 +72,8 @@ type PendingKey = tuple[int, RequestKind, int]
 
 class SeqAllocator:
     """8-bit wrapping counter. ``next(skip=...)`` returns the next value for which ``skip`` is
-    false, advancing past skipped values; raises ``RuntimeError`` if all 256 values are skipped.
+    false, advancing past skipped values; raises ``SequenceExhaustedError`` if all 256 values
+    are skipped.
     """
 
     __slots__ = ("_next",)
@@ -87,7 +89,7 @@ class SeqAllocator:
             self._next = (value + 1) & 0xFF
             if skip is None or not skip(value):
                 return value
-        raise RuntimeError("all 256 sequence values are in use")
+        raise SequenceExhaustedError("all 256 sequence values are in use")
 
     def peek(self) -> int:
         """The value ``next()`` would try first (no skipping, no advance)."""
@@ -99,8 +101,9 @@ class Allocators:
     """One allocator per sequence space, owned by one node (never shared module state).
 
     * ``nwk``: NWK sequence numbers for every frame we originate (join, data, routing).
-    * ``zdo``: ZDO transaction sequence numbers; the node skips values that are pending or
-      retired (``PendingMap.seq_in_use(kind="zdo", ...)``).
+    * ``zdo``: ZDO transaction sequence numbers; the node skips values whose key
+      ``(dst, "zdo", seq)`` is pending or retired for THAT destination
+      (``PendingMap.key_in_use``): matching is per source, so other devices may share a seq.
     * ``tsn``: ZCL transaction sequence numbers, skipped the same way (``kind="zcl"``).
     * ``aps``: APS counter for ZCL unicasts and broadcasts. Not a correlation key (PN §5.7).
       ZDO unicasts use APS counter 0 as the live client did (``frames.zdo_unicast_npdu``).
@@ -311,11 +314,16 @@ class PendingMap:
         return tuple(p for k, p in self._entries.items() if k[0] == src_short)
 
     def seq_in_use(self, kind: RequestKind, seq: int) -> bool:
-        """True if ``seq`` of ``kind`` is pending for any src or retired within the window.
-        Used as the allocators' ``skip`` predicate."""
+        """True if ``seq`` of ``kind`` is pending for any src or retired within the window
+        (destination-independent; requests use the per-destination ``key_in_use``)."""
         return any(k[1] == kind and k[2] == seq for k in self._entries) or self._retired.seq_in_use(
             kind, seq
         )
+
+    def key_in_use(self, key: PendingKey) -> bool:
+        """True if ``key`` is pending or retired within the window: the allocators' ``skip``
+        predicate for one destination. T11 addition (CP3: collisions are per source)."""
+        return key in self._entries or self._retired.contains(key)
 
     def is_retired(self, key: PendingKey) -> bool:
         return key not in self._entries and self._retired.contains(key)
@@ -342,7 +350,11 @@ class PendingMap:
         self._retired.add(key)
 
     def fail_dst(self, dst: int, exc: BaseException) -> int:
-        """Fail every pending future expecting ``dst`` with ``exc``; returns how many."""
+        """Fail every pending future expecting ``dst`` with ``exc``; returns how many.
+
+        The SAME exception instance is set on every failed future (copying is not generally
+        possible: library exceptions take custom constructor arguments); each awaiting task
+        re-raises it, so its ``__traceback__`` accumulates frames from all of them."""
         failed = 0
         for key, pending in self._entries.items():
             if key[0] == dst and not pending.future.done():
@@ -351,7 +363,8 @@ class PendingMap:
         return failed
 
     def fail_all(self, exc: BaseException) -> None:
-        """Fail every pending future (node close)."""
+        """Fail every pending future (node close) with the one shared ``exc`` (see
+        ``fail_dst``)."""
         for pending in self._entries.values():
             if not pending.future.done():
                 pending.future.set_exception(exc)

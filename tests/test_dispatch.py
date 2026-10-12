@@ -313,3 +313,60 @@ async def test_fallback_still_checks_the_envelope() -> None:
     )
     feed(dispatcher, g.QUIRK_GARBAGE4)  # no response command and no request command
     assert not bare.future.done()
+
+
+# --- fallback scope (CP3): only implausible APS headers are offset-scanned ------------------
+
+READ_RSP_ZCL = bytes.fromhex("18 2B 01 00 00 00 29 AD 07")  # tsn 0x2B, localTemperature 1965
+
+
+@pytest.mark.parametrize(
+    ("cluster", "endpoints"),
+    [(0x0000, (1, 1)), (0x0201, (1, 2)), (0x0201, (1, 1))],
+    ids=["other-cluster", "other-endpoint", "matching-header"],
+)
+async def test_clean_header_with_undecodable_body_is_never_scanned(
+    cluster: int, endpoints: tuple[int, int]
+) -> None:
+    host, dispatcher = setup()
+    pending = host.pending.register(read_envelope())
+    src_ep, dst_ep = endpoints
+    # ZCL FC 0x02 (reserved frame type) makes the body undecodable; the bytes after it hold a
+    # coincidental "read response with our TSN" that an offset scan would find
+    aps = ApsDataFrame(
+        cluster_id=cluster,
+        profile_id=HA_PROFILE_ID,
+        payload=bytes.fromhex("02 5A 5A 5A") + READ_RSP_ZCL,
+        dst_endpoint=dst_ep,
+        src_endpoint=src_ep,
+    )
+    feed(dispatcher, data(g.ZVD_SHORT, aps))
+    assert not pending.future.done()
+    assert host.stats.decode_errors == 1
+    assert host.stats.fallback_hits == 0
+
+
+def test_standard_zdo_requests_are_ignored_not_errors() -> None:
+    host, dispatcher = setup()
+    permit = ApsDataFrame(cluster_id=0x0036, profile_id=0, payload=b"\x01\x3c\x00")
+    node_desc_rsp = ApsDataFrame(cluster_id=0x8002, profile_id=0, payload=b"\x01\x00")
+    feed(dispatcher, data(0xFFFC, permit, src=0x0000), data(g.ZVD_SHORT, node_desc_rsp))
+    assert host.stats.decode_errors == 0
+    assert host.stats.unmatched == 0
+
+
+async def test_zdo_header_with_wrong_endpoints_goes_to_the_fallback() -> None:
+    host, dispatcher = setup()
+    pending = host.pending.register(
+        Envelope(src_short=g.VALVE_SHORT, kind="zdo", seq=0x0B, profile_id=0, cluster_id=0x8005)
+    )
+    aps = ApsDataFrame(
+        cluster_id=0x8005,
+        profile_id=0,
+        payload=g.ACTIVE_EP_RSP_ZDO,
+        dst_endpoint=0x5A,  # implausible for ZDO: goes to the scan, which judges offset 0
+        src_endpoint=0,
+    )
+    feed(dispatcher, data(g.ZVD_SHORT, aps))
+    assert not pending.future.done()  # the codec refuses a ZDO header on endpoint 0x5A
+    assert host.stats.decode_errors == 1

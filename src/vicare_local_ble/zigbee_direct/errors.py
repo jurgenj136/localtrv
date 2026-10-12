@@ -156,6 +156,11 @@ class RouteError(ZigbeeDirectError):
         self.status = status
 
 
+class SequenceExhaustedError(ZigbeeDirectError):
+    """Every 8-bit ZDO seq / ZCL TSN for one destination is pending or retired (late window);
+    the request cannot be sent until a key leaves the window."""
+
+
 class ZclStatusError(ZigbeeDirectError):
     """A ZCL request failed with a status (Default Response, or a failed write record).
 
@@ -186,6 +191,7 @@ __all__ = [
     "RequestKind",
     "RequestTimeoutError",
     "RouteError",
+    "SequenceExhaustedError",
     "TlvDecodeError",
     "TransportError",
     "TransportErrorReason",
