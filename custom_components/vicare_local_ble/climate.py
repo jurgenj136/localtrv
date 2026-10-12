@@ -25,7 +25,12 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from vicare_local_ble import valves
-from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, ZclStatusError
+from vicare_local_ble.zigbee_direct.errors import (
+    ConnectionLostError,
+    RouteError,
+    SequenceExhaustedError,
+    ZclStatusError,
+)
 
 from .const import DOMAIN, signal_new_valve
 from .entity import VicareValveEntity
@@ -159,7 +164,13 @@ class VicareClimate(VicareValveEntity, ClimateEntity):
             )
         try:
             await self.coordinator.bridge.set_setpoint(self.eui, float(temperature))
-        except (ZclStatusError, TimeoutError, ConnectionLostError) as err:
+        except (
+            ZclStatusError,
+            TimeoutError,
+            ConnectionLostError,
+            RouteError,
+            SequenceExhaustedError,
+        ) as err:
             # The bridge already reverted its request and pushed the previous target.
             raise HomeAssistantError(
                 translation_domain=DOMAIN,

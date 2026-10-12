@@ -3,7 +3,7 @@
 Setup: resolver precheck -> cache from ``Store`` -> ``ZdConnection`` + coordinator (which owns
 the ``ViCareBridge``) -> ``bridge.attach()`` and the state/issue/advertisement listeners ->
 ``connection.start(first_ready_timeout)`` -> first refresh (cached snapshot, no poll) -> bridge
-device -> platforms -> HA stop listener.
+device -> HA stop listener -> platforms (any failure there shuts down).
 
 Shutdown (unload, HA stop or a failed setup): bounded ``connection.stop()``, listener cleanup
 and repair issues removed, then the cache is saved (``VicareRuntime.async_shutdown``).
@@ -170,17 +170,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: VicareConfigEntry) -> bo
         await runtime.async_shutdown()
         raise
 
-    bridge_device = dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id, **bridge_device_info(address, entry.title)
-    )
-    coordinator.bridge_device_id = bridge_device.id
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
     async def _on_hass_stop(_event: Event) -> None:
         await runtime.async_shutdown()
 
-    # async_listen, not async_listen_once: removing a fired once-listener at unload logs an error
-    entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _on_hass_stop))
+    try:
+        bridge_device = dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id, **bridge_device_info(address, entry.title)
+        )
+        coordinator.bridge_device_id = bridge_device.id
+        # async_listen, not async_listen_once: removing a fired once-listener at unload logs an
+        # error. Installed before forwarding so no window exists without stop protection.
+        entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _on_hass_stop))
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except BaseException:  # incl. CancelledError: never leave BLE/polling running
+        await runtime.async_shutdown()
+        raise
     return True
 
 

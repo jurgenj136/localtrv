@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
@@ -192,6 +193,38 @@ async def test_auth_failed_later_starts_reauth(hass: HomeAssistant, sim: Sim) ->
 
 
 # --- unload and stop -----------------------------------------------------------------------
+
+
+async def test_forwarding_exception_shuts_down(hass: HomeAssistant, sim: Sim) -> None:
+    async def boom(*_args: Any, **_kwargs: Any) -> None:
+        msg = "platform forwarding failed"
+        raise RuntimeError(msg)
+
+    with patch.object(type(hass.config_entries), "async_forward_entry_setups", boom):
+        assert not await sim.setup()
+    assert sim.entry.state is ConfigEntryState.SETUP_ERROR
+    assert sim.runtime.connection.state is ConnectionState.STOPPED
+    assert sim.inst.r0.client is None
+    await hass.async_block_till_done()
+    assert our_tasks() == []
+
+
+async def test_cancellation_during_forwarding_shuts_down(hass: HomeAssistant, sim: Sim) -> None:
+    suspended = asyncio.Event()
+
+    async def hang(*_args: Any, **_kwargs: Any) -> None:
+        suspended.set()
+        await asyncio.Event().wait()
+
+    with patch.object(type(hass.config_entries), "async_forward_entry_setups", hang):
+        setup = asyncio.ensure_future(hass.config_entries.async_setup(sim.entry.entry_id))
+        await sim.drive_until(suspended.is_set)
+        setup.cancel()
+        await sim.drive(asyncio.gather(setup, return_exceptions=True))
+    assert sim.runtime.connection.state is ConnectionState.STOPPED
+    assert sim.inst.r0.client is None
+    await hass.async_block_till_done()
+    assert our_tasks() == []
 
 
 async def test_unload_stops_and_saves_without_lingering_tasks(

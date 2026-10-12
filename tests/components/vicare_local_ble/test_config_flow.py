@@ -466,3 +466,23 @@ async def test_reauth_timeout_saves_with_warning(
     assert entry.data[CONF_ZDD_EUI] == str(ZDD_EUI)  # kept
     assert any(r.levelno == logging.WARNING for r in caplog.records)
     assert OTHER_KEY not in caplog.text.lower()
+
+
+async def test_reauth_handshake_timeout_transport_error_saves_with_warning(
+    hass: HomeAssistant, validate: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The real handshake timeout is ``TransportError(reason="timeout")``, not TimeoutError."""
+    caplog.set_level(logging.DEBUG)
+    entry = _entry()
+    entry.add_to_hass(hass)
+    validate.side_effect = TransportError("handshake timed out", reason="timeout")
+    result = await entry.start_reauth_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_NETWORK_KEY: OTHER_KEY}
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_NETWORK_KEY] == OTHER_KEY
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+    assert OTHER_KEY not in caplog.text.lower()

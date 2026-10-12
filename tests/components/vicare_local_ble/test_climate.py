@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from custom_components.vicare_local_ble.const import DOMAIN
@@ -22,9 +23,11 @@ from homeassistant.helpers import entity_registry as er
 
 from conftest import our_tasks
 from vicare_local_ble import valves
+from vicare_local_ble.bridge import ViCareBridge
 from vicare_local_ble.testing import valve_table as vt
 from vicare_local_ble.zigbee_direct.codec.zcl import ZclCommandId, ZclStatus
 from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
+from vicare_local_ble.zigbee_direct.errors import RouteError, SequenceExhaustedError
 
 if TYPE_CHECKING:
     from custom_components.vicare_local_ble.coordinator import VicareCoordinator
@@ -188,6 +191,24 @@ async def test_timeout_reverts_and_raises(hass: HomeAssistant, sim: Sim) -> None
     assert _state(hass, entity).attributes[ATTR_TEMPERATURE] == 22.0
     assert not status(coordinator, valve.eui).pending
     assert status(coordinator, valve.eui).requested_c is None
+
+
+@pytest.mark.parametrize("failure", [RouteError(0x1234, 0x01), SequenceExhaustedError("full")])
+async def test_route_and_sequence_failures_revert_and_raise(
+    hass: HomeAssistant, sim: Sim, failure: Exception
+) -> None:
+    coordinator = await loaded(sim)
+    valve = sim.inst.valves[0]
+    entity = entity_id(hass, "climate", valve.eui, "thermostat")
+    with (
+        patch.object(ViCareBridge, "set_setpoint", AsyncMock(side_effect=failure)),
+        pytest.raises(HomeAssistantError) as info,
+    ):
+        await sim.drive(_set(hass, entity, 24.0))
+    assert not isinstance(info.value, ServiceValidationError)
+    assert info.value.translation_key == "write_failed"
+    assert _state(hass, entity).attributes[ATTR_TEMPERATURE] == 22.0
+    assert not status(coordinator, valve.eui).pending
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf, 7.5, 30.5, 99.0])

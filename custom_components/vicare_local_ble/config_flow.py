@@ -122,7 +122,12 @@ async def _async_validate(
         return None, "invalid_auth", False
     except TimeoutError:
         return None, "cannot_connect", True
-    except (TransportError, BleakError) as err:
+    except TransportError as err:
+        if err.reason == "timeout":  # the real handshake timeout shape
+            return None, "cannot_connect", True
+        _LOGGER.debug("Validation of %s failed: %s", address, type(err).__name__)
+        return None, "cannot_connect", False
+    except BleakError as err:
         _LOGGER.debug("Validation of %s failed: %s", address, type(err).__name__)
         return None, "cannot_connect", False
     except Exception as err:  # map anything else to "unknown"
