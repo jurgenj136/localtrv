@@ -117,7 +117,7 @@ async def discovery_run(core: BridgeCore, gen: Generation) -> bool:
             and str(eui) not in core.ignored
         ]
         candidates.sort(key=lambda item: not valves.has_oui_hint(item[0]))
-        results = await _identify_all(core, gen, candidates)
+        results = await _identify_all(core, gen, candidates, started)
         if not core.is_current(gen):
             return False
         core.summarize()
@@ -147,20 +147,33 @@ async def discovery_run(core: BridgeCore, gen: Generation) -> bool:
 
 
 async def _identify_all(
-    core: BridgeCore, gen: Generation, candidates: list[tuple[Eui64, int]]
+    core: BridgeCore, gen: Generation, candidates: list[tuple[Eui64, int]], learned_at: float
 ) -> list[_Identified]:
-    return list(await asyncio.gather(*(_identify_guarded(core, gen, e, s) for e, s in candidates)))
+    return list(
+        await asyncio.gather(
+            *(_identify_guarded(core, gen, e, s, learned_at) for e, s in candidates)
+        )
+    )
 
 
 async def _identify_guarded(
-    core: BridgeCore, gen: Generation, eui: Eui64, short: int
+    core: BridgeCore, gen: Generation, eui: Eui64, short: int, learned_at: float
 ) -> _Identified:
     async with core.identify_sem:
-        return await identify(core, gen, eui, short)
+        return await identify(core, gen, eui, short, learned_at=learned_at)
 
 
-async def identify(core: BridgeCore, gen: Generation, eui: Eui64, short: int) -> _Identified:
-    """Basic read; a supported valve also gets its limits read and is added."""
+async def identify(
+    core: BridgeCore, gen: Generation, eui: Eui64, short: int, *, learned_at: float | None = None
+) -> _Identified:
+    """Basic read; a supported valve also gets its limits read and is added.
+
+    ``learned_at`` is when ``short`` was learned (default: now). A Device_annce of ``eui``
+    learned at or after it wins when the valve is added (same freshness rule as
+    ``BridgeCore.set_topology``): the valve may have rejoined while it was being identified.
+    """
+    if learned_at is None:
+        learned_at = core.clock.now()
     req = valves.IDENTIFY
     try:
         statuses = await gen.node.zcl_read(
@@ -200,6 +213,11 @@ async def identify(core: BridgeCore, gen: Generation, eui: Eui64, short: int) ->
         return "stale"
     if eui in core.valves:  # identified meanwhile (Device_annce)
         return "valve"
+    announced = core.annce_short.get(eui)
+    if announced is not None and announced[1] >= learned_at:
+        if announced[0] != short:
+            _LOGGER.debug("identify %s: re-announced 0x%04X -> 0x%04X", eui, short, announced[0])
+        short, learned_at = announced
     valve = valves.Valve(
         eui=eui,
         short=short,
@@ -210,6 +228,7 @@ async def identify(core: BridgeCore, gen: Generation, eui: Eui64, short: int) ->
         limits=limits,
     )
     core.add_valve(valve)
+    core.short_at[eui] = learned_at
     core.log_issues(eui, req.cluster, statuses, req.manufacturer)
     if limits_ok:
         core.static_at[eui] = core.clock.now()
@@ -279,7 +298,19 @@ def on_device_annce(core: BridgeCore, gen: Generation, annce: DeviceAnnce) -> No
         return
     if str(eui) in core.ignored:
         return
-    core.annce_short[eui] = short
+    _schedule_identify(core, gen, eui, short)
+
+
+def on_unknown_sender(core: BridgeCore, gen: Generation, eui: Eui64, short: int) -> None:
+    """A frame with an explicit, unknown source IEEE: handled like its Device_annce."""
+    if not core.is_current(gen) or eui in core.valves or str(eui) in core.ignored:
+        return
+    _LOGGER.debug("frame from unknown %s at 0x%04X: identification scheduled", eui, short)
+    _schedule_identify(core, gen, eui, short)
+
+
+def _schedule_identify(core: BridgeCore, gen: Generation, eui: Eui64, short: int) -> None:
+    core.annce_short[eui] = (short, core.clock.now())
     if eui in core.annce_seen:
         return
     core.annce_seen.add(eui)
@@ -290,10 +321,11 @@ async def _identify_later(core: BridgeCore, gen: Generation, eui: Eui64) -> None
     await core.clock.sleep(ANNCE_IDENTIFY_DEBOUNCE)
     if not core.is_current(gen) or eui in core.valves or str(eui) in core.ignored:
         return
-    short = core.annce_short.get(eui)
-    if short is None:  # pragma: no cover - set before the task is spawned
+    announced = core.annce_short.get(eui)
+    if announced is None:  # pragma: no cover - set before the task is spawned
         return
-    if await _identify_guarded(core, gen, eui, short) == "valve":
+    short, learned_at = announced
+    if await _identify_guarded(core, gen, eui, short, learned_at) == "valve":
         core.push_avoid_shorts()
         if core.topology is not None:
             core.summarize()
@@ -301,4 +333,11 @@ async def _identify_later(core: BridgeCore, gen: Generation, eui: Eui64) -> None
         core.changed()
 
 
-__all__ = ["discovery_run", "discovery_task", "identify", "on_device_annce", "spawn_safely"]
+__all__ = [
+    "discovery_run",
+    "discovery_task",
+    "identify",
+    "on_device_annce",
+    "on_unknown_sender",
+    "spawn_safely",
+]

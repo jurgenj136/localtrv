@@ -191,6 +191,8 @@ class ViCareBridge:
             return
         eui = core.eui_for_short(event.src_short, event.src_ieee)
         if eui is None:
+            if event.src_ieee is not None:  # unknown sender (maybe on a reused valve short)
+                bridge_discovery.on_unknown_sender(core, gen, event.src_ieee, event.src_short)
             return
         changed = core.apply(eui, event.cluster, event.records, event.manufacturer_code)
         if core.responded(eui) or changed:

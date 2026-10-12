@@ -156,9 +156,10 @@ class BridgeCore:
         self.last_silent_rejoin: float | None = None
         #: Basic-read timeouts per unknown EUI (diagnostic Active_EP/Simple_Desc trigger).
         self.basic_timeouts: dict[Eui64, int] = {}
-        #: Per generation: Device_annce senders scheduled for identification, latest shorts.
+        #: Per generation: Device_annce senders scheduled for identification, and the latest
+        #: short each unknown sender announced with the clock time it was learned.
         self.annce_seen: set[Eui64] = set()
-        self.annce_short: dict[Eui64, int] = {}
+        self.annce_short: dict[Eui64, tuple[int, float]] = {}
         self.identify_sem = asyncio.Semaphore(IDENTIFY_CONCURRENCY)
         self.logged_issues: set[tuple[Eui64, int, int]] = set()
         self.demand_warned: set[Eui64] = set()
@@ -279,8 +280,11 @@ class BridgeCore:
         return True
 
     def eui_for_short(self, short: int, ieee: Eui64 | None = None) -> Eui64 | None:
-        if ieee is not None and ieee in self.valves:
-            return ieee
+        """The valve a frame came from. An explicit ``ieee`` is authoritative: an unknown one
+        yields ``None`` even if a known valve used to have ``short`` (short reuse). The short
+        lookup is the fallback only when no IEEE is present."""
+        if ieee is not None:
+            return ieee if ieee in self.valves else None
         for eui, valve in self.valves.items():
             if valve.short == short:
                 return eui

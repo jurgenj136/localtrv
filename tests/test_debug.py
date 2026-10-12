@@ -51,6 +51,12 @@ ZCL_KEY_WRITE = h(NWK_DATA, APS_HA, "00 2D 02", "12 00 29 66 08", "00 00 F1", KE
 ZCL_CLUSTER_SPECIFIC_KEY = h(NWK_DATA, APS_HA, "01 2B 00", KEY)
 #: Commissioning Response with a TLV outside the allowlist (0x45 symmetric passphrase).
 COMMISSIONING_RSP_PASSPHRASE = h("09 08 34 12 1B 2A 1E 05", A, "0F 34 12 00", "45 0F", KEY)
+#: Route commands followed by the same 0x45 TLV: the tail is never decoded by the codecs.
+NWK_CMD = "09 00 34 12 6F 5E 1E 41"
+NETWORK_STATUS_TLV = h(NWK_CMD, "03 0B 34 12", "45 0F", KEY)
+RREQ_TLV = h(NWK_CMD, "01 20 07 34 12 00", A, "45 0F", KEY)
+RREP_LIVE_TLV = h(NWK_CMD, "02 20 07 6F 5E 34 12 00", A, "45 0F", KEY)
+RREP_LIVE_KEY_AS_EUIS = h(NWK_CMD, "02 20 07 6F 5E 34 12 00", A, KEY)  # 16-byte tail
 
 SECRET_FRAMES = {
     "aps_command": APS_COMMAND,
@@ -58,6 +64,10 @@ SECRET_FRAMES = {
     "zcl_secret_write": ZCL_KEY_WRITE,
     "commissioning_unknown_tlv": COMMISSIONING_RSP_PASSPHRASE,
     "zcl_cluster_specific": ZCL_CLUSTER_SPECIFIC_KEY,
+    "network_status_tail": NETWORK_STATUS_TLV,
+    "rreq_tail": RREQ_TLV,
+    "rrep_tail": RREP_LIVE_TLV,
+    "rrep_tail_multiple_of_8": RREP_LIVE_KEY_AS_EUIS,
 }
 
 
@@ -305,6 +315,19 @@ def test_commissioning_unknown_tlv_is_header_only() -> None:
 def test_nwk_undecodable_is_length_only(frame: bytes) -> None:
     assert redact_npdu(frame, EuiPseudonymizer()) == RedactedNpdu(
         length=len(frame), redacted="undecodable"
+    )
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [NETWORK_STATUS_TLV, RREQ_TLV, RREP_LIVE_TLV, RREP_LIVE_KEY_AS_EUIS],
+    ids=["network_status", "rreq", "rrep_live", "rrep_live_16"],
+)
+def test_route_command_tail_is_header_only(frame: bytes) -> None:
+    p = EuiPseudonymizer()
+    out = redact_npdu(frame, p)
+    assert out == RedactedNpdu(
+        length=len(frame), redacted="undecodable", nwk_header_hex=h(NWK_CMD).hex()
     )
 
 

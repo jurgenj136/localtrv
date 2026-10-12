@@ -16,9 +16,11 @@ Design choices (all err towards logging less):
     * EUIs are collected by walking the decoded dataclasses generically: every ``Eui64`` value at
       any depth, plus ``extended_pan_id`` integers. A decoder that grows a new EUI field is
       covered without touching this module.
-    * Route Request / Reply / Network Status keep trailing bytes raw in ``tlvs``. A tail whose
-      length is a multiple of 8 is treated as EUIs. This catches the live Route Reply layout
-      (options 0x20 with both EUIs: the trailing own EUI lands in ``tlvs``).
+    * Route Request / Reply / Network Status keep trailing bytes raw in ``tlvs``; those are
+      never decoded, so a strict allowlist applies. Network Status and Route Request: the tail
+      must be empty. Route Reply: the tail must be empty, or the frame must be exactly the live
+      layout (options byte 0x20, responder EUI decoded, one trailing 8-byte EUI: the own EUI,
+      collected as an EUI). Any other tail makes the frame ``undecodable``.
     * Commissioning Request / Response TLVs are checked against an allowlist of tags with known,
       key-free layouts. An unknown tag (for example 0x45, symmetric passphrase) makes the frame
       ``undecodable``.
@@ -89,6 +91,7 @@ type Verdict = Literal["ok", "aps_command", "zcl_secret", "undecodable"]
 type FieldKind = Literal["eui", "pan"]
 
 _EUI_LEN: Final = 8
+_RREP_LIVE_OPTIONS: Final = 0x20  # responder IEEE bit only; the own EUI trails (live layout)
 _MAX_DEPTH: Final = 8
 
 # Commissioning TLV tags (R23 Annex I) with key-free layouts, plus the encapsulating ones.
@@ -164,12 +167,6 @@ class _Collector:
                 else:
                     self.walk(value, depth + 1)
 
-    def tail(self, raw: bytes) -> None:
-        """Trailing route-command bytes: a multiple of 8 is taken as EUIs (live RREP 0x20)."""
-        if raw and len(raw) % _EUI_LEN == 0:
-            for i in range(0, len(raw), _EUI_LEN):
-                self.eui(Eui64(raw[i : i + _EUI_LEN]))
-
 
 def _commissioning_tlvs(tlvs: tuple[Tlv, ...], c: _Collector, depth: int = 0) -> bool:
     """Collect EUIs from allowlisted TLVs; False if any tag is unknown or malformed."""
@@ -193,15 +190,30 @@ def _commissioning_tlvs(tlvs: tuple[Tlv, ...], c: _Collector, depth: int = 0) ->
     return True
 
 
+def _route_reply_tail(options: int, rrep: RouteReply, c: _Collector) -> Verdict:
+    """Empty tail, or exactly the live layout: options 0x20 + responder EUI + own EUI."""
+    if not rrep.tlvs:
+        return "ok"
+    if (
+        options == _RREP_LIVE_OPTIONS
+        and rrep.responder_ieee is not None
+        and len(rrep.tlvs) == _EUI_LEN
+    ):
+        c.eui(Eui64(rrep.tlvs))
+        return "ok"
+    return "undecodable"
+
+
 def _nwk_command(payload: bytes, c: _Collector) -> Verdict:
     try:
         command = decode_nwk_command(payload)
     except DecodeError:
         return "undecodable"
     c.walk(command)
-    if isinstance(command, RouteRequest | RouteReply | NetworkStatus):
-        c.tail(command.tlvs)
-        return "ok"
+    if isinstance(command, RouteRequest | NetworkStatus):
+        return "undecodable" if command.tlvs else "ok"
+    if isinstance(command, RouteReply):
+        return _route_reply_tail(payload[1], command, c)
     if isinstance(command, CommissioningRequest | CommissioningResponse):
         return "ok" if _commissioning_tlvs(command.tlvs, c) else "undecodable"
     return "undecodable"  # pragma: no cover - decode_nwk_command returns only the above

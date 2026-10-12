@@ -161,6 +161,40 @@ def test_rrep_live_misdecode_trailing_eui_redacted() -> None:
     assert redacted_rrep.tlvs == Eui64.from_str("02:00:00:00:00:00:00:02").wire
 
 
+@pytest.mark.parametrize(
+    "frame",
+    [
+        h(NWK_CMD, "03 0B 34 12", "00"),  # Network Status, 1 junk byte
+        h(NWK_CMD, "03 0B 34 12", A),  # Network Status, EUI-sized junk
+        h(NWK_CMD, "01 00 07 34 12 00", A),  # RREQ without dst IEEE bit, 8-byte tail
+        h(NWK_CMD, "01 20 07 34 12 00", A, "00"),  # RREQ with dst IEEE, 1 junk byte
+        h(NWK_CMD, "02 30 07 6F 5E 34 12 00", A, B, "00"),  # spec RREP, junk byte
+        h(NWK_CMD, "02 30 07 6F 5E 34 12 00", A, B, A),  # spec RREP, extra 8 bytes
+        h(NWK_CMD, "02 20 07 6F 5E 34 12 00", A, B, A),  # live RREP, two trailing EUIs
+        h(NWK_CMD, "02 20 07 6F 5E 34 12 00", A, "00 11 22 33"),  # live RREP, short tail
+        h(NWK_CMD, "02 60 07 6F 5E 34 12 00", A, B),  # 0x20 + multicast: not the live byte
+        h(NWK_CMD, "02 00 07 6F 5E 34 12 00", A),  # no IEEE bits, 8-byte tail
+    ],
+    ids=lambda frame: frame[8:].hex(),
+)
+def test_route_command_junk_tail_is_undecodable(frame: bytes) -> None:
+    assert inspect_npdu(frame).verdict == "undecodable"
+    out = redact(frame)
+    assert out.hex is None
+    assert out.nwk_header_hex == h(NWK_CMD).hex()
+
+
+@pytest.mark.parametrize("name", ["RREP_LIVE", "RREP_SPEC"])
+def test_golden_route_replies_stay_ok_with_both_euis_redacted(name: str) -> None:
+    frame = SWAPPED[name]
+    assert inspect_npdu(frame).verdict == "ok"
+    out = redacted_hex(frame)
+    for eui in DUMMIES:
+        for form in forms(eui):
+            assert form not in out
+    assert out.count(P1) + out.count(P2) >= 2
+
+
 def octstr_report(data: bytes) -> bytes:
     """Report Attributes with one octet-string value: opaque bytes inside a decoded frame."""
     return h(NWK_DATA, APS_HA, "18 2F 0A 00 00 41") + bytes([len(data)]) + data
