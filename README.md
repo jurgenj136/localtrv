@@ -13,7 +13,8 @@ Local, cloud-free control of Viessmann ViCare radiator valves (ZK03840) over Blu
   node/join flow, valve API) and a HACS Home Assistant integration "ViCare Local (Bluetooth via
   ubisys R0)" (domain `vicare_local_ble`), using HA's Bluetooth stack or an ESPHome Bluetooth proxy.
   Verified against a simulator only.
-- Later: CLI / MQTT bridge.
+- Thin CLI: `vicare-local-ble scan` and `vicare-local-ble status --address … --key-env VAR`.
+- Later: MQTT bridge.
 
 Protocol details: [docs/protocol.md](docs/protocol.md).
 
@@ -37,7 +38,7 @@ src/vicare_local_ble/                  library (PyPI: vicare-local-ble)
   valves/                Viessmann ZK03840 mapping (only vendor-specific package)
   bridge*.py             ViCareBridge: discovery, polling, setpoint transactions, cache
   testing/               simulator: fake R0 (GATT + session crypto), fake network and valves
-  cli.py                 entry point (stub)
+  cli.py                 `scan` / `status` CLI (key from env or file only)
   zigbee_direct/         generic Zigbee Direct, no Viessmann knowledge
     crypto.py mmo.py     key derivation, SPEKE, AES-MMO, CCM session frames
     session.py           sans-IO handshake initiator + SessionCipher

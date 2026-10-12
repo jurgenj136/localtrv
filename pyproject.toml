@@ -78,9 +78,6 @@ addopts = "--cov=vicare_local_ble --cov-report=term-missing --cov-fail-under=90"
 
 [tool.coverage.run]
 branch = true
-omit = [
-    "*/vicare_local_ble/cli.py",
-]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
