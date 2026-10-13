@@ -18,7 +18,7 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import ClimateEntity
-from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACAction, HVACMode
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -70,8 +70,8 @@ async def async_setup_entry(
 
 
 class VicareClimate(VicareValveEntity, ClimateEntity):
-    """Heat-only thermostat. ``systemMode`` (9 "sleep" is normal) is not exposed; no
-    ``hvac_action`` in v1."""
+    """Heat-only thermostat. ``systemMode`` (9 "sleep" is normal) is not exposed.
+    ``hvac_action`` follows piHeatingDemand (``valves.heating_active``)."""
 
     _attr_name = None
     _attr_hvac_mode = HVACMode.HEAT
@@ -100,6 +100,15 @@ class VicareClimate(VicareValveEntity, ClimateEntity):
     def current_temperature(self) -> float | None:
         state = self.valve_state
         return None if state is None else state.local_temperature_c
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        """HEATING while the valve demands heat, IDLE at demand 0, else unknown."""
+        state = self.valve_state
+        active = None if state is None else valves.heating_active(state.heating_demand)
+        if active is None:
+            return None
+        return HVACAction.HEATING if active else HVACAction.IDLE
 
     @property
     def target_temperature(self) -> float | None:

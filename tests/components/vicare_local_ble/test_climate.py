@@ -15,6 +15,7 @@ from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
     ATTR_MIN_TEMP,
     ATTR_TARGET_TEMP_STEP,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE
@@ -97,7 +98,7 @@ async def test_heat_only_with_limits_and_step(hass: HomeAssistant, sim: Sim) -> 
         assert state.attributes[ATTR_TARGET_TEMP_STEP] == valves.SETPOINT_STEP_C == 0.5
         assert state.attributes["current_temperature"] == 19.6  # shown to 0.1
         assert state.attributes[ATTR_TEMPERATURE] == 22.0
-        assert state.attributes.get("hvac_action") is None
+        assert state.attributes["hvac_action"] == HVACAction.HEATING  # simulator demand 2
         assert state.attributes["supported_features"] == 1  # TARGET_TEMPERATURE
 
 
@@ -303,10 +304,35 @@ async def test_climate_unavailable_after_three_misses(hass: HomeAssistant, sim: 
     assert _state(hass, dead_id).state == HVACMode.HEAT  # two misses: still available
     await sim.drive(coordinator.bridge.poll())
     assert _state(hass, dead_id).state == "unavailable"
+    assert "hvac_action" not in _state(hass, dead_id).attributes
     assert _state(hass, alive_id).state == HVACMode.HEAT
     dead.drop_rate = 0.0
     await sim.drive(coordinator.bridge.poll())
     assert _state(hass, dead_id).state == HVACMode.HEAT
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (0, HVACAction.IDLE),
+        (1, HVACAction.HEATING),
+        (7, HVACAction.HEATING),  # top of the 0-7 scale
+        (8, None),  # above the scale: flagged demand_scale, action unknown
+        (0xFF, None),  # sentinel: demand unknown
+    ],
+)
+async def test_hvac_action_follows_heating_demand(
+    hass: HomeAssistant, sim: Sim, raw: int, expected: HVACAction | None
+) -> None:
+    coordinator = await loaded(sim)
+    valve, other = sim.inst.valves
+    entity = entity_id(hass, "climate", valve.eui, "thermostat")
+    valve.set_attribute(vt.CL_THERMOSTAT, valves.ATTR_PI_HEATING_DEMAND, ZclDataType.UINT8, raw)
+    await sim.drive(coordinator.bridge.poll())
+    await hass.async_block_till_done()
+    assert _state(hass, entity).attributes.get("hvac_action") == expected
+    other_id = entity_id(hass, "climate", other.eui, "thermostat")
+    assert _state(hass, other_id).attributes["hvac_action"] == HVACAction.HEATING
 
 
 async def test_valve_entity_ids_use_the_device_name(hass: HomeAssistant, sim: Sim) -> None:

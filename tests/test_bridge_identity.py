@@ -6,6 +6,7 @@ valve is being identified wins over the short the identification started with.
 
 from __future__ import annotations
 
+import logging
 import random
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,8 @@ from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
 from vicare_local_ble.zigbee_direct.node_types import ReportEvent
 
 if TYPE_CHECKING:
+    import pytest
+
     from vicare_local_ble.zigbee_direct.types import Eui64
 
 THERMOSTAT = 0x0201
@@ -66,4 +69,31 @@ async def test_annce_during_identification_ends_at_the_new_short() -> None:
     await run_until(r.clock, lambda: NEW_EUI in r.snap().valves)
     assert r.snap().valves[NEW_EUI].short == 0x3334
     assert 0x3334 in r.conn.node_config.avoid_shorts
+    await stop(r)
+
+
+async def test_every_report_logs_one_debug_line_without_values(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Hardware checklist item 16: per-report DEBUG line (short, cluster, attribute ids)."""
+    caplog.set_level(logging.DEBUG, "vicare_local_ble.bridge")
+    r = make_rig(n_valves=1, behind_router=0)
+    gen = await discovered(r)
+    valve = r.inst.valves[0]
+    short = r.snap().valves[valve.eui].short
+    records = (
+        AttributeRecord(LOCAL_TEMPERATURE, ZclDataType.INT16, 1234),
+        AttributeRecord(valves.ATTR_PI_HEATING_DEMAND, ZclDataType.UINT8, 3),
+    )
+    caplog.clear()
+    r.bridge._on_report(gen, ReportEvent(short, None, valves.ENDPOINT, THERMOSTAT, None, records))
+    r.bridge._on_report(gen, temperature_report(0x7777, None, 1500))  # unknown sender: logged too
+    lines = [rec for rec in caplog.records if rec.getMessage().startswith("report from")]
+    assert [rec.getMessage() for rec in lines] == [
+        f"report from 0x{short:04X}: cluster 0x0201 attrs 0x0000,0x0008",
+        "report from 0x7777: cluster 0x0201 attrs 0x0000",
+    ]
+    assert all(rec.levelno == logging.DEBUG for rec in lines)
+    assert all("1234" not in rec.getMessage() for rec in lines)  # no values
+    assert str(valve.eui) not in lines[0].getMessage()
     await stop(r)

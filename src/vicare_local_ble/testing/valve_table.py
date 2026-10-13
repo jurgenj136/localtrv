@@ -64,7 +64,7 @@ _DEFAULT: Final[tuple[tuple[RawKey, ZclDataType, ZclValue], ...]] = (
     ((CL_THERMOSTAT, ATTR_LOCAL_TEMPERATURE, None), ZclDataType.INT16, 1965),
     ((CL_THERMOSTAT, ATTR_ABS_MIN, None), ZclDataType.INT16, 800),
     ((CL_THERMOSTAT, ATTR_ABS_MAX, None), ZclDataType.INT16, 3000),
-    ((CL_THERMOSTAT, 0x0008, None), ZclDataType.UINT8, 2),  # piHeatingDemand, 0-5 scale
+    ((CL_THERMOSTAT, 0x0008, None), ZclDataType.UINT8, 2),  # piHeatingDemand, 0-7 scale
     ((CL_THERMOSTAT, ATTR_SETPOINT, None), ZclDataType.INT16, 2200),
     ((CL_THERMOSTAT, ATTR_MIN_LIMIT, None), ZclDataType.INT16, 800),
     ((CL_THERMOSTAT, ATTR_MAX_LIMIT, None), ZclDataType.INT16, 3000),

@@ -225,13 +225,13 @@ async def test_read_issues_logged_once_per_valve_and_demand_warning_once(
     await discovered(r)
     sentinel, demanding = r.inst.valves
     sentinel.set_attribute(vt.CL_THERMOSTAT, vt.ATTR_LOCAL_TEMPERATURE, ZclDataType.INT16, -0x8000)
-    demanding.set_attribute(vt.CL_THERMOSTAT, valves.ATTR_PI_HEATING_DEMAND, ZclDataType.UINT8, 7)
+    demanding.set_attribute(vt.CL_THERMOSTAT, valves.ATTR_PI_HEATING_DEMAND, ZclDataType.UINT8, 8)
     caplog.clear()
     await poll(r)
     await poll(r)
     snap = r.snap()
     assert snap.states[sentinel.eui].local_temperature_c is None
-    assert snap.states[demanding.eui].heating_demand == 7
+    assert snap.states[demanding.eui].heating_demand == 8
     rejected = [rec for rec in caplog.records if "rejected (sentinel)" in rec.getMessage()]
     assert len(rejected) == 1
     assert str(sentinel.eui) in rejected[0].getMessage()

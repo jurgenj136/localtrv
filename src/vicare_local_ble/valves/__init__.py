@@ -18,7 +18,7 @@ not be a sentinel, and scaled values must be in range; otherwise the field becom
 |-------------------|----------|----------|--------------|----------------------------------|
 | temperature/setp. | int16    | 0x8000   | -50..100 °C  | /100                             |
 | battery           | uint8    | 0xFF     | 0..200 raw   | /2 (0.5 % units)                 |
-| heating demand    | uint8    | 0xFF     | -            | raw 0-5; >5 kept, issue reported |
+| heating demand    | uint8    | 0xFF     | -            | raw 0-7; >7 kept, issue reported |
 | LQI               | uint8    | 0xFF     | -            | raw                              |
 | RSSI              | int8     | 0x80     | -            | raw (decoded int8 -128 is the    |
 |                   |          |          |              | sentinel)                        |
@@ -72,7 +72,7 @@ from vicare_local_ble.valves.constants import (
     CONFIRM_SETPOINT,
     ENDPOINT,
     FAST,
-    HEATING_DEMAND_MAX_OBSERVED,
+    HEATING_DEMAND_MAX,
     IDENTIFY,
     INT8_SENTINEL,
     LIMITS_BAND_C,
@@ -98,6 +98,7 @@ from vicare_local_ble.valves.decode import (
     clamp_setpoint,
     decode_attr,
     has_oui_hint,
+    heating_active,
     is_supported_valve,
     parse_basic,
     read_issues,
@@ -166,7 +167,7 @@ __all__ = [
     "DEFAULT_LIMITS_C",
     "ENDPOINT",
     "FAST",
-    "HEATING_DEMAND_MAX_OBSERVED",
+    "HEATING_DEMAND_MAX",
     "IDENTIFY",
     "INT8_SENTINEL",
     "LIMITS_BAND_C",
@@ -200,6 +201,7 @@ __all__ = [
     "clamp_setpoint",
     "decode_attr",
     "has_oui_hint",
+    "heating_active",
     "is_supported_valve",
     "parse_basic",
     "read_issues",

@@ -16,8 +16,11 @@ from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
 MANUFACTURER: Final = "Viessmann"
 MFR_VIESSMANN: Final = 0x1221
 MODEL_IDS: Final = frozenset({"7637434"})
-#: Valve EUI OUI seen live; only orders identification, never decides it.
-OUI_HINT: Final = "14:2D:41"
+#: Valve EUI OUIs; they only order identification, never decide it (Basic modelId does).
+#: 14:2D:41 seen live; it also covers the ZK03838 floor-heating thermostat (kristian/ViLocal
+#: discussion #6), so it is not valve-specific. 28:DB:A7: ZK03840 example valve EUI in the
+#: zbtk README.
+OUI_HINT: Final = ("14:2D:41", "28:DB:A7")
 #: Display names for HA's DeviceInfo.
 MODEL_NAME: Final = "ZK03840"
 
@@ -62,7 +65,10 @@ UINT8_SENTINEL: Final = 0xFF
 INT8_SENTINEL: Final = -0x80  # int8 0x80 as decoded
 TEMPERATURE_RANGE_C: Final = (-50.0, 100.0)
 BATTERY_RAW_MAX: Final = 200
-HEATING_DEMAND_MAX_OBSERVED: Final = 5
+#: piHeatingDemand ceiling: 0 (off) to 7 (max), the PI-loop demand the ViCare app shows as red
+#: bubbles, not a valve position (kristian/ViLocal CHANGELOG 2.1; unverified by us). Values 2
+#: and 5 observed live. Above it the value is kept and flagged ``demand_scale``.
+HEATING_DEMAND_MAX: Final = 7
 #: Limits are accepted only inside this band (and inside valid abs limits).
 LIMITS_BAND_C: Final = (5.0, 35.0)
 SETPOINT_STEP_C: Final = 0.5
@@ -201,7 +207,7 @@ __all__ = [
     "CONFIRM_SETPOINT",
     "ENDPOINT",
     "FAST",
-    "HEATING_DEMAND_MAX_OBSERVED",
+    "HEATING_DEMAND_MAX",
     "IDENTIFY",
     "INT8_SENTINEL",
     "LIMITS_BAND_C",

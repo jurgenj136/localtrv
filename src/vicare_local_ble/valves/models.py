@@ -163,7 +163,7 @@ class Valve:
 class ValveState:
     """Last known values; every field is ``None`` until a valid value was seen.
 
-    ``heating_demand`` is raw (0-5 observed, not percent). ``battery_pct`` is percent (raw/2).
+    ``heating_demand`` is raw (0-7 scale, not percent). ``battery_pct`` is percent (raw/2).
     ``system_mode`` and ``window_open_raw`` are raw enum values. ``updated_at`` is the clock time
     of the last change applied by ``apply_reads``.
     """

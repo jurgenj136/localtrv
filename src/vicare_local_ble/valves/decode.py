@@ -15,7 +15,7 @@ from vicare_local_ble.valves.constants import (
     ATTRS,
     BATTERY_RAW_MAX,
     CLUSTER_BASIC,
-    HEATING_DEMAND_MAX_OBSERVED,
+    HEATING_DEMAND_MAX,
     INT8_SENTINEL,
     MANUFACTURER,
     MODEL_IDS,
@@ -78,7 +78,7 @@ def _decode(
         return None, "sentinel"
     if kind is ValueKind.HALF_PERCENT:
         return (value / 2, None) if 0 <= value <= BATTERY_RAW_MAX else (None, "range")
-    if kind is ValueKind.DEMAND and value > HEATING_DEMAND_MAX_OBSERVED:
+    if kind is ValueKind.DEMAND and value > HEATING_DEMAND_MAX:
         return value, "demand_scale"
     return value, None
 
@@ -174,8 +174,16 @@ def is_supported_valve(manufacturer: str | None, model: str | None) -> bool:
 
 
 def has_oui_hint(eui: Eui64) -> bool:
-    """True if ``eui`` starts with ``OUI_HINT`` (identification order only)."""
-    return str(eui).upper().startswith(OUI_HINT.upper())
+    """True if ``eui`` starts with one of ``OUI_HINT`` (identification order only)."""
+    return str(eui).upper().startswith(tuple(oui.upper() for oui in OUI_HINT))
+
+
+def heating_active(demand: int | None) -> bool | None:
+    """``demand > 0`` for a demand on the accepted scale (0..``HEATING_DEMAND_MAX``), else
+    ``None`` (unknown, or flagged ``demand_scale``)."""
+    if demand is None or not _is_int(demand) or not 0 <= demand <= HEATING_DEMAND_MAX:
+        return None
+    return demand > 0
 
 
 def clamp_setpoint(celsius: float, limits: SetpointLimits) -> float:
@@ -208,6 +216,7 @@ __all__ = [
     "clamp_setpoint",
     "decode_attr",
     "has_oui_hint",
+    "heating_active",
     "is_supported_valve",
     "parse_basic",
     "read_issues",

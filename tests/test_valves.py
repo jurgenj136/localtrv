@@ -40,9 +40,11 @@ from vicare_local_ble.valves import (
     CONFIRM_SETPOINT,
     DEFAULT_LIMITS,
     FAST,
+    HEATING_DEMAND_MAX,
     IDENTIFY,
     LIMITS_BAND_C,
     MFR_VIESSMANN,
+    OUI_HINT,
     SETPOINT_STEP_C,
     SLOW,
     STATIC,
@@ -55,6 +57,7 @@ from vicare_local_ble.valves import (
     clamp_setpoint,
     decode_attr,
     has_oui_hint,
+    heating_active,
     is_supported_valve,
     parse_basic,
     read_issues,
@@ -187,19 +190,28 @@ def test_battery_range() -> None:
     ) == (AttrIssue(CLUSTER_POWER, ATTR_BATTERY_PERCENTAGE, "range"),)
 
 
-def test_heating_demand_above_five_is_kept_with_issue() -> None:
-    assert decode_attr(A_HEATING_DEMAND, U8, 5) == 5
+def test_heating_demand_above_seven_is_kept_with_issue() -> None:
+    assert HEATING_DEMAND_MAX == 7
+    assert decode_attr(A_HEATING_DEMAND, U8, 7) == 7
     assert decode_attr(A_HEATING_DEMAND, U8, 80) == 80
-    rec = ok(ATTR_PI_HEATING_DEMAND, U8, 80)
-    assert read_issues(CLUSTER_THERMOSTAT, [rec], manufacturer=None) == (
-        AttrIssue(CLUSTER_THERMOSTAT, ATTR_PI_HEATING_DEMAND, "demand_scale"),
-    )
-    new = apply_reads(ValveState(), CLUSTER_THERMOSTAT, [rec], manufacturer=None)
-    assert new.heating_demand == 80
-    assert (
-        read_issues(CLUSTER_THERMOSTAT, [ok(ATTR_PI_HEATING_DEMAND, U8, 5)], manufacturer=None)
-        == ()
-    )
+    for raw in (8, 80):
+        rec = ok(ATTR_PI_HEATING_DEMAND, U8, raw)
+        assert read_issues(CLUSTER_THERMOSTAT, [rec], manufacturer=None) == (
+            AttrIssue(CLUSTER_THERMOSTAT, ATTR_PI_HEATING_DEMAND, "demand_scale"),
+        )
+        new = apply_reads(ValveState(), CLUSTER_THERMOSTAT, [rec], manufacturer=None)
+        assert new.heating_demand == raw
+    for raw in (0, 5, 6, 7):
+        rec = ok(ATTR_PI_HEATING_DEMAND, U8, raw)
+        assert read_issues(CLUSTER_THERMOSTAT, [rec], manufacturer=None) == ()
+
+
+@pytest.mark.parametrize(
+    ("demand", "expected"),
+    [(None, None), (0, False), (1, True), (7, True), (8, None), (80, None), (-1, None)],
+)
+def test_heating_active(demand: int | None, expected: bool | None) -> None:
+    assert heating_active(demand) is expected
 
 
 # --- apply_reads ---------------------------------------------------------------------------
@@ -487,6 +499,9 @@ def test_is_supported_valve(mfr: str | None, model: str | None, expected: bool) 
 def test_oui_hint() -> None:
     assert has_oui_hint(Eui64.from_str("14:2D:41:00:00:00:00:01"))
     assert has_oui_hint(Eui64.from_str("142d410000000001"))
+    assert has_oui_hint(Eui64.from_str("28:DB:A7:00:00:00:00:01"))
+    assert has_oui_hint(Eui64.from_str("28dba70000000001"))
+    assert OUI_HINT == ("14:2D:41", "28:DB:A7")
     assert not has_oui_hint(Eui64.from_str("AA:BB:CC:00:00:00:00:01"))
     # OUI is the first display octets, not the first wire bytes
     assert not has_oui_hint(Eui64.from_str("01:00:00:00:00:41:2D:14"))

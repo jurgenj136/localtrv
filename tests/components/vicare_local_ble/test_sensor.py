@@ -44,7 +44,7 @@ async def test_enabled_sensor_values_units_classes(hass: HomeAssistant, sim: Sim
 
         demand = hass.states.get(entity_id(hass, "sensor", valve.eui, "heating_demand"))
         assert demand is not None
-        assert demand.state == "2"  # raw 0-5, not percent
+        assert demand.state == "2"  # raw 0-7, not percent
         assert "unit_of_measurement" not in demand.attributes
         assert "device_class" not in demand.attributes
         assert demand.attributes["state_class"] == SensorStateClass.MEASUREMENT

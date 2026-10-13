@@ -189,6 +189,12 @@ class ViCareBridge:
         core = self._core
         if not core.is_current(gen):
             return
+        _LOGGER.debug(
+            "report from 0x%04X: cluster 0x%04X attrs %s",
+            event.src_short,
+            event.cluster,
+            ",".join(f"0x{r.attribute_id:04X}" for r in event.records),
+        )
         eui = core.eui_for_short(event.src_short, event.src_ieee)
         if eui is None:
             if event.src_ieee is not None:  # unknown sender (maybe on a reused valve short)
