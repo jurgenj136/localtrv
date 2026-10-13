@@ -17,10 +17,12 @@ from vicare_local_ble.zigbee_direct.errors import CommissioningDecodeError
 from vicare_local_ble.zigbee_direct.transport_handshake import gatt_failure
 
 DUMMY_KEY = bytes(range(0xA0, 0xB0))  # stands in for decrypted key material
-#: The live R0 tag order (60 B), with a 4-byte DEVICE_TYPE: shown up to and including 0x05.
-LIVE_LAYOUT = "60 B: 08/8 00/8 01/2 06/2 09/8 02/5 05/4, 13 B withheld"
+#: The live R0 tag order (60 B) with its 4-byte DEVICE_TYPE: schema-matching, so fully shown.
+LIVE_LAYOUT = "60 B: 08/8 0A/1 00/8 01/2 02/5 05/4 06/2 09/8 0B/1 0C/1"
 #: Fixed-length tags without key material, with their lengths (0x02 is variable).
 NON_KEY_FIXED = {0x00: 8, 0x01: 2, 0x05: 1, 0x06: 2, 0x07: 1, 0x08: 8, 0x09: 8, 0x0A: 1}
+#: Further allowed lengths (schema variants): the ubisys R0's 4-byte DEVICE_TYPE.
+VARIANT_LENGTHS = {0x05: {4}}
 _HEADER = re.compile(r"\b([0-9A-F]{2})/(\d+)\b")
 
 
@@ -36,13 +38,13 @@ def live_like_status() -> bytes:
     return b"".join(
         (
             _tlv(0x08, b"\x02" * 8),
+            _tlv(0x0A, b"\x12"),
             _tlv(0x00, b"\xdd" * 8),
             _tlv(0x01, b"\xcd\xab"),
-            _tlv(0x06, b"\x5a\x5a"),
-            _tlv(0x09, b"\x01" * 8),
             _channel(),
             _tlv(0x05, b"\x01\x00\x00\x00"),
-            _tlv(0x0A, b"\x12"),
+            _tlv(0x06, b"\x5a\x5a"),
+            _tlv(0x09, b"\x01" * 8),
             _tlv(0x0B, b"\x00"),
             _tlv(0x0C, b"\x00"),
         )
@@ -136,12 +138,21 @@ def test_non_single_page_channel_is_unverified(value: bytes, layout: str) -> Non
     assert shown == f"{layout}, {len(value) + 3} B withheld"
 
 
-def test_live_like_status_shows_the_aligned_prefix() -> None:
+def test_live_status_layout_is_fully_verified() -> None:
+    """The R0's 4-byte 0x05 is in the schema: the whole live chain verifies and decodes."""
     data = live_like_status()
     assert len(data) == 60
-    assert safe_status_layout(data) == ("length mismatch on DEVICE_TYPE", LIVE_LAYOUT)
-    error = decode_error(data)
-    assert error.safe_detail == f"length mismatch on DEVICE_TYPE; layout {LIVE_LAYOUT}"
+    assert safe_status_layout(data) == (None, LIVE_LAYOUT)
+    assert CommissioningStatus.decode(data).deviations == ((0x05, 4),)
+
+
+def test_live_status_with_an_unknown_tag_decodes_and_stops_the_layout() -> None:
+    data = live_like_status() + _tlv(0x42, b"\x01")
+    assert CommissioningStatus.decode(data).unknown == (Tlv(0x42, b"\x01"),)
+    assert safe_status_layout(data) == (
+        "unknown tag 0x42",
+        f"63 B: {LIVE_LAYOUT[6:]} 42/1, 1 B withheld",
+    )
 
 
 def test_correct_key_tlvs_before_a_wide_device_type_show_their_headers() -> None:
@@ -149,13 +160,13 @@ def test_correct_key_tlvs_before_a_wide_device_type_show_their_headers() -> None
         (
             _tlv(0x03, DUMMY_KEY),
             _tlv(0x04, b"\x01" + DUMMY_KEY),
-            _tlv(0x05, b"\x01\x00\x00\x00"),
+            _tlv(0x05, b"\x01\x00"),
             _tlv(0x0D, DUMMY_KEY),
         )
     )
     error = decode_error(data)
     assert error.safe_detail == (
-        "length mismatch on DEVICE_TYPE; layout 61 B: 03/16 04/17 05/4, 22 B withheld"
+        "length mismatch on DEVICE_TYPE; layout 59 B: 03/16 04/17 05/2, 20 B withheld"
     )
     assert_key_free(str(error))
 
@@ -218,7 +229,8 @@ def test_lying_lengths_before_a_key_never_show_key_byte_pairs() -> None:
         else:
             tag = rng.choice(sorted(NON_KEY_FIXED))
             value = rng.randbytes(NON_KEY_FIXED[tag])
-            declared = rng.choice([n for n in range(1, 257) if n != len(value)])
+            allowed = {len(value)} | VARIANT_LENGTHS.get(tag, set())
+            declared = rng.choice([n for n in range(1, 257) if n not in allowed])
         real = [(t, n - 1) for t, n in prefix_tags] + [(tag, declared - 1)]
         key = rng.randbytes(16)
         while {(key[i], key[i + 1]) for i in range(15)} & set(real):  # a coincidence, not a leak

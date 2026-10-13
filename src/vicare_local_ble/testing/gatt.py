@@ -46,7 +46,8 @@ GATT behaviours (spec §1.7 "Required behaviours: GATT") and their knobs
     * Handshake faults -> ``handshake_fault``: ``se2_silence`` / ``se4_silence`` (the
       indication never comes), ``malformed_se2`` (SE2 with a truncated point TLV).
     * Commissioning Status variants -> ``status_omit_short`` (TLV 0x06 missing) and
-      ``status_ieee_override`` (TLV 0x08 differs from the SE2 EUI).
+      ``status_ieee_override`` (TLV 0x08 differs from the SE2 EUI); ``status_layout``
+      ``"r0_live"`` sends the live R0 layout (4-byte TLV 0x05, no key TLVs), default ``"spec"``.
     * Tunnel indication faults -> ``inject_replayed_indication()`` (re-sends the last
       indication frame verbatim: ``ReplayError`` on the client) and
       ``inject_bad_mic_indication()`` (next indication with a corrupted MIC).
@@ -92,6 +93,7 @@ from vicare_local_ble.testing.gatt_services import (
     GATT_ERROR_REQUEST_NOT_SUPPORTED,
     GATT_ERROR_WRITE_NOT_PERMITTED,
     SESSION_READABLE,
+    StatusLayout,
     se1_eui,
     status_value,
 )
@@ -167,6 +169,7 @@ class SimulatedR0:
         handshake_fault: HandshakeFault = "none",
         status_omit_short: bool = False,
         status_ieee_override: Eui64 | None = None,
+        status_layout: StatusLayout = "spec",
     ) -> None:
         self._clock = clock
         self._eui = eui
@@ -195,6 +198,7 @@ class SimulatedR0:
         self.handshake_fault: HandshakeFault = handshake_fault
         self.status_omit_short = status_omit_short
         self.status_ieee_override = status_ieee_override
+        self.status_layout: StatusLayout = status_layout
         # state
         self._peer: TunnelPeer | None = None
         self._client: FakeBleakClient | None = None
@@ -509,6 +513,7 @@ class SimulatedR0:
             zdd_short=None if self.status_omit_short else self.zdd_short,
             ieee=self.status_ieee_override or self._eui,
             trust_center_eui=self._trust_center_eui,
+            layout=self.status_layout,
         )
 
 

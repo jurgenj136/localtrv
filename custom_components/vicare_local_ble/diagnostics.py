@@ -153,6 +153,8 @@ def _join(join: JoinInfo | None, pseudonyms: EuiPseudonymizer) -> dict[str, Any]
         ),
         "device_type": network.device_type,
         "joined_status": network.joined_status,
+        # header-only (tag, length) pairs where the status deviated from ZD 1.0
+        "status_deviations": [list(header) for header in network.status_deviations],
     }
 
 

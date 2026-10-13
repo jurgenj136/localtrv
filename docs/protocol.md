@@ -232,7 +232,7 @@ Read after the session is up (decrypted value is a TLV list):
 | 0x02 | Network channel (kept raw) | var |
 | **0x03** | Network key | 16 |
 | **0x04** | Link key (flags ‖ key) | 17 |
-| 0x05 | Device type | 1 |
+| 0x05 | Device type | 1 or 4 (R0) |
 | 0x06 | NWK (short) address | 2 |
 | 0x07 | Joining method | 1 |
 | 0x08 | ZDD IEEE | 8 |
@@ -254,13 +254,39 @@ Decode errors never carry codec text (offsets, TLV lengths): with a lying length
 read as TLV headers and would leak through such a message. `CommissioningDecodeError.safe_detail`
 (also its message) is `<fault>; layout <n> B: TT/len ..., <m> B withheld`, built by
 `safe_status_layout`. It walks the TLVs in order and shows headers up to and including the first
-one that does not match the fixed schema (unknown tag, duplicate, wrong length, truncation, or a
-channel TLV 0x02 other than 5 bytes with count 1), names that fault, and withholds every byte
-after it by count only. Example (live R0 order with a 4-byte 0x05):
-`length mismatch on DEVICE_TYPE; layout 60 B: 08/8 00/8 01/2 06/2 09/8 02/5 05/4, 13 B withheld`.
+one that does not match the fixed schema (unknown tag, duplicate, a length outside the tag's
+allowed set, truncation, or a channel TLV 0x02 other than 5 bytes with count 1), names that fault,
+and withholds every byte after it by count only. Example (the live R0 status before 05/4 joined
+the schema): `length mismatch on DEVICE_TYPE; layout 60 B: 08/8 0A/1 00/8 01/2 02/5 05/4, 24 B
+withheld`.
+
+**Live R0 layout (2026-10, Basic-key session).** 60 B, in this order (not spec order; the decoder
+never depends on order): `08/8 0A/1 00/8 01/2 02/5 05/4 06/2 09/8 0B/1 0C/1`. The first six
+headers come from the hardware join error above; the 20 B after 0x05 match 06/2 09/8 0B/1 0C/1
+exactly, as in the research session's tag set (08 00 01 06 09 02 05 0A 0B 0C). The R0 sends **no
+key TLVs** (0x03/0x04/0x0D) in a Basic-key session. 0x05 is 4 bytes on the R0, while ZD 1.0 (and
+Wireshark `packet-zbee-tlv.c`) define a 1-byte device type (ZC/ZR/ED); the R0 semantics of those
+4 bytes are unknown. The simulator reproduces this with `SimulatedR0(status_layout="r0_live")`.
+
+**Schema with the R0 variant.** `CommissioningStatus.decode` and `safe_status_layout` share one
+schema: each tag has a set of allowed lengths. Every tag allows exactly its ZD 1.0 length, except
+0x05, which allows {1 (ZD 1.0), 4 (ubisys R0, observed live 2026-10-13, semantics unknown)}. The
+channel TLV 0x02 is kept raw and decoded lazily by `decode`; `safe_status_layout` trusts it only as
+5 bytes with count 1. Any other length is fatal (`CommissioningDecodeError`), as are truncation and
+a repeated tag; unknown tags are kept raw. A 4-byte 0x05 leaves `device_type` `None`, keeps nothing
+of its value, and records its header `(0x05, 4)` in `CommissioningStatus.deviations` and
+`NetworkSummary.status_deviations`. The join logs it at INFO:
+`Commissioning Status deviates from ZD 1.0: tag 0x05 len 4`.
+
+Boundary: accepting a second length for 0x05 is a schema change justified by live evidence, not a
+general tolerance. 05/4 is schema-matching, so it no longer ends the trusted prefix. The
+out-of-scope class is the same as before: an encoder that writes a schema-matching header with a
+value of another size (for example 0x05 declaring 4 bytes but writing 1, which swallows a key
+header so key bytes decode as 06/01/02) cannot be detected by any parser. A test documents what
+such input decodes to.
 
 Threat model: a header is trusted only while every earlier header matched the fixed schema
-exactly. Every tag has exactly one allowed length; for 0x02 that is the single-page form, since a
+exactly. Every tag has its allowed lengths (one each, plus 4 for 0x05); for 0x02 that is the single-page form, since a
 count that agrees with the length proves nothing (a lying 0x02 of 17 bytes with count 4 can
 swallow a key header). Key bytes live only inside key TLV values (0x03, 0x04, 0x0D), and every
 key TLV before the cut had exactly its key length. So, as long as the encoder writes values of the
@@ -461,8 +487,12 @@ From the `transport.py` and `node.py` stubs (not implemented):
 6. **Source-route hypothesis** for the 4 extra bytes (section 8). Collect fixtures and decide
    whether the fallback decoder can go.
 7. **SE2 contents.** Whether the method/secret-type TLV is echoed, and any further TLVs.
-8. **Commissioning Status channel TLV (0x02) layout.** The decoder assumes `count ‖ count x 4-byte
-   mask` (page in bits 27-31); unverified live. Also the semantics of 0x0A-0x0C as seen on the R0.
+8. **Commissioning Status layout.** Live R0 (section 6.5): `08/8 0A/1 00/8 01/2 02/5 05/4 06/2
+   09/8 0B/1 0C/1`, 60 B, no key TLVs. Open: what the R0's 4-byte 0x05 means (ZD 1.0: 1-byte
+   device type), and the semantics of 0x0A-0x0C on the R0. The channel TLV (0x02) is 5 B on the R0,
+   matching `count(1) ‖ 4-byte mask`; its values are not yet cross-checked. Page bits: the decoder
+   reads bits 27-31 (Zigbee channel page structure, Wireshark ZDP `0xF8000000`); Wireshark's ZD
+   TLV helper reads only bits 27-29 (`(mask >> 27) & 0x07`). Both agree on page 0 (2.4 GHz).
 9. **Passive updates.** Do the valves already report to the coordinator, and does the R0 forward
    those frames into the tunnel? If yes, change detection needs no polling.
 10. **Counters beyond 2^32 frames.** Handled by forced reconnect; behaviour of long-lived sessions

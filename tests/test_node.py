@@ -166,7 +166,9 @@ async def test_join_happy_path(caplog: pytest.LogCaptureFixture) -> None:
             "trust_center_address",
             "device_type",
             "joined_status",
+            "status_deviations",
         }
+        assert network.status_deviations == ()
         assert "key" not in repr(info).lower()
         assert inst.network.gated_open
         assert r.node.stats.mtorr_sent == 2

@@ -118,6 +118,9 @@ class NetworkSummary:
     this immediately after the read and then dropped. ``channel_masks`` is ``None`` if the TLV
     is absent or malformed (its layout is unverified live). ``extended_pan_id`` and
     ``trust_center_address`` are identifiers: diagnostics must pseudonymise them.
+    ``status_deviations`` holds the ``(tag, length)`` headers of allowed non-ZD-1.0 length
+    variants (``CommissioningStatus.deviations``; never a value byte), e.g.
+    ``((0x05, 4),)`` on the live R0.
     """
 
     pan_id: int | None
@@ -126,6 +129,7 @@ class NetworkSummary:
     trust_center_address: Eui64 | None
     device_type: int | None
     joined_status: int | None
+    status_deviations: tuple[tuple[int, int], ...] = ()
 
     @classmethod
     def from_status(cls, status: CommissioningStatus) -> Self:
@@ -141,6 +145,7 @@ class NetworkSummary:
             trust_center_address=status.trust_center_address,
             device_type=status.device_type,
             joined_status=status.joined_status,
+            status_deviations=status.deviations,
         )
 
 

@@ -68,10 +68,10 @@ def replace_first_status(
     monkeypatch.setattr(SimulatedR0, "_status_plaintext", first_rewritten)
 
 
-def wide_device_type(plaintext: bytes) -> bytes:
-    """A 4-byte DEVICE_TYPE TLV, as a live R0 might send."""
+def wide_nwk_address(plaintext: bytes) -> bytes:
+    """A 4-byte NWK_ADDRESS TLV: a join anchor, so its wrong length stays fatal."""
     return encode_tlvs(
-        Tlv(t.tag, b"\x01\x00\x00\x00") if t.tag == StatusTag.DEVICE_TYPE else t
+        Tlv(t.tag, t.value + b"\x00\x00") if t.tag == StatusTag.NWK_ADDRESS else t
         for t in decode_tlvs(plaintext)
     )
 
@@ -81,15 +81,15 @@ async def test_malformed_status_logs_the_safe_layout(
 ) -> None:
     caplog.set_level(logging.DEBUG)
     r = make_rig()
-    replace_first_status(monkeypatch, wide_device_type)
+    replace_first_status(monkeypatch, wide_nwk_address)
     gen = await start(r)
     assert gen.number == 1
-    prefix = "JoinError: malformed Commissioning Status (length mismatch on DEVICE_TYPE; layout "
+    prefix = "JoinError: malformed Commissioning Status (length mismatch on NWK_ADDRESS; layout "
     detail = r.conn.stats.last_failure_detail
     assert detail is not None
     assert detail.startswith(prefix)
     assert " 03/16 " in detail  # the network key TLV is shown by its header only
-    assert detail.endswith(" 05/4, 49 B withheld)")  # nothing past the first unverified header
+    assert detail.endswith(" 06/4, 45 B withheld)")  # nothing past the first unverified header
     assert f"ZDD: connection failed (join: {detail})" in caplog.text
     assert r.conn.stats.last_failure == "join"
     assert_key_free(r, caplog.text)

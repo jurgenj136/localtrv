@@ -11,6 +11,17 @@ guessed the rest. Per ZD 1.0, tag 0x00 is the Extended PAN ID (research guessed
 "extended-pan-id"); 0x02 is the network channel list, 0x05 the device type,
 0x0A the network status map, 0x0B the NWK update id and 0x0C the active key
 sequence number.
+
+Length schema (``CommissioningStatus.decode`` and ``safe_status_layout``). Tag order never
+matters. Every known tag has a fixed set of allowed lengths; any other length is fatal
+(``CommissioningDecodeError``), as are truncation and a repeated tag. Each tag allows exactly
+its ZD 1.0 length, with one exception: 0x05 (device type) also allows 4 bytes, the ubisys R0
+variant observed live on 2026-10-13 (semantics unknown). A 4-byte 0x05 leaves ``device_type``
+``None``, keeps nothing of its value and records its header ``(0x05, 4)`` in ``deviations``.
+Accepting that second length is a schema change justified by live evidence, not a general
+tolerance; the out-of-scope class is unchanged (see ``safe_status_layout``): a schema-matching
+header with a value of another size cannot be detected by any parser. Unknown tags are kept
+raw; the channel TLV 0x02 is kept raw and decoded lazily.
 """
 
 from __future__ import annotations
@@ -74,22 +85,25 @@ _KEY_LEN = 16
 #: The only channel TLV form ``safe_status_layout`` trusts: count 1 + one 4-byte mask.
 _CHANNEL_LEN = 5
 
-_FIXED_LENGTHS: tuple[tuple[StatusTag, int], ...] = (
-    (StatusTag.EXTENDED_PAN_ID, 8),
-    (StatusTag.PAN_ID, 2),
-    (StatusTag.NETWORK_KEY, _KEY_LEN),
-    (StatusTag.LINK_KEY, 1 + _KEY_LEN),
-    (StatusTag.DEVICE_TYPE, 1),
-    (StatusTag.NWK_ADDRESS, 2),
-    (StatusTag.JOINING_METHOD, 1),
-    (StatusTag.IEEE_ADDRESS, 8),
-    (StatusTag.TRUST_CENTER_ADDRESS, 8),
-    (StatusTag.NETWORK_STATUS_MAP, 1),
-    (StatusTag.NWK_UPDATE_ID, 1),
-    (StatusTag.ACTIVE_KEY_SEQ, 1),
-    (StatusTag.ADMIN_KEY, _KEY_LEN),
-    (StatusTag.STATUS_CODE, 2),
+#: Allowed value lengths per tag (0x02 is variable; see ``safe_status_layout``).
+_ALLOWED_LENGTHS: tuple[tuple[StatusTag, frozenset[int]], ...] = (
+    (StatusTag.EXTENDED_PAN_ID, frozenset({8})),
+    (StatusTag.PAN_ID, frozenset({2})),
+    (StatusTag.NETWORK_KEY, frozenset({_KEY_LEN})),
+    (StatusTag.LINK_KEY, frozenset({1 + _KEY_LEN})),
+    (StatusTag.DEVICE_TYPE, frozenset({1, 4})),  # 1: ZD 1.0; 4: ubisys R0 (live 2026-10-13)
+    (StatusTag.NWK_ADDRESS, frozenset({2})),
+    (StatusTag.JOINING_METHOD, frozenset({1})),
+    (StatusTag.IEEE_ADDRESS, frozenset({8})),
+    (StatusTag.TRUST_CENTER_ADDRESS, frozenset({8})),
+    (StatusTag.NETWORK_STATUS_MAP, frozenset({1})),
+    (StatusTag.NWK_UPDATE_ID, frozenset({1})),
+    (StatusTag.ACTIVE_KEY_SEQ, frozenset({1})),
+    (StatusTag.ADMIN_KEY, frozenset({_KEY_LEN})),
+    (StatusTag.STATUS_CODE, frozenset({2})),
 )
+#: Allowed non-ZD-1.0 lengths: the value is dropped and only the header kept in ``deviations``.
+_VARIANTS: frozenset[tuple[StatusTag, int]] = frozenset({(StatusTag.DEVICE_TYPE, 4)})
 _TAG_VALUES: frozenset[int] = frozenset(int(tag) for tag in StatusTag)
 
 
@@ -101,15 +115,16 @@ def safe_status_layout(data: bytes) -> tuple[str | None, str]:
     includes a value byte, and no header past the first unverified one.
 
     Threat model: a header is trusted only while every earlier header matched the fixed schema
-    exactly: a known tag, not repeated, with its one allowed length (the channel TLV 0x02 only
-    in its fixed form: 5 bytes with count 1, a single 2.4 GHz page). The first header that does
+    exactly: a known tag, not repeated, with one of its allowed lengths (``_ALLOWED_LENGTHS``:
+    one per tag, plus the R0's 4-byte 0x05; the channel TLV 0x02 only in its fixed form: 5 bytes
+    with count 1, a single 2.4 GHz page). The first header that does
     not match is shown (it sits at an aligned offset) and everything after it is withheld. Key
     bytes live only inside key TLV values (0x03, 0x04, 0x0D), and every key TLV before the cut
     had exactly its key length, so as long as the encoder writes values of the size its headers
     declare, no key byte is read as a header. An encoder that writes a schema-matching header
     but a value of another size cannot be detected by any parser and is out of scope.
     """
-    expected = dict(_FIXED_LENGTHS)
+    allowed = dict(_ALLOWED_LENGTHS)
     entries: list[str] = []
     seen: set[StatusTag] = set()
     fault: str | None = None
@@ -138,7 +153,7 @@ def safe_status_layout(data: bytes) -> tuple[str | None, str]:
             if length != _CHANNEL_LEN or data[offset] != 1:  # count/length agreement proves nothing
                 fault = "unverified channel layout"
                 break
-        elif length != expected[tag]:
+        elif length not in allowed[tag]:
             fault = f"length mismatch on {name}"
             break
         seen.add(tag)
@@ -160,7 +175,12 @@ def _decode_error(data: bytes) -> CommissioningDecodeError:
 
 @dataclass(frozen=True, slots=True)
 class ChannelMask:
-    """One 32-bit channel page/mask entry: page in bits 27-31, channel mask in bits 0-26."""
+    """One 32-bit channel page/mask entry: page in bits 27-31, channel mask in bits 0-26.
+
+    Bits 27-31 follow the Zigbee channel page structure and Wireshark's ZDP dissector
+    (``ZBEE_ZDP_NWKUPDATE_PAGE`` 0xF8000000). Wireshark's ZD TLV helper reads only bits 27-29
+    (``(mask >> 27) & 0x07``), which cannot hold sub-GHz pages 28-31; both agree on page 0.
+    """
 
     page: int
     mask: int
@@ -176,7 +196,9 @@ class CommissioningStatus:
 
     Key material (network/link/admin key) is wrapped in ``SecretBytes``.
     The channel TLV is kept raw and decoded lazily by ``channel_masks`` because
-    its layout is not yet verified against a live ZDD.
+    its layout is not yet verified against a live ZDD. ``deviations`` holds the
+    ``(tag, length)`` header of each allowed non-ZD-1.0 variant, i.e. ``(0x05, 4)`` on the R0
+    (never its value; see the module docstring).
     """
 
     extended_pan_id: Eui64 | None = None
@@ -196,6 +218,7 @@ class CommissioningStatus:
     admin_key: SecretBytes | None = None
     status_code: tuple[int, int] | None = None
     unknown: tuple[Tlv, ...] = field(default=())
+    deviations: tuple[tuple[int, int], ...] = ()
 
     @property
     def joined_status(self) -> int | None:
@@ -232,6 +255,8 @@ class CommissioningStatus:
     def decode(cls, data: bytes) -> Self:
         """Decode the decrypted characteristic value; unknown tags are kept raw in ``unknown``.
 
+        Allowed lengths follow the module docstring's schema.
+
         Every error is a ``CommissioningDecodeError`` raised outside any ``except`` (no cause,
         no context) whose message equals its key-free ``safe_detail``.
         """
@@ -244,23 +269,34 @@ class CommissioningStatus:
             raise _decode_error(data)
         known: dict[StatusTag, bytes] = {}
         unknown: list[Tlv] = []
-        expected = dict(_FIXED_LENGTHS)
+        deviations: list[tuple[int, int]] = []
+        allowed = dict(_ALLOWED_LENGTHS)
+        seen: set[StatusTag] = set()
         for tlv in tlvs:
             try:
                 tag = StatusTag(tlv.tag)
             except ValueError:
                 unknown.append(tlv)
                 continue
-            if tag in known:
+            if tag in seen:
                 raise _decode_error(data)
-            want = expected.get(tag)
-            if want is not None and len(tlv.value) != want:
+            seen.add(tag)
+            lengths = allowed.get(tag)
+            if lengths is not None and len(tlv.value) not in lengths:
                 raise _decode_error(data)
+            if (tag, len(tlv.value)) in _VARIANTS:
+                deviations.append((int(tag), len(tlv.value)))
+                continue
             known[tag] = tlv.value
-        return cls._from_values(known, tuple(unknown))
+        return cls._from_values(known, tuple(unknown), tuple(deviations))
 
     @classmethod
-    def _from_values(cls, v: dict[StatusTag, bytes], unknown: tuple[Tlv, ...]) -> Self:
+    def _from_values(
+        cls,
+        v: dict[StatusTag, bytes],
+        unknown: tuple[Tlv, ...],
+        deviations: tuple[tuple[int, int], ...],
+    ) -> Self:
         def eui(tag: StatusTag) -> Eui64 | None:
             return Eui64(v[tag]) if tag in v else None
 
@@ -292,4 +328,5 @@ class CommissioningStatus:
             admin_key=secret(StatusTag.ADMIN_KEY),
             status_code=None if code is None else (code[0], code[1]),
             unknown=unknown,
+            deviations=deviations,
         )

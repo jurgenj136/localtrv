@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 from bleak.exc import BleakCharacteristicNotFoundError
 
@@ -55,6 +55,14 @@ _DEVICE_TYPE_ROUTER: Final = 1
 _LINK_KEY_FLAGS: Final = 0x00
 _EUI_SIZE: Final = 8
 _POINT_TLV_SIZE: Final = 40
+#: Channel TLV of the live layout: count 1, page 0, channel 15.
+_LIVE_CHANNEL: Final = b"\x01" + (1 << 15).to_bytes(4, "little")
+#: The live R0's 4-byte TLV 0x05 (ZD 1.0: a 1-byte device type; R0 semantics unknown).
+_LIVE_TAG_05: Final = b"\x01\x00\x00\x00"
+
+#: Commissioning Status layout: ``"spec"`` (ZD 1.0 lengths, with key TLVs) or ``"r0_live"``
+#: (the live R0 in a Basic-key session: 08 0A 00 01 02 05/4 06 09 0B 0C, no key TLVs, 60 B).
+StatusLayout = Literal["spec", "r0_live"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,11 +142,21 @@ def status_value(
     zdd_short: int | None,
     ieee: Eui64,
     trust_center_eui: Eui64,
+    layout: StatusLayout = "spec",
 ) -> bytes:
     """Plaintext Commissioning Status TLVs (holds the network key: never log it).
 
-    ``zdd_short=None`` omits TLV 0x06 (``status_omit_short``).
+    ``zdd_short=None`` omits TLV 0x06 (``status_omit_short``). ``layout="r0_live"`` ignores the
+    keys and uses the live R0 tag order and its 4-byte TLV 0x05.
     """
+    if layout == "r0_live":
+        return _live_status_value(
+            extended_pan_id=extended_pan_id,
+            pan_id=pan_id,
+            zdd_short=zdd_short,
+            ieee=ieee,
+            trust_center_eui=trust_center_eui,
+        )
     tlvs = [
         Tlv(StatusTag.EXTENDED_PAN_ID, extended_pan_id.wire),
         Tlv(StatusTag.PAN_ID, pan_id.to_bytes(2, "little")),
@@ -159,6 +177,33 @@ def status_value(
     return encode_tlvs(tlvs)
 
 
+def _live_status_value(
+    *,
+    extended_pan_id: Eui64,
+    pan_id: int,
+    zdd_short: int | None,
+    ieee: Eui64,
+    trust_center_eui: Eui64,
+) -> bytes:
+    """The live R0 layout (``StatusLayout``): key-free, tag order as observed."""
+    tlvs = [
+        Tlv(StatusTag.IEEE_ADDRESS, ieee.wire),
+        Tlv(StatusTag.NETWORK_STATUS_MAP, bytes([_STATUS_MAP_JOINED_CENTRALIZED])),
+        Tlv(StatusTag.EXTENDED_PAN_ID, extended_pan_id.wire),
+        Tlv(StatusTag.PAN_ID, pan_id.to_bytes(2, "little")),
+        Tlv(StatusTag.NETWORK_CHANNEL, _LIVE_CHANNEL),
+        Tlv(StatusTag.DEVICE_TYPE, _LIVE_TAG_05),
+    ]
+    if zdd_short is not None:
+        tlvs.append(Tlv(StatusTag.NWK_ADDRESS, zdd_short.to_bytes(2, "little")))
+    tlvs += [
+        Tlv(StatusTag.TRUST_CENTER_ADDRESS, trust_center_eui.wire),
+        Tlv(StatusTag.NWK_UPDATE_ID, b"\x00"),
+        Tlv(StatusTag.ACTIVE_KEY_SEQ, b"\x00"),
+    ]
+    return encode_tlvs(tlvs)
+
+
 __all__ = [
     "CHARACTERISTICS",
     "GATT_ERROR_READ_NOT_PERMITTED",
@@ -167,6 +212,7 @@ __all__ = [
     "SESSION_READABLE",
     "FakeCharacteristic",
     "FakeServices",
+    "StatusLayout",
     "se1_eui",
     "status_value",
 ]

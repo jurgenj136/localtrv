@@ -104,6 +104,7 @@ async def test_diagnostics_allowlist(
     join = diagnostics["join"]
     assert join["own_short"] == sim.runtime.connection.last_join.own_short  # type: ignore[union-attr]
     assert join["pan_id"] == 0x1A2B
+    assert join["status_deviations"] == []  # the spec-layout simulator status has none
     assert set(diagnostics["valves"]) == {"valve_1", "valve_2"}
     valve_1 = diagnostics["valves"]["valve_1"]
     assert set(valve_1) == {

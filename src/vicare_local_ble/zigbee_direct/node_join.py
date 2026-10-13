@@ -127,6 +127,11 @@ async def _read_status(core: NodeCore) -> tuple[int | None, NetworkSummary]:
     del status  # the full status holds the network, link and admin keys
     if detail is not None:
         raise JoinError(f"unusable Commissioning Status: {detail}")
+    if network.status_deviations:  # headers only: (tag, length), never a value byte
+        _LOGGER.info(
+            "Commissioning Status deviates from ZD 1.0: %s",
+            ", ".join(f"tag 0x{tag:02X} len {length}" for tag, length in network.status_deviations),
+        )
     if ieee is not None and ieee != core.zdd_eui:
         _LOGGER.warning("Commissioning Status IEEE (TLV 0x08) differs from the SE2 EUI; using SE2")
     return zdd_short, network
