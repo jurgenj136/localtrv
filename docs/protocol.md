@@ -250,6 +250,24 @@ coordinator EUI found as the binding destination on every valve (PN §5.3), so t
 and the research "TC EUI" label is really the extended PAN ID. The values seen live (PAN, ZDD short, ZDD EUI) matched
 independent sources; the rest was never cross-checked.
 
+Decode errors never carry codec text (offsets, TLV lengths): with a lying length, key bytes are
+read as TLV headers and would leak through such a message. `CommissioningDecodeError.safe_detail`
+(also its message) is `<fault>; layout <n> B: TT/len ..., <m> B withheld`, built by
+`safe_status_layout`. It walks the TLVs in order and shows headers up to and including the first
+one that does not match the fixed schema (unknown tag, duplicate, wrong length, truncation, or a
+channel TLV 0x02 other than 5 bytes with count 1), names that fault, and withholds every byte
+after it by count only. Example (live R0 order with a 4-byte 0x05):
+`length mismatch on DEVICE_TYPE; layout 60 B: 08/8 00/8 01/2 06/2 09/8 02/5 05/4, 13 B withheld`.
+
+Threat model: a header is trusted only while every earlier header matched the fixed schema
+exactly. Every tag has exactly one allowed length; for 0x02 that is the single-page form, since a
+count that agrees with the length proves nothing (a lying 0x02 of 17 bytes with count 4 can
+swallow a key header). Key bytes live only inside key TLV values (0x03, 0x04, 0x0D), and every
+key TLV before the cut had exactly its key length. So, as long as the encoder writes values of the
+size its headers declare, no key byte is read as a header. An encoder that writes a
+schema-matching header but a value of another size cannot be detected by any parser and is out of
+scope. The join error and the connection log use only this detail.
+
 ## 7. Discovery
 
 Valves are **sleepy end devices**: they miss broadcasts (`Match_Desc_req` to `0xFFFD` finds nothing).
@@ -344,7 +362,7 @@ succeeded; reads were done 4 attributes per request (6+ never tried).
 | Cluster/attr | Name | Type | Scaling / value seen | v1 |
 |---|---|---|---|---|
 | 0201/0000 | localTemperature | int16 0x29 | 0.01 C | read |
-| 0201/0008 | piHeatingDemand | uint8 0x20 | **0-5 scale, not %** (2 or 5 seen) | read raw |
+| 0201/0008 | piHeatingDemand | uint8 0x20 | **0-7 scale, not %**: 0 off, 7 max; PI-loop demand (the ViCare app's red bubbles), not valve position (kristian/ViLocal CHANGELOG 2.1). 2 and 5 seen live; >7 kept and flagged | read raw; climate `hvac_action` |
 | 0201/0012 | occupiedHeatingSetpoint | int16 0x29 | 0.01 C; write proven, persists | read/write |
 | 0201/0003, 0004 | absMin/absMaxHeatSetpointLimit | int16 | 800 / 3000 | read once |
 | 0201/0015, 0016 | min/maxHeatSetpointLimit | int16 | 800 / 3000; writable per z2m, untested | read; clamp writes |
@@ -453,3 +471,8 @@ From the `transport.py` and `node.py` stubs (not implemented):
     blocks or kicks the first. Coordination with other users is up to the integration.
 12. **Short-address collisions.** Whether the TC honours a requested short in all cases, or may
     reassign it on rejoin.
+13. **Heating demand scale.** 0-7 comes from kristian/ViLocal CHANGELOG 2.1; we have only seen 2
+    and 5. Confirm 0 with the valve closed and 6-7 under high demand.
+14. **OUIs.** 14:2D:41 (seen live) also covers the ZK03838 floor-heating thermostat (kristian/ViLocal
+    discussion #6); ZK03840 valves also ship with 28:DB:A7 (example valve EUI in the zbtk README).
+    Both only order identification; the Basic modelId decides.

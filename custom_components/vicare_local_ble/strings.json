@@ -4,18 +4,18 @@
     "step": {
       "user": {
         "title": "Select the ubisys R0",
-        "description": "Choose the Bluetooth device of your ubisys R0 bridge.",
+        "description": "Choose your ubisys Router R0 (Series 2). It must already be on the Zigbee network of your ViCare valves.",
         "data": {
           "address": "Device"
         }
       },
       "bluetooth_confirm": {
         "title": "ubisys R0 found",
-        "description": "Set up the ubisys R0 {name}? Close the ViCare app first: the R0 accepts only one Bluetooth client."
+        "description": "Set up the ubisys R0 {name}? The R0 accepts only one Bluetooth client, so make sure no other device is connected to it."
       },
       "network_key": {
         "title": "Zigbee network key",
-        "description": "Enter the 128-bit network key of your ViCare Zigbee network as 32 hexadecimal characters. Close the ViCare app first: the R0 accepts only one Bluetooth client.",
+        "description": "Enter the 128-bit network key of your ViCare Zigbee network as 32 hexadecimal characters. The R0 accepts only one Bluetooth client, so make sure no other device is connected to it.",
         "data": {
           "network_key": "Network key",
           "validate": "Test the connection"
@@ -38,7 +38,7 @@
     },
     "error": {
       "invalid_auth": "The R0 rejected the network key.",
-      "cannot_connect": "Could not connect to the R0. Close the ViCare app (the R0 accepts only one client) and move the Bluetooth adapter or proxy closer.",
+      "cannot_connect": "Could not connect to the R0. The R0 accepts only one Bluetooth client, so make sure no other device (another adapter, proxy, Home Assistant instance or phone app) is connected to it, and move the Bluetooth adapter or proxy closer.",
       "invalid_key": "The key must be exactly 32 hexadecimal characters.",
       "unknown": "Unexpected error."
     },

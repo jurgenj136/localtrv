@@ -1,6 +1,6 @@
 # vicare-local-ble
 
-Local, cloud-free control of Viessmann ViCare radiator valves (ZK03840) over Bluetooth, through a ubisys R0 Zigbee Direct bridge. Talks Zigbee Direct over Bluetooth LE through a ubisys R0 that is already on the valves' Zigbee network. (Formerly "vicare-direct".)
+Local, cloud-free control of Viessmann ViCare radiator valves (ZK03840) over Bluetooth, through a ubisys Router R0 (Series 2). Talks Zigbee Direct over Bluetooth LE to an R0 that is already on the valves' Zigbee network. (Formerly "vicare-direct".)
 
 ## Status
 
@@ -60,11 +60,35 @@ polls the valves, exposes each as a climate entity. No cloud.
 
 ### Requirements
 
-- Home Assistant 2026.10.0 or newer.
-- A ubisys R0 already on the valves' Zigbee network.
-- A Bluetooth adapter in or reachable from HA, or an ESPHome Bluetooth proxy.
-- The Zigbee network key (32 hex characters). Required; how you obtain it is out of scope here.
-  It is stored in the config entry (HA's `.storage`). Treat backups accordingly.
+Hardware:
+
+- **Viessmann ViCare radiator valves ZK03840**, on a ViCare Zigbee network. The research setup
+  (protocol work, not yet this integration) used a Vitoconnect OPTO2 as coordinator (Trust
+  Center) and valve firmware `01.18.0008 02.06`.
+- **A ubisys Router R0 (Series 2)**, already joined to that same Zigbee network (coupled through
+  ViCare). The integration talks Zigbee Direct to it over Bluetooth; it is the only way in. Zigbee
+  routers without Zigbee Direct will not work; other R0 generations are untested.
+
+Home Assistant:
+
+- Home Assistant 2026.10.0 or newer (built against 2026.10.1).
+- A Bluetooth adapter in range of the R0, or an ESPHome Bluetooth proxy with active connections
+  (`bluetooth_proxy: active: true`). The integration holds one persistent connection, so it uses one
+  of the proxy's connection slots. An MTU of at least 131 is recommended (an ESP32-C3 proxy
+  negotiated 247).
+- No other Bluetooth client connected to the R0: it accepts only one.
+
+Secret:
+
+- The Zigbee network key (32 hex characters). Required. It is stored in the config entry (HA's
+  `.storage`). Treat backups accordingly.
+
+  This project does not extract the key. One documented way is the third-party
+  [ViLocal](https://github.com/kristian/ViLocal) guide, section "Find the Channel of your ViCare
+  Network and sniff for your Network Key". It needs a Zigbee sniffer (for example a ubisys stick or
+  an SMLIGHT SLZB-06M) and re-pairing one ViCare device, so the Trust Center sends the network key
+  in a Transport Key you can decrypt with that device's install-code link key. Re-pairing
+  briefly disconnects that device; follow ViLocal's own instructions and warnings.
 
 ### Install
 
@@ -77,7 +101,7 @@ PyPI release exists, pre-release installs cannot resolve that pin.
 
 ### Setup
 
-1. **Close the ViCare app.** The R0 accepts one Bluetooth client.
+1. **Make sure no other device is connected to the R0.** It accepts only one Bluetooth client (another adapter or proxy, another Home Assistant instance, or a phone app would block it).
 2. If HA discovers an R0 (service `0xFFF7`, name `ubisys*`), accept it under Settings, Devices.
    Otherwise: Add Integration, "ViCare Local", pick the R0 from the list of connectable devices
    (service `0xFFF7` or a name starting with `ubisys`).
@@ -89,7 +113,7 @@ written to the valves.
 | Result | Meaning |
 |---|---|
 | `invalid_auth` | R0 rejected the key |
-| `cannot_connect` | no connection or timeout. Close the ViCare app, move adapter/proxy closer |
+| `cannot_connect` | no connection or timeout. Make sure no other device is connected to the R0; move adapter/proxy closer |
 
 Untick "Test the connection" to save without checking. If the R0 later rejects the key, HA starts a
 reauth flow for a new key.
@@ -111,9 +135,9 @@ Per valve (device "ZK03840", via the R0 bridge device):
 
 | Platform | Entity | Notes |
 |---|---|---|
-| climate | thermostat (name = device) | HVAC mode `heat` only, target temperature, 0.5 °C step, limits from the valve. No `hvac_action` |
+| climate | thermostat (name = device) | HVAC mode `heat` only, target temperature, 0.5 °C step, limits from the valve. `hvac_action`: heating while heating demand > 0, idle at 0, unknown otherwise |
 | sensor | Battery | %, diagnostic |
-| sensor | Heating demand | raw 0-5, no unit |
+| sensor | Heating demand | raw 0-7 (0 off, 7 max), no unit |
 | sensor | Link quality | LQI to the valve's parent. Diagnostic, disabled by default |
 | sensor | Signal strength | dBm. Diagnostic, disabled by default |
 | binary_sensor | Window open (experimental) | disabled by default. Raw value is in diagnostics |
@@ -209,8 +233,8 @@ has the full list. In short, in order:
   network, link and admin keys: treat decoded frames accordingly.
 - **Writes change a real heating system.** A setpoint write acts as a manual override. Read before
   writing, change one valve at a time, restore afterwards.
-- **One BLE client at a time.** The R0 accepts a single connection. Close the vendor app or other
-  clients first.
+- **One BLE client at a time.** The R0 accepts a single connection. Make sure no other device
+  (adapter, proxy, HA instance, phone app) is connected first.
 - **Mind the counter.** A failed write burns a session frame counter; reconnect with a new
   handshake rather than reusing a session in doubt.
 
