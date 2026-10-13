@@ -98,6 +98,7 @@ async def test_diagnostics_allowlist(
     assert connection["generation"] == 1
     assert connection["mtu"] == 247
     assert connection["issues"] == []
+    assert connection["last_failure_detail"] is None
     assert diagnostics["transport"]["counter_model"] == "shared"
     assert diagnostics["node"]["reports"] >= 1
     join = diagnostics["join"]

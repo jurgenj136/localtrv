@@ -115,8 +115,8 @@ def test_channel_page_bits() -> None:
     [
         (_tlv(0x06, b"\x5a"), "NWK_ADDRESS"),
         (_tlv(0x08, b"\x01" * 7), "IEEE_ADDRESS"),
-        (_tlv(0x01, b"\x01\x02") + _tlv(0x01, b"\x01\x02"), "duplicate"),
-        (b"\x06\x01\x5a", "truncated"),
+        (_tlv(0x01, b"\x01\x02") + _tlv(0x01, b"\x01\x02"), "duplicate PAN_ID"),
+        (b"\x06\x01\x5a", "truncated NWK_ADDRESS"),
     ],
 )
 def test_malformed(data: bytes, match: str) -> None:

@@ -325,8 +325,12 @@ async def test_warning_after_three_connect_failures(caplog: pytest.LogCaptureFix
     await ready_again(r, 1)
     warnings = [rec for rec in caplog.records if rec.levelno == logging.WARNING]
     assert len(warnings) == 1  # one per streak, at the third failure
-    assert "vendor app" in warnings[0].getMessage()
-    assert "3 connection attempts" in warnings[0].getMessage()
+    message = warnings[0].getMessage()
+    assert "only one Bluetooth client" in message
+    assert "no other device" in message
+    assert "vendor app" not in message
+    assert "close the app" not in message
+    assert "3 connection attempts" in message
     await stop(r)
 
 

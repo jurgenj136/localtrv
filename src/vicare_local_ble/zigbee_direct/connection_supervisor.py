@@ -26,6 +26,12 @@ from typing import TYPE_CHECKING, Final
 from bleak_retry_connector import BleakClientWithServiceCache
 
 from vicare_local_ble.zigbee_direct.connection_backoff import Backoff, BackoffWait
+from vicare_local_ble.zigbee_direct.connection_failure import (
+    AttemptFailedError,
+    CacheClearedError,
+    describe_failure,
+    transport_error,
+)
 from vicare_local_ble.zigbee_direct.connection_session import Session, run_protected
 from vicare_local_ble.zigbee_direct.connection_types import (
     AUTH_FAILURES_TO_STOP,
@@ -147,6 +153,7 @@ class ConnectionCore:
             except Exception as exc:
                 _LOGGER.exception("%s: connection cycle failed unexpectedly", self._name)
                 self._stats.last_failure = "error"
+                self._stats.last_failure_detail = describe_failure(exc)
                 self._resolve_first(exc)
                 outcome = _Outcome.BACKOFF
             if self._stopping:  # pragma: no cover - stop() cancels the cycle instead
@@ -225,7 +232,7 @@ class ConnectionCore:
             _LOGGER.debug("device resolver raised: %s", type(exc).__name__)
             device = None
         if device is None:
-            raise _AttemptFailedError("not_found")
+            raise AttemptFailedError("not_found")
         try:
             client = await self._connector(
                 BleakClientWithServiceCache,
@@ -237,7 +244,7 @@ class ConnectionCore:
             )
         except Exception as exc:
             self._note_connect_failure(exc)
-            raise _AttemptFailedError("connect") from exc
+            raise AttemptFailedError("connect", detail=describe_failure(exc)) from exc
         self._connect_streak = 0
         self._stats.connects += 1
         session.client = client
@@ -254,10 +261,12 @@ class ConnectionCore:
         except TransportError as exc:
             self._stats.last_transport_error = exc.reason
             if exc.reason == _MISSING and self._clear_cache_due(session):
-                raise _CacheClearedError from exc
-            raise _AttemptFailedError(f"transport:{exc.reason}") from exc
+                raise CacheClearedError from exc
+            raise AttemptFailedError(
+                f"transport:{exc.reason}", detail=describe_failure(exc)
+            ) from exc
         except Exception as exc:
-            raise _AttemptFailedError("handshake") from exc
+            raise AttemptFailedError("handshake", detail=describe_failure(exc)) from exc
         self._note_session(info)
         self._set_state(ConnectionState.JOINING)
         node = ZigbeeDirectNode(
@@ -269,10 +278,10 @@ class ConnectionCore:
         try:
             return await node.join()
         except Exception as exc:
-            cause = _transport_error(exc)
+            cause = transport_error(exc)
             if cause is not None and cause.reason == _MISSING and self._clear_cache_due(session):
-                raise _CacheClearedError from exc
-            raise _AttemptFailedError("join") from exc
+                raise CacheClearedError from exc
+            raise AttemptFailedError("join", detail=describe_failure(exc)) from exc
 
     def _become_ready(self, session: Session, join: JoinInfo) -> None:
         node = session.node
@@ -309,10 +318,14 @@ class ConnectionCore:
             self._last_node_stats = snapshot
         self._session = None
 
-    def _failed(self, reason: str) -> _Outcome:
+    def _failed(self, reason: str, detail: str | None = None) -> _Outcome:
         self._stats.last_failure = reason
+        self._stats.last_failure_detail = detail
         self._auth_streak = 0
-        _LOGGER.info("%s: connection failed (%s)", self._name, reason)
+        if detail is None:
+            _LOGGER.info("%s: connection failed (%s)", self._name, reason)
+        else:
+            _LOGGER.info("%s: connection failed (%s: %s)", self._name, reason, detail)
         return _Outcome.BACKOFF
 
     def _attempt_error(self, error: BaseException) -> _Outcome:
@@ -320,18 +333,19 @@ class ConnectionCore:
             self._auth_streak += 1
             self._stats.auth_failures += 1
             self._stats.last_failure = "auth"
+            self._stats.last_failure_detail = describe_failure(error)
             self._auth_error = error
             _LOGGER.info("%s rejected the handshake (%d in a row)", self._name, self._auth_streak)
             if self._auth_streak >= AUTH_FAILURES_TO_STOP:
                 return _Outcome.AUTH_FAILED
             return _Outcome.BACKOFF
-        if isinstance(error, _CacheClearedError):
+        if isinstance(error, CacheClearedError):
             self._auth_streak = 0
             return _Outcome.IMMEDIATE
-        if isinstance(error, _AttemptFailedError):
-            return self._failed(error.reason)
+        if isinstance(error, AttemptFailedError):
+            return self._failed(error.reason, error.detail)
         _LOGGER.error("unexpected attempt failure", exc_info=error)  # pragma: no cover
-        return self._failed("error")  # pragma: no cover
+        return self._failed("error", describe_failure(error))  # pragma: no cover
 
     # --- triggers (synchronous, loop thread) ---
 
@@ -382,8 +396,9 @@ class ConnectionCore:
         _LOGGER.debug("connect failed: %s", type(exc).__name__)
         if self._connect_streak == CONNECT_FAILURE_WARNING:
             _LOGGER.warning(
-                "%d connection attempts to %s failed in a row; the vendor app may be connected "
-                "to it (it accepts a single client): close the app",
+                "%d connection attempts to %s failed in a row; it accepts only one Bluetooth "
+                "client, so make sure no other device (another Bluetooth adapter or proxy, Home "
+                "Assistant instance, phone app or ubisys tool) is connected to it",
                 CONNECT_FAILURE_WARNING,
                 self._name,
             )
@@ -435,28 +450,6 @@ class _Outcome(Enum):
     BACKOFF = "backoff"
     IMMEDIATE = "immediate"
     AUTH_FAILED = "auth_failed"
-
-
-class _AttemptFailedError(Exception):
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
-
-
-class _CacheClearedError(Exception):
-    """Stale GATT cache: clear it and reconnect at once."""
-
-
-def _transport_error(exc: BaseException) -> TransportError | None:
-    """The ``TransportError`` that ``exc`` is or was caused by (node APIs chain it)."""
-    seen: BaseException | None = exc
-    for _ in range(8):  # bounded walk of the cause chain
-        if seen is None:
-            return None
-        if isinstance(seen, TransportError):
-            return seen
-        seen = seen.__cause__ or seen.__context__
-    return None  # pragma: no cover - absurdly long chain
 
 
 def subscribe[C](listeners: list[C], cb: C) -> Callable[[], None]:

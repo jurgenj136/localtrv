@@ -71,6 +71,8 @@ _STATUS_MAP_JOINED = 0x07
 _STATUS_MAP_OPEN = 0x08
 _STATUS_MAP_CENTRALIZED = 0x10
 _KEY_LEN = 16
+#: The only channel TLV form ``safe_status_layout`` trusts: count 1 + one 4-byte mask.
+_CHANNEL_LEN = 5
 
 _FIXED_LENGTHS: tuple[tuple[StatusTag, int], ...] = (
     (StatusTag.EXTENDED_PAN_ID, 8),
@@ -88,6 +90,72 @@ _FIXED_LENGTHS: tuple[tuple[StatusTag, int], ...] = (
     (StatusTag.ADMIN_KEY, _KEY_LEN),
     (StatusTag.STATUS_CODE, 2),
 )
+_TAG_VALUES: frozenset[int] = frozenset(int(tag) for tag in StatusTag)
+
+
+def safe_status_layout(data: bytes) -> tuple[str | None, str]:
+    """``(fault, layout)`` of a status: its TLV headers up to the first unverified one.
+
+    ``layout`` is ``"<n> B: TT/len ..."`` plus ``", <m> B withheld"`` for anything not shown;
+    ``fault`` names the first unverified header (``None`` if the whole chain verified). It never
+    includes a value byte, and no header past the first unverified one.
+
+    Threat model: a header is trusted only while every earlier header matched the fixed schema
+    exactly: a known tag, not repeated, with its one allowed length (the channel TLV 0x02 only
+    in its fixed form: 5 bytes with count 1, a single 2.4 GHz page). The first header that does
+    not match is shown (it sits at an aligned offset) and everything after it is withheld. Key
+    bytes live only inside key TLV values (0x03, 0x04, 0x0D), and every key TLV before the cut
+    had exactly its key length, so as long as the encoder writes values of the size its headers
+    declare, no key byte is read as a header. An encoder that writes a schema-matching header
+    but a value of another size cannot be detected by any parser and is out of scope.
+    """
+    expected = dict(_FIXED_LENGTHS)
+    entries: list[str] = []
+    seen: set[StatusTag] = set()
+    fault: str | None = None
+    offset = 0
+    while offset < len(data):
+        if offset + 2 > len(data):
+            fault = "truncated TLV header"
+            break
+        raw_tag, length = data[offset], data[offset + 1] + 1
+        entries.append(f"{raw_tag:02X}/{length}")  # aligned: a real header
+        end = offset + 2 + length
+        offset += 2
+        known = raw_tag in _TAG_VALUES
+        name = StatusTag(raw_tag).name if known else f"tag 0x{raw_tag:02X}"
+        if end > len(data):
+            fault = f"truncated {name}"
+            break
+        if not known:
+            fault = f"unknown {name}"
+            break
+        tag = StatusTag(raw_tag)
+        if tag in seen:
+            fault = f"duplicate {name}"
+            break
+        if tag is StatusTag.NETWORK_CHANNEL:
+            if length != _CHANNEL_LEN or data[offset] != 1:  # count/length agreement proves nothing
+                fault = "unverified channel layout"
+                break
+        elif length != expected[tag]:
+            fault = f"length mismatch on {name}"
+            break
+        seen.add(tag)
+        offset = end
+    layout = f"{len(data)} B: {' '.join(entries)}" if entries else f"{len(data)} B"
+    withheld = len(data) - offset
+    if withheld:
+        layout += f", {withheld} B withheld"
+    return fault, layout
+
+
+def _decode_error(data: bytes) -> CommissioningDecodeError:
+    """A decode error whose message and ``safe_detail`` hold no value bytes (see
+    ``safe_status_layout``); codec-internal messages (offsets, TLV lengths) are never used."""
+    fault, layout = safe_status_layout(data)
+    detail = f"{fault or 'TLV structure invalid'}; layout {layout}"
+    return CommissioningDecodeError(f"commissioning status: {detail}", safe_detail=detail)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,11 +230,18 @@ class CommissioningStatus:
 
     @classmethod
     def decode(cls, data: bytes) -> Self:
-        """Decode the decrypted characteristic value; unknown tags are kept raw in ``unknown``."""
+        """Decode the decrypted characteristic value; unknown tags are kept raw in ``unknown``.
+
+        Every error is a ``CommissioningDecodeError`` raised outside any ``except`` (no cause,
+        no context) whose message equals its key-free ``safe_detail``.
+        """
+        tlvs: tuple[Tlv, ...] | None
         try:
             tlvs = decode_tlvs(data)
-        except TlvDecodeError as exc:
-            raise CommissioningDecodeError(f"commissioning status: {exc}") from exc
+        except TlvDecodeError:
+            tlvs = None
+        if tlvs is None:
+            raise _decode_error(data)
         known: dict[StatusTag, bytes] = {}
         unknown: list[Tlv] = []
         expected = dict(_FIXED_LENGTHS)
@@ -177,12 +252,10 @@ class CommissioningStatus:
                 unknown.append(tlv)
                 continue
             if tag in known:
-                raise CommissioningDecodeError(f"duplicate commissioning status TLV {tag.name}")
+                raise _decode_error(data)
             want = expected.get(tag)
             if want is not None and len(tlv.value) != want:
-                raise CommissioningDecodeError(
-                    f"{tag.name} TLV needs {want} bytes, got {len(tlv.value)}"
-                )
+                raise _decode_error(data)
             known[tag] = tlv.value
         return cls._from_values(known, tuple(unknown))
 

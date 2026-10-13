@@ -13,7 +13,12 @@ import logging
 from typing import TYPE_CHECKING, Final
 
 from vicare_local_ble.zigbee_direct.codec.nwk_commands import commissioning_request_npdu
-from vicare_local_ble.zigbee_direct.errors import DecodeError, JoinError, JoinRejectedError
+from vicare_local_ble.zigbee_direct.errors import (
+    CommissioningDecodeError,
+    DecodeError,
+    JoinError,
+    JoinRejectedError,
+)
 from vicare_local_ble.zigbee_direct.node_types import JoinInfo, NetworkSummary
 from vicare_local_ble.zigbee_direct.requests import JoinToken
 from vicare_local_ble.zigbee_direct.types import COORDINATOR
@@ -98,24 +103,30 @@ async def _read_status(core: NodeCore) -> tuple[int | None, NetworkSummary]:
     The status (and any decode error, whose traceback frames hold the decrypted plaintext as
     locals) holds the network, link and admin keys. Every failure is turned into a JoinError
     raised OUTSIDE the ``except`` block, so it has neither ``__cause__`` nor ``__context__``
-    and nothing keeps those frames alive.
+    and nothing keeps those frames alive. Only a plain string survives the ``except``: the
+    ``safe_detail`` of a ``CommissioningDecodeError`` (TLV headers up to the first unverified
+    one, see ``safe_status_layout``), else just the exception type. A codec
+    message is never used: with a lying TLV length, its offsets and lengths could be key bytes.
     """
-    failed = False
+    detail: str | None = None
     try:
         status = await core.transport.read_commissioning_status()
-    except DecodeError:
-        failed = True
-    if failed:
-        raise JoinError("malformed Commissioning Status")
+    except DecodeError as exc:
+        safe = exc.safe_detail if isinstance(exc, CommissioningDecodeError) else None
+        detail = safe if safe is not None else type(exc).__name__
+        del exc  # drop the reference (and its traceback frames) before leaving the block
+    if detail is not None:
+        raise JoinError(f"malformed Commissioning Status ({detail})")
     try:
         zdd_short = status.nwk_address
         ieee = status.ieee_address
         network = NetworkSummary.from_status(status)
-    except Exception:
-        failed = True
+    except Exception as exc:
+        detail = type(exc).__name__
+        del exc
     del status  # the full status holds the network, link and admin keys
-    if failed:
-        raise JoinError("unusable Commissioning Status")
+    if detail is not None:
+        raise JoinError(f"unusable Commissioning Status: {detail}")
     if ieee is not None and ieee != core.zdd_eui:
         _LOGGER.warning("Commissioning Status IEEE (TLV 0x08) differs from the SE2 EUI; using SE2")
     return zdd_short, network

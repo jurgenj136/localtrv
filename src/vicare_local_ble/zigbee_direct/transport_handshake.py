@@ -98,12 +98,19 @@ def att_error_code(exc: BaseException) -> int | None:
 
 
 def gatt_failure(exc: BaseException, what: str) -> TransportError:
-    """Map a GATT/backend exception to a retryable ``TransportError`` (never auth)."""
+    """Map a GATT/backend exception to a retryable ``TransportError`` (never auth).
+
+    The message names the exception type and, when one is found in the (bounded) cause chain,
+    the integer ATT error code, e.g. ``"Commissioning Status read failed: BleakError (ATT
+    0x05)"`` behind an ESPHome proxy (bleak-esphome wraps ``BluetoothGATTAPIError``).
+    """
     if isinstance(exc, BleakCharacteristicNotFoundError):
         return TransportError(f"{what}: characteristic not found", reason="missing_characteristic")
     if isinstance(exc, TimeoutError):
         return TransportError(f"{what} timed out", reason="timeout")
-    return TransportError(f"{what} failed: {type(exc).__name__}", reason="write")
+    code = att_error_code(exc)  # only an int 0..0xFF survives, never the foreign message
+    att = "" if code is None else f" (ATT 0x{code:02X})"
+    return TransportError(f"{what} failed: {type(exc).__name__}{att}", reason="write")
 
 
 async def guarded[T](clock: Clock, timeout: float, what: str, call: Awaitable[T]) -> T:

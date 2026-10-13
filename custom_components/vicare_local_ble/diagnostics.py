@@ -83,6 +83,7 @@ def _connection(connection: ZdConnection) -> dict[str, Any]:
         "address_conflicts": stats.address_conflicts,
         "backoff": stats.backoff,
         "last_failure": stats.last_failure,
+        "last_failure_detail": stats.last_failure_detail,
         "last_transport_error": stats.last_transport_error,
         "mtu": stats.mtu,
         "mtu_low": stats.mtu_low,

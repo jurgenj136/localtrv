@@ -93,7 +93,9 @@ class ConnectionStats:
 
     ``last_failure`` is a short reason (``not_found``, ``connect``, ``auth``, ``handshake``,
     ``join``, ``transport:<TransportErrorReason>``, ``disconnect``, ``rejoin:<reason>``,
-    ``address_conflict``). ``cache_clears`` counts stale-GATT-cache recoveries.
+    ``address_conflict``). ``last_failure_detail`` describes the exception behind it (type
+    and library message, or only the type for foreign exceptions; never key material) or is
+    ``None``. ``cache_clears`` counts stale-GATT-cache recoveries.
     ``backoff`` is the current/last wait in seconds; ``mtu`` the last session's MTU.
     """
 
@@ -108,6 +110,7 @@ class ConnectionStats:
     generation: int = 0
     backoff: float | None = None
     last_failure: str | None = None
+    last_failure_detail: str | None = None
     last_transport_error: TransportErrorReason | None = None
     mtu: int | None = None
     mtu_low: bool = False

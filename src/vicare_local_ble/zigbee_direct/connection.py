@@ -32,8 +32,8 @@ Supervisor
     (cap), +-20 % jitter from the injected rng, reset after 10 min in READY; ``notify_seen()``
     during a wait of >= 30 s shortens the remaining wait to 2 s. ``HandshakeRejectedError``
     twice in a row -> AUTH_FAILED and the supervisor stops; any other outcome resets that
-    counter. Three consecutive connect failures log one WARNING suggesting the vendor app may
-    hold the R0 (single client).
+    counter. Three consecutive connect failures log one WARNING: the R0 accepts only one
+    Bluetooth client, so make sure no other device is connected to it.
 
 Short addresses (``avoid_shorts`` ownership)
     The connection keeps a private conflict set: every own short that caused an address

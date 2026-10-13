@@ -110,6 +110,8 @@ async def test_malformed_status_join_error_has_no_context(
         monkeypatch.setattr(ZigbeeDirectTransport, "read_commissioning_status", malformed)
         with pytest.raises(JoinError, match="malformed") as exc:
             await r.clock.run_task(r.node.join())
+        # a codec message is never used, only its safe_detail (unset here) or its type
+        assert str(exc.value) == "malformed Commissioning Status (CommissioningDecodeError)"
         assert exc.value.__cause__ is None
         assert exc.value.__context__ is None
         assert secrets_in_frames(exc.value.__traceback__) == []
@@ -124,6 +126,7 @@ async def test_summary_failure_join_error_has_no_context(monkeypatch: pytest.Mon
         monkeypatch.setattr(NetworkSummary, "from_status", classmethod(broken))
         with pytest.raises(JoinError, match="unusable") as exc:
             await r.clock.run_task(r.node.join())
+        assert str(exc.value) == "unusable Commissioning Status: RuntimeError"  # type only
         assert exc.value.__cause__ is None
         assert exc.value.__context__ is None
         assert secrets_in_frames(exc.value.__traceback__) == []

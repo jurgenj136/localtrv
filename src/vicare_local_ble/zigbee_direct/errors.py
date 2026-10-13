@@ -34,7 +34,15 @@ class ZclDecodeError(DecodeError):
 
 
 class CommissioningDecodeError(DecodeError):
-    """Malformed commissioning payload."""
+    """Malformed commissioning payload.
+
+    ``safe_detail`` (set by ``CommissioningStatus.decode``) is a key-free description that may
+    be logged: the TLV headers up to the first unverified one, the rest withheld by length.
+    """
+
+    def __init__(self, message: str, *, safe_detail: str | None = None) -> None:
+        super().__init__(message)
+        self.safe_detail = safe_detail
 
 
 class UnsupportedFrameError(DecodeError):

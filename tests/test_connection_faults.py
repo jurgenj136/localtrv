@@ -334,4 +334,5 @@ async def test_unexpected_open_error_is_a_handshake_failure(
     monkeypatch.setattr(ZigbeeDirectTransport, "open", flaky_open)
     await start(r)
     assert r.conn.stats.last_failure == "handshake"
+    assert r.conn.stats.last_failure_detail == "RuntimeError"  # never the foreign message
     await stop(r)
