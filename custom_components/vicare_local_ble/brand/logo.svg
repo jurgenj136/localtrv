@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 512" width="1100" height="512">
+  <!-- Source for logo.png. Text uses Helvetica Neue. Render: rsvg-convert -h 256 (@2x) / -h 128, then trim transparent edges. -->
+  <defs>
+    <linearGradient id="g" x1="0.15" y1="0.05" x2="0.85" y2="0.95">
+      <stop offset="0" stop-color="#FF8A5C"/>
+      <stop offset="1" stop-color="#D63A1F"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="256" fill="url(#g)"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M116 248 L256 128 L396 248" stroke-width="32"/>
+    <path d="M164 216 V384 H348 V216" stroke-width="32"/>
+    <path d="M211.5 274.0 A64 64 0 0 1 300.5 274.0" stroke-width="18"/>
+    <path d="M194.4 251.6 A92 92 0 0 1 317.6 251.6" stroke-width="18"/>
+  </g>
+  <circle cx="256" cy="320" r="40" fill="#fff"/>
+  <path d="M259.9 315.4 L272.7 300.1" stroke="#E04A27" stroke-width="13" stroke-linecap="round"/>
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" fill="#2B2F33">
+    <text x="568" y="262" font-size="168" font-weight="700" letter-spacing="-3">ViCare</text>
+    <text x="572" y="424" font-size="150" font-weight="300" letter-spacing="-1">Local</text>
+  </g>
+</svg>
