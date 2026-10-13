@@ -4,7 +4,7 @@ Local, cloud-free control of Viessmann ViCare radiator valves (ZK03840) over Blu
 
 ## Status
 
-**Pre-alpha. No hardware validation yet.**
+**Pre-alpha.** First live session 2026-10-13: join, discovery and polling of 8 valves work through an ESPHome Bluetooth proxy. Setpoint write and long-running checks are still open.
 
 - Phase 1, done: offline protocol library. AES-MMO, SPEKE session, session-frame crypto,
   TLV/NWK/APS/ZDO/ZCL codecs, commissioning and route-reply builders, offset-scan fallback decoder,
@@ -137,7 +137,7 @@ Per valve (device "ZK03840", via the R0 bridge device):
 |---|---|---|
 | climate | thermostat (name = device) | HVAC mode `heat` only, target temperature, 0.5 °C step, limits from the valve. `hvac_action`: heating while heating demand > 0, idle at 0, unknown otherwise |
 | sensor | Battery | %, diagnostic |
-| sensor | Heating demand | raw 0-7 (0 off, 7 max), no unit |
+| sensor | Heating demand | 0-100 % |
 | sensor | Link quality | LQI to the valve's parent. Diagnostic, disabled by default |
 | sensor | Signal strength | dBm. Diagnostic, disabled by default |
 | binary_sensor | Window open (experimental) | disabled by default. Raw value is in diagnostics |
@@ -206,7 +206,7 @@ logger:
 
 ### Hardware validation checklist
 
-Not yet done. Spec [§5](docs/spec-phase2-ha.md#5-hardware-validation-checklist-first-session-with-the-r0)
+First session done 2026-10-13 (results in spec §5); write, reports and longevity still open. Spec [§5](docs/spec-phase2-ha.md#5-hardware-validation-checklist-first-session-with-the-r0)
 has the full list. In short, in order:
 
 1. Advertisement: name and `0xFFF7` together, scan-response name, service data.

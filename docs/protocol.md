@@ -120,11 +120,12 @@ AAD   = service_uuid(16) ‖ 0x00 ‖ char_uuid(16) ‖ 0x00   # canonical big-e
 - **Outgoing:** one counter for the session, starting at 1. We write only to Authenticate (before
   the session exists) and Tunnel, so our nonces are never reused.
 - **Incoming:** tracked per characteristic UUID; each accepts strictly increasing counters only. A
-  counter shared across characteristics is **not demonstrated live** (PN §5.9): the prototype used
-  Commissioning Status only in a session with no tunnel traffic. Both ZDD behaviours (one shared
-  counter, or one per characteristic) are accepted. The first hardware run must check which.
-- **Residual risk (ZDD nonce reuse).** The nonce has no characteristic in it. If the ZDD runs one
-  counter per characteristic under one session key, it reuses CCM nonces across characteristics.
+  counter shared across characteristics is **confirmed live** (2026-10-13, `counter_model=shared`;
+  settles PN §5.9). Both ZDD behaviours (one shared counter, or one per characteristic) are still
+  accepted by the code.
+- **Residual risk (ZDD nonce reuse), not present on the tested R0.** The live result is a shared
+  counter, so nonces are not reused across characteristics. The nonce has no characteristic in it,
+  so a ZDD running one counter per characteristic under one session key would reuse CCM nonces.
   The different AAD does **not** prevent that: equal counters on Status and Tunnel share a keystream,
   which leaks the XOR of those plaintexts and weakens CCM authenticity for them. This would be a ZDD
   flaw we cannot fix from the client. Detection only, no rejection: `SessionCipher.counter_model()`
@@ -198,6 +199,27 @@ Without these, no return traffic arrives from the valves.
    Bytes: `01 08 <id> FC FF 00` (`many_to_one_route_request`).
 3. **Unicast data frames use `discover_route = 1`** (FC byte0 `0x48`). Suppress (`0`) produced
    Network Status `0x02`.
+
+### 6.3a APS acknowledgements, Route Record and Link Status (live 2026-10-13)
+
+**APS acks.** The ubisys R0 (ZDO) and the ZK03840 valves send every unicast to the virtual device
+with APS frame control 0x40 (data, unicast, ack request). Without an APS ack they retransmit up to
+apscMaxFrameRetries (3) times, about 2-3 s apart: each copy surfaced as `late_drops` (117 in 5 min
+on the first live run) and costs valve battery. The node acks every inbound unicast data frame
+addressed to its short with a cleanly decoded, plausible APS header and the ack-request bit:
+`02 ‖ dst ep = inbound src ep ‖ cluster ‖ profile ‖ src ep = inbound dst ep ‖ inbound APS counter`
+(ack format 0) in a normal secured unicast NWK frame (`48 02`). Example: `40 01 0102 0401 01 51` is
+acked with `02 01 0102 0401 01 51`. Duplicates are acked too, then dropped. Broadcasts, group
+frames, APS commands and frames whose header needed the fallback scan are never acked (a wrong ack
+could cancel the retransmission of another frame; a missing one only costs a retransmit). Our own
+requests keep APS FC 0x00. Counters: `aps_acks_sent`, `aps_ack_failures`.
+
+**Route Record and Link Status.** Because we are a many-to-one concentrator (MTORR), every device
+precedes its unicast to us with a NWK Route Record (`05 ‖ relay count ‖ relays`, NWK FC `09 18`
+with both IEEEs): 26 B from the R0 (no relay), 30 B from a valve (2 relays). The R0 broadcasts a
+Link Status every ~15 s (`08 ‖ options ‖ 3-byte entries`, FC `09 10`, dst 0xFFFC, radius 1). Both
+are decoded and counted (`route_records`, `link_status`) and logged in full by the NPDU recorder
+(shorts and link costs only). Echoes of our own MTORRs count in `rreq_own_echo`, not `rreq_seen`.
 
 ### 6.4 Answering Route Requests
 
@@ -388,7 +410,7 @@ succeeded; reads were done 4 attributes per request (6+ never tried).
 | Cluster/attr | Name | Type | Scaling / value seen | v1 |
 |---|---|---|---|---|
 | 0201/0000 | localTemperature | int16 0x29 | 0.01 C | read |
-| 0201/0008 | piHeatingDemand | uint8 0x20 | **0-7 scale, not %**: 0 off, 7 max; PI-loop demand (the ViCare app's red bubbles), not valve position (kristian/ViLocal CHANGELOG 2.1). 2 and 5 seen live; >7 kept and flagged | read raw; climate `hvac_action` |
+| 0201/0008 | piHeatingDemand | uint8 0x20 | **0-100 %** (ZCL PIHeatingDemand). Live values 2, 5, 11 (2026-10-13, 8 valves) disprove ViLocal's 0-7 claim (CHANGELOG 2.1). >100 kept and flagged | read raw; climate `hvac_action` |
 | 0201/0012 | occupiedHeatingSetpoint | int16 0x29 | 0.01 C; write proven, persists | read/write |
 | 0201/0003, 0004 | absMin/absMaxHeatSetpointLimit | int16 | 800 / 3000 | read once |
 | 0201/0015, 0016 | min/maxHeatSetpointLimit | int16 | 800 / 3000; writable per z2m, untested | read; clamp writes |
@@ -501,8 +523,8 @@ From the `transport.py` and `node.py` stubs (not implemented):
     blocks or kicks the first. Coordination with other users is up to the integration.
 12. **Short-address collisions.** Whether the TC honours a requested short in all cases, or may
     reassign it on rejoin.
-13. **Heating demand scale.** 0-7 comes from kristian/ViLocal CHANGELOG 2.1; we have only seen 2
-    and 5. Confirm 0 with the valve closed and 6-7 under high demand.
+13. **Heating demand scale.** Settled: 0-100 % (ZCL PIHeatingDemand). Live values 2, 5, 11
+    (2026-10-13) disprove ViLocal's 0-7 (CHANGELOG 2.1).
 14. **OUIs.** 14:2D:41 (seen live) also covers the ZK03838 floor-heating thermostat (kristian/ViLocal
     discussion #6); ZK03840 valves also ship with 28:DB:A7 (example valve EUI in the zbtk README).
     Both only order identification; the Basic modelId decides.
