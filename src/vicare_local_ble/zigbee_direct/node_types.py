@@ -194,7 +194,13 @@ class NodeStats:
     * ``decode_errors``: NPDUs dropped because NWK/APS/ZCL/ZDO decoding failed (no fallback hit).
     * ``unmatched``: decodable responses matching no pending or retired key.
     * ``reports``, ``device_annces``, ``network_status``: frames handed to listeners/routing.
-    * ``rreq_seen``, ``rrep_sent``, ``mtorr_sent``: routing activity.
+    * ``rreq_seen``, ``rrep_sent``, ``mtorr_sent``: routing activity. ``rreq_own_echo``: our
+      own MTORRs relayed back by neighbours (not in ``rreq_seen``).
+    * ``route_records``, ``link_status``: NWK Route Record / Link Status commands received
+      (decoded and counted only).
+    * ``aps_acks_sent``: APS acks sent for inbound unicast data frames with the ack-request bit;
+      ``aps_ack_failures``: acks that could not be sent (write failed, node closing, too many
+      in flight).
     """
 
     timeouts: int = 0
@@ -210,6 +216,11 @@ class NodeStats:
     rreq_seen: int = 0
     rrep_sent: int = 0
     mtorr_sent: int = 0
+    rreq_own_echo: int = 0
+    route_records: int = 0
+    link_status: int = 0
+    aps_acks_sent: int = 0
+    aps_ack_failures: int = 0
 
 
 __all__ = [

@@ -17,6 +17,7 @@ import pytest
 
 from fixtures import golden as g
 from vicare_local_ble.testing import network_frames as nf
+from vicare_local_ble.testing.network_aps import is_aps_ack
 from vicare_local_ble.testing.scenario import default_installation
 from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
 from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
@@ -360,4 +361,5 @@ async def test_no_valve_request_before_join_returns() -> None:
         )
         assert records[0].attribute_id == LOCAL_TEMPERATURE
         kinds = [NwkFrame.decode(w) for w in r.writes()]
+        kinds = [f for f in kinds if not is_aps_ack(f)]  # the response's APS ack
         assert [f.dst for f in kinds[4:]] == [valve.short]  # the read came after annce + MTORRs

@@ -58,8 +58,10 @@ class Host:
         self.router = RecordingRouter()
         self.neighbors = NeighborTable()
         self.stats = NodeStats()
+        self.own_eui = g.ZVD_EUI
         self.reports: list[ReportEvent] = []
         self.annces: list[tuple[DeviceAnnce, int]] = []
+        self.acks: list[tuple[int, ApsDataFrame]] = []
         self.raise_on_report = False
 
     def emit_report(self, event: ReportEvent) -> None:
@@ -69,6 +71,9 @@ class Host:
 
     def emit_device_annce(self, annce: DeviceAnnce, src_short: int) -> None:
         self.annces.append((annce, src_short))
+
+    def ack_aps(self, src_short: int, aps: ApsDataFrame) -> None:
+        self.acks.append((src_short, aps))
 
 
 def setup(current_short: int | None = g.ZVD_SHORT) -> tuple[Host, Dispatcher]:

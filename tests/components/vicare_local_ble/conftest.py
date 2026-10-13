@@ -30,6 +30,7 @@ from pytest_homeassistant_custom_component.common import (  # type: ignore[impor
 )
 
 from bluetooth_helpers import DUMMY_ADDRESS
+from vicare_local_ble.testing.network_aps import is_aps_ack
 from vicare_local_ble.testing.scenario import default_installation
 from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame
 from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrameType
@@ -169,6 +170,8 @@ class Sim:
         out: list[tuple[int, int]] = []
         for frame in self.inst.network.received[start:]:
             if frame.frame_type is not NwkFrameType.DATA or frame.dst >= FIRST_BROADCAST:
+                continue
+            if is_aps_ack(frame):  # the node acks the valves' responses
                 continue
             aps = ApsDataFrame.decode(frame.payload)
             if aps.profile_id == HA_PROFILE_ID:

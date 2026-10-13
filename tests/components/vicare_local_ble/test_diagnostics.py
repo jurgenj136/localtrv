@@ -101,6 +101,8 @@ async def test_diagnostics_allowlist(
     assert connection["last_failure_detail"] is None
     assert diagnostics["transport"]["counter_model"] == "shared"
     assert diagnostics["node"]["reports"] >= 1
+    assert diagnostics["node"]["aps_acks_sent"] >= 1  # the simulator requests APS acks
+    assert diagnostics["node"]["aps_ack_failures"] == 0
     join = diagnostics["join"]
     assert join["own_short"] == sim.runtime.connection.last_join.own_short  # type: ignore[union-attr]
     assert join["pan_id"] == 0x1A2B

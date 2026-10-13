@@ -1,7 +1,8 @@
 """APS frame codec (Zigbee R23 section 2.2.5).
 
-Only unsecured, unfragmented APS *data* frames are decoded. ACK, command and
-inter-PAN frames, APS-secured frames and frames with an extended header
+Only unsecured, unfragmented APS *data* frames and data-frame acknowledgements
+(``ApsAckFrame``, R23 2.2.5.2.3, ack format 0) are decoded. Command and inter-PAN
+frames, command acks, APS-secured frames and frames with an extended header
 (fragmentation) raise :class:`UnsupportedFrameError` -- their payload is never
 treated as plaintext (the research code skipped a fake "aux header + MIC",
 research tools/zvd_tunnel.py:348-388; that is dropped here).
@@ -11,13 +12,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Self
+from typing import Final, Self
 
 from vicare_local_ble.zigbee_direct.codec._cursor import Cursor, check_uint
 from vicare_local_ble.zigbee_direct.errors import ApsDecodeError, EncodeError, UnsupportedFrameError
 
 ZDO_PROFILE_ID = 0x0000
 HA_PROFILE_ID = 0x0104
+#: Encoded length of a data-frame ack: frame control, 2 endpoints, cluster, profile, counter.
+APS_ACK_LENGTH: Final = 8
 
 _FT_MASK = 0x03
 _DELIVERY_SHIFT = 2
@@ -159,3 +162,77 @@ class ApsDataFrame:
             counter=counter,
             ack_request=fc.ack_request,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ApsAckFrame:
+    """Unsecured APS acknowledgement of a unicast data frame (R23 2.2.5.2.3, ack format 0).
+
+    ``02 ‖ dst endpoint ‖ cluster(2) ‖ profile(2) ‖ src endpoint ‖ APS counter`` (8 octets,
+    no payload). The ack of a data frame swaps its endpoints and echoes its cluster, profile
+    and APS counter (``for_frame``). Ack format 1 (an APS command ack: frame control and
+    counter only) is not decoded.
+    """
+
+    dst_endpoint: int
+    cluster_id: int
+    profile_id: int
+    src_endpoint: int
+    counter: int
+
+    def __post_init__(self) -> None:
+        check_uint(self.dst_endpoint, 8, "dst_endpoint")
+        check_uint(self.cluster_id, 16, "cluster_id")
+        check_uint(self.profile_id, 16, "profile_id")
+        check_uint(self.src_endpoint, 8, "src_endpoint")
+        check_uint(self.counter, 8, "counter")
+
+    @classmethod
+    def for_frame(cls, frame: ApsDataFrame) -> Self:
+        """The ack of the unicast data frame ``frame`` (EncodeError for group/broadcast)."""
+        if frame.delivery_mode is not ApsDeliveryMode.UNICAST or frame.dst_endpoint is None:
+            raise EncodeError("only a unicast APS data frame is acknowledged")
+        return cls(
+            dst_endpoint=frame.src_endpoint,
+            cluster_id=frame.cluster_id,
+            profile_id=frame.profile_id,
+            src_endpoint=frame.dst_endpoint,
+            counter=frame.counter,
+        )
+
+    def encode(self) -> bytes:
+        return (
+            bytes((ApsFrameType.ACK | (ApsDeliveryMode.UNICAST << _DELIVERY_SHIFT),))
+            + bytes((self.dst_endpoint,))
+            + self.cluster_id.to_bytes(2, "little")
+            + self.profile_id.to_bytes(2, "little")
+            + bytes((self.src_endpoint, self.counter))
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> Self:
+        """Decode an APS data-frame ack; exactly ``APS_ACK_LENGTH`` octets.
+
+        Raises ApsDecodeError for a non-ack, a non-unicast ack, a truncated frame or trailing
+        bytes, and UnsupportedFrameError for a command ack (format 1), a secured ack or an
+        extended header.
+        """
+        cur = Cursor(data, ApsDecodeError, "APS ack")
+        fc = ApsFrameControl.from_byte(cur.u8("frame control"))
+        if fc.frame_type is not ApsFrameType.ACK:
+            raise ApsDecodeError(f"APS ack: {fc.frame_type.name} frame")
+        if fc.ack_format:
+            raise UnsupportedFrameError("APS command acks (ack format 1) are not decoded")
+        if fc.security or fc.extended_header:
+            raise UnsupportedFrameError("secured or extended-header APS acks are not decoded")
+        if fc.delivery_mode != ApsDeliveryMode.UNICAST:
+            raise ApsDecodeError("APS ack: delivery mode is not unicast")
+        ack = cls(
+            dst_endpoint=cur.u8("destination endpoint"),
+            cluster_id=cur.u16("cluster id"),
+            profile_id=cur.u16("profile id"),
+            src_endpoint=cur.u8("source endpoint"),
+            counter=cur.u8("APS counter"),
+        )
+        cur.expect_end()
+        return ack

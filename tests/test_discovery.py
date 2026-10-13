@@ -14,6 +14,7 @@ import pytest
 
 from test_node import Rig, rig
 from vicare_local_ble.testing.network import SimRouter
+from vicare_local_ble.testing.network_aps import is_aps_ack
 from vicare_local_ble.testing.scenario import ROUTER_EUI
 from vicare_local_ble.testing.valve import SimValve
 from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
@@ -58,7 +59,7 @@ def lqi_requests(r: Rig) -> list[tuple[int, int]]:
     out: list[tuple[int, int]] = []
     for raw in r.writes():
         frame = NwkFrame.decode(raw)
-        if frame.frame_type is not NwkFrameType.DATA:
+        if frame.frame_type is not NwkFrameType.DATA or is_aps_ack(frame):
             continue
         aps = ApsDataFrame.decode(frame.payload)
         if aps.cluster_id == ZdoCluster.MGMT_LQI_REQ:

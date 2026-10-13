@@ -78,6 +78,7 @@ async def joined_rig(*, seed: int = 0, **valve_kwargs: object) -> Rig:
         coordinator_eui=g.COORDINATOR_EUI,
         extended_pan_id=g.EXT_PAN,
         rng=rng,
+        aps_ack_request=False,  # golden replies are plain frames; the recording host never acks
     )
     host = RecordingTunnelHost(clock)
     net.attach(host)

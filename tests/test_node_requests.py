@@ -8,6 +8,7 @@ import pytest
 
 from test_node import LOCAL_TEMPERATURE, MFR, SETPOINT, THERMOSTAT, Rig, rig
 from vicare_local_ble.testing import network_frames as nf
+from vicare_local_ble.testing.network_aps import is_aps_ack
 from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID, ZDO_PROFILE_ID, ApsDataFrame
 from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
 from vicare_local_ble.zigbee_direct.codec.zcl import (
@@ -79,7 +80,10 @@ def zcl_tsns(r: Rig, start: int = 4) -> list[int]:
     """TSN of every ZCL request written after the join (ZCL header byte after the APS)."""
     out = []
     for raw in r.writes()[start:]:
-        aps = ApsDataFrame.decode(NwkFrame.decode(raw).payload)
+        frame = NwkFrame.decode(raw)
+        if is_aps_ack(frame):  # the node acks the valves' responses
+            continue
+        aps = ApsDataFrame.decode(frame.payload)
         out.append(ZclFrame.decode(aps.payload).header.tsn)
     return out
 

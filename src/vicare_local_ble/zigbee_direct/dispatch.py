@@ -18,6 +18,8 @@ Per NPDU (spec §1.3 "Ingress dispatch"):
    * Network Status -> ``host.router.on_network_status(frame, status)`` (the router decides:
      ``RouteError`` only for frames unicast to our short; 0x0D whenever the status
      destination is our short).
+   * Route Record (sent to us, the concentrator, before a device's unicast) and Link Status
+     (the R0's periodic 0xFFFC broadcast) are counted (``route_records``, ``link_status``).
    * Others are ignored.
 3. Data frames whose dst is neither ``host.current_short`` nor a broadcast are dropped. Before the
    join completed (``current_short is None``) every data frame is dropped. Otherwise
@@ -26,6 +28,14 @@ Per NPDU (spec §1.3 "Ingress dispatch"):
    other than 0/0 or a cluster outside the standard ZDP table) goes to the fallback (4).
    A plausible header is final: a body that then fails to decode only counts
    ``decode_errors`` (no offset scan).
+   * APS ack: a plausible unicast header with the ack-request bit, NWK dst == our short (no
+     NWK multicast, a dst IEEE if present equal to our EUI) and a unicast NWK src
+     (0x0000..0xFFF7) other than our short is acked first (``host.ack_aps``, scheduled, never
+     awaited), whatever the body: responses, reports, duplicates of retired requests and
+     undecodable bodies alike.
+     Broadcasts, group frames, APS commands/acks and fallback-path frames are never acked: a
+     garbled header's endpoints and counter are not trustworthy, and a wrong ack could stop
+     the retransmission of a different frame.
    * ZDO profile: Device_annce -> ``host.neighbors.note`` + ``host.emit_device_annce``;
      responses resolve a pending entry only if ``Envelope.match_zdo`` passes; a retired key
      counts ``late_drops``; standard ZDO requests (to us or broadcast) and responses without
@@ -40,7 +50,7 @@ Per NPDU (spec §1.3 "Ingress dispatch"):
    pass command, tsn/seq, direction and manufacturer checks, and a match found at offset 0
    (APS header known) must also pass the envelope's profile/cluster/endpoint checks. Counted
    in ``fallback_hits``.
-5. Never reply to anything (reports, broadcasts) in v1.
+5. Never reply to anything (reports, broadcasts) beyond the APS ack of step 3.
 
 Logging (logger ``vicare_local_ble.zigbee_direct.node``): DEBUG only, and only decoded,
 sanitised fields (``debug.sanitize_records`` before logging any attribute records). Never
@@ -53,7 +63,7 @@ import dataclasses
 import logging
 from typing import TYPE_CHECKING, Final, Protocol
 
-from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID, ApsDataFrame
+from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID, ApsDataFrame, ApsDeliveryMode
 from vicare_local_ble.zigbee_direct.codec.fallback import (
     ZDO_RESPONSE_DECODERS,
     ExpectedZcl,
@@ -68,6 +78,7 @@ from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
     UnsupportedNwkCommandError,
     decode_nwk_command,
 )
+from vicare_local_ble.zigbee_direct.codec.nwk_mesh import LinkStatus, RouteRecord
 from vicare_local_ble.zigbee_direct.codec.zcl import (
     ReportAttributes,
     ZclCommandId,
@@ -103,6 +114,7 @@ if TYPE_CHECKING:
         PendingResult,
     )
     from vicare_local_ble.zigbee_direct.routing import NeighborTable, Router
+    from vicare_local_ble.zigbee_direct.types import Eui64
 
 _LOGGER = logging.getLogger("vicare_local_ble.zigbee_direct.node")
 #: Shorts at or above this are broadcast addresses.
@@ -134,12 +146,22 @@ class DispatchHost(Protocol):
     @property
     def stats(self) -> NodeStats: ...
 
+    @property
+    def own_eui(self) -> Eui64:
+        """Our EUI-64 (an inbound dst IEEE must match it before we ack)."""
+        ...
+
     def emit_report(self, event: ReportEvent) -> None:
         """Call every ``on_report`` listener; listener exceptions are logged and swallowed."""
         ...
 
     def emit_device_annce(self, annce: DeviceAnnce, src_short: int) -> None:
         """Call every ``on_device_annce`` listener with the annce and its NWK src short."""
+        ...
+
+    def ack_aps(self, src_short: int, aps: ApsDataFrame) -> None:
+        """Schedule the APS ack of ``aps`` to ``src_short`` (``node_acks.ApsAcker``); never
+        awaits, never raises."""
         ...
 
 
@@ -208,6 +230,10 @@ class Dispatcher:
             case NetworkStatus():
                 host.stats.network_status += 1
                 host.router.on_network_status(frame, command)
+            case RouteRecord():
+                host.stats.route_records += 1
+            case LinkStatus():
+                host.stats.link_status += 1
             case _:
                 pass
 
@@ -225,10 +251,25 @@ class Dispatcher:
         if failed or not plausible_aps_header(aps):
             self._fallback(frame)  # garbled header (quirk): the only case that is scanned
             return
+        if self._ack_eligible(frame, aps, current):
+            host.ack_aps(frame.src, aps)
         if aps.profile_id == ZDO_PROFILE_ID:
             self._zdo(frame, aps, current)
         else:
             self._zcl(frame, aps)
+
+    def _ack_eligible(self, frame: NwkFrame, aps: ApsDataFrame, current: int) -> bool:
+        """Step 3 APS ack rule: an ack goes only to a valid unicast source, for a unicast
+        (non-multicast) frame to our short whose dst IEEE, if present, is our EUI."""
+        return (
+            aps.ack_request
+            and aps.delivery_mode is ApsDeliveryMode.UNICAST
+            and frame.dst == current
+            and frame.multicast_control is None
+            and (frame.dst_ieee is None or frame.dst_ieee == self._host.own_eui)
+            and 0 <= frame.src < _FIRST_BROADCAST
+            and frame.src != current
+        )
 
     # --- ZDO ---
 

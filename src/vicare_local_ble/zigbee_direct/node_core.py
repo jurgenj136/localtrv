@@ -4,6 +4,8 @@
 node tasks and listeners of one node generation. ``node.py`` is the public facade; the join
 procedure lives in ``node_join.py`` and the request engine in ``node_requests.py``.
 
+APS acks of inbound frames are scheduled by ``node_acks.ApsAcker`` as node tasks.
+
 Lifecycle: built around an open transport (installs ``dispatcher.handle`` as its NPDU handler);
 ``close`` fails pending futures and the join, cancels and awaits every node task, drops the
 listeners and swaps the NPDU handler for a no-op. It never closes the transport.
@@ -18,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from vicare_local_ble.zigbee_direct.dispatch import Dispatcher
 from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, TransportError
+from vicare_local_ble.zigbee_direct.node_acks import ApsAcker
 from vicare_local_ble.zigbee_direct.node_types import NodeStats
 from vicare_local_ble.zigbee_direct.requests import Allocators, JoinSlot, PendingMap
 from vicare_local_ble.zigbee_direct.routing import NeighborTable, Router
@@ -27,6 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from vicare_local_ble.zigbee_direct.clock import Clock
+    from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
     from vicare_local_ble.zigbee_direct.codec.nwk_commands import CommissioningResponse
     from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
     from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce
@@ -80,6 +84,7 @@ class NodeCore:
         self._closed = False
         self._closing: asyncio.Future[None] | None = None
         self._router = Router(self)
+        self._acker = ApsAcker(self)
         self._dispatcher = Dispatcher(self)
         transport.set_npdu_handler(self._dispatcher.handle)
 
@@ -171,6 +176,9 @@ class NodeCore:
         exc = task.exception()
         if exc is not None:
             _LOGGER.debug("node task %s failed: %s", task.get_name(), type(exc).__name__)
+
+    def ack_aps(self, src_short: int, aps: ApsDataFrame) -> None:
+        self._acker.ack(src_short, aps)
 
     def fire_address_conflict(self) -> None:
         _LOGGER.debug("address conflict for our short")

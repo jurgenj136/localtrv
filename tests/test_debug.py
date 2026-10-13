@@ -57,6 +57,10 @@ NETWORK_STATUS_TLV = h(NWK_CMD, "03 0B 34 12", "45 0F", KEY)
 RREQ_TLV = h(NWK_CMD, "01 20 07 34 12 00", A, "45 0F", KEY)
 RREP_LIVE_TLV = h(NWK_CMD, "02 20 07 6F 5E 34 12 00", A, "45 0F", KEY)
 RREP_LIVE_KEY_AS_EUIS = h(NWK_CMD, "02 20 07 6F 5E 34 12 00", A, KEY)  # 16-byte tail
+ROUTE_RECORD_TLV = h(NWK_CMD, "05 01 6F 5E", "45 0F", KEY)
+LINK_STATUS_TLV = h(NWK_CMD, "08 61 6F 5E 11", "45 0F", KEY)
+#: A data-frame APS ack must decode exactly: a key behind it is never logged.
+APS_ACK_TAIL = h(NWK_DATA, "02 01 01 02 04 01 01 2B", KEY)
 
 SECRET_FRAMES = {
     "aps_command": APS_COMMAND,
@@ -68,6 +72,9 @@ SECRET_FRAMES = {
     "rreq_tail": RREQ_TLV,
     "rrep_tail": RREP_LIVE_TLV,
     "rrep_tail_multiple_of_8": RREP_LIVE_KEY_AS_EUIS,
+    "route_record_tail": ROUTE_RECORD_TLV,
+    "link_status_tail": LINK_STATUS_TLV,
+    "aps_ack_tail": APS_ACK_TAIL,
 }
 
 
@@ -255,8 +262,8 @@ HEADER_ONLY = {
     "nwk_leave": (h("09 10 FD FF 34 12 1E 07", A, "04 00"), 16),
     # APS-secured data frame (payload is ciphertext)
     "aps_secured": (h(NWK_DATA, "20 01 01 02 04 01 01 2B", KEY), 8),
-    # APS ACK
-    "aps_ack": (h(NWK_DATA, "02 01 01 02 04 01 01 2B"), 8),
+    # APS command ack (ack format 1: frame control + counter); data acks are logged (ok)
+    "aps_command_ack": (h(NWK_DATA, "12 2B"), 8),
     # plausible ZDO frame with a cluster the decoders do not know (Bind_req, carries EUIs)
     "zdo_bind_req": (h(NWK_DATA, "00 00 21 00 00 00 00 07", "01", A, "01 01 02 03", A, "01"), 8),
     # IEEE_addr_rsp extended form (associated device list) is not decoded

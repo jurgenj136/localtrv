@@ -122,6 +122,11 @@ def _node(stats: NodeStats | None) -> dict[str, Any] | None:
         "rreq_seen": stats.rreq_seen,
         "rrep_sent": stats.rrep_sent,
         "mtorr_sent": stats.mtorr_sent,
+        "rreq_own_echo": stats.rreq_own_echo,
+        "route_records": stats.route_records,
+        "link_status": stats.link_status,
+        "aps_acks_sent": stats.aps_acks_sent,
+        "aps_ack_failures": stats.aps_ack_failures,
     }
 
 

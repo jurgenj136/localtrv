@@ -170,6 +170,7 @@ class Router:
         "_host",
         "_last_failure_mtorr",
         "_last_rrep",
+        "_last_seen",
         "_periodic",
         "_route_ids",
         "_rreq_expiry",
@@ -181,6 +182,8 @@ class Router:
         self._rreq_expiry: dict[tuple[int, int], float] = {}
         #: originator -> time of its last RREP (only while inside ``RREP_MIN_INTERVAL``).
         self._last_rrep: dict[int, float] = {}
+        #: originator -> route id of its last logged RREQ (log de-duplication only).
+        self._last_seen: dict[int, int] = {}
         self._route_ids = SeqAllocator(1)
         self._periodic: asyncio.Task[None] | None = None
         self._last_failure_mtorr: float | None = None
@@ -281,8 +284,10 @@ class Router:
         T11 (minimal): count ``stats.rreq_seen`` and return.
 
         Counting (T12): ``stats.rreq_seen`` counts every Route Request from another node,
-        whatever its destination; echoes of our own MTORRs (NWK src == our short, or src IEEE ==
-        our EUI) are not counted. ``stats.rrep_sent`` counts the replies actually sent.
+        whatever its destination (relayed copies included; only the first copy of an
+        ``(originator, route_id)`` is logged); echoes of our own MTORRs (NWK src == our short,
+        or src IEEE == our EUI) count ``stats.rreq_own_echo`` instead and are not logged.
+        ``stats.rrep_sent`` counts the replies actually sent.
 
         T12 (full responder): answer only if ``request.dst == own_short`` and the mode is not
         ``RouteReplyMode.OFF`` (others are counted and ignored). Dedupe on
@@ -304,11 +309,17 @@ class Router:
         except RuntimeError:  # not joined yet: no short to answer for
             own = None
         if originator == own or (frame.src_ieee is not None and frame.src_ieee == host.own_eui):
-            return  # our own MTORR relayed back
+            host.stats.rreq_own_echo += 1  # our own MTORR relayed back: counted, never logged
+            return
         host.stats.rreq_seen += 1
-        _LOGGER.debug(
-            "RREQ seen from 0x%04X for 0x%04X (route id %d)", originator, request.dst, route_id
-        )
+        if self._last_seen.get(originator) != route_id:  # relayed copies: logged once
+            self._last_seen.pop(originator, None)
+            self._last_seen[originator] = route_id
+            if len(self._last_seen) > _MAX_DEDUPE_ENTRIES:
+                del self._last_seen[next(iter(self._last_seen))]
+            _LOGGER.debug(
+                "RREQ seen from 0x%04X for 0x%04X (route id %d)", originator, request.dst, route_id
+            )
         if own is None:
             return
         mode = host.config.route_reply_mode

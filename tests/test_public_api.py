@@ -150,6 +150,7 @@ def test_codec_exports_every_submodule_public_name() -> None:
         "tlv",
         "nwk",
         "nwk_commands",
+        "nwk_mesh",
         "commissioning",
         "aps",
         "zdo",

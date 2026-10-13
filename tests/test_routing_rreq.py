@@ -3,6 +3,8 @@ and the periodic MTORR loop, on ``VirtualClock`` against the simulator."""
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from fixtures import golden as g
@@ -272,8 +274,36 @@ async def test_own_mtorr_echoes_are_not_counted() -> None:
         router.on_route_request(*rreq_frame(0x0100, 0xFFFC, 2, src_ieee=r.node.own_eui))
         await r.clock.advance(0)
         assert (r.node.stats.rreq_seen, r.node.stats.rrep_sent) == (0, 0)
+        assert r.node.stats.rreq_own_echo == 2
         router.on_route_request(*rreq_frame(0x0100, 0xFFFC, 3))  # someone else's MTORR
-        assert r.node.stats.rreq_seen == 1
+        assert (r.node.stats.rreq_seen, r.node.stats.rreq_own_echo) == (1, 2)
+
+
+async def test_own_echo_is_not_logged_and_relayed_copies_log_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async with rig() as r:
+        router, own = r.core.router, r.node.own_short
+        with caplog.at_level(logging.DEBUG, logger="vicare_local_ble.zigbee_direct.node"):
+            router.on_route_request(*rreq_frame(own, 0xFFFC, 1))
+            for _ in range(3):  # the coordinator's MTORR, relayed by three neighbours
+                router.on_route_request(*rreq_frame(0x0000, 0xFFFC, 9))
+            router.on_route_request(*rreq_frame(0x0000, 0xFFFC, 10))  # its next MTORR
+        seen = [rec.getMessage() for rec in caplog.records if "RREQ seen" in rec.getMessage()]
+        assert seen == [
+            "RREQ seen from 0x0000 for 0xFFFC (route id 9)",
+            "RREQ seen from 0x0000 for 0xFFFC (route id 10)",
+        ]
+        assert (r.node.stats.rreq_seen, r.node.stats.rreq_own_echo) == (4, 1)
+
+
+async def test_rreq_log_dedupe_memory_is_bounded() -> None:
+    async with rig() as r:
+        router = r.core.router
+        for src in range(1, 300):
+            router.on_route_request(*rreq_frame(src, 0xFFFC, 1))
+        assert len(router._last_seen) == 256
+        assert r.node.stats.rreq_seen == 299
 
 
 async def test_rreq_after_close_never_raises() -> None:

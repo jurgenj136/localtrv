@@ -16,16 +16,20 @@ Design choices (all err towards logging less):
     * EUIs are collected by walking the decoded dataclasses generically: every ``Eui64`` value at
       any depth, plus ``extended_pan_id`` integers. A decoder that grows a new EUI field is
       covered without touching this module.
-    * Route Request / Reply / Network Status keep trailing bytes raw in ``tlvs``; those are
-      never decoded, so a strict allowlist applies. Network Status and Route Request: the tail
-      must be empty. Route Reply: the tail must be empty, or the frame must be exactly the live
+    * Route Request / Reply / Network Status / Route Record / Link Status keep trailing bytes
+      raw in ``tlvs``; those are never decoded, so a strict allowlist applies. Network Status,
+      Route Request, Route Record and Link Status: the tail must be empty (Route Record and
+      Link Status then hold only shorts and link costs, like the NWK header, so their hex is
+      logged). Route Reply: the tail must be empty, or the frame must be exactly the live
       layout (options byte 0x20, responder EUI decoded, one trailing 8-byte EUI: the own EUI,
       collected as an EUI). Any other tail makes the frame ``undecodable``.
     * Commissioning Request / Response TLVs are checked against an allowlist of tags with known,
       key-free layouts. An unknown tag (for example 0x45, symmetric passphrase) makes the frame
       ``undecodable``.
-    * A secured, extended-header (fragment), ACK or inter-PAN APS frame is ``undecodable``; an
-      APS command frame is ``aps_command``. Both are decided on the frame control alone.
+    * A secured, extended-header (fragment), command-ack or inter-PAN APS frame is
+      ``undecodable``; an APS command frame is ``aps_command``. Both are decided on the frame
+      control alone. A data-frame ack (``ApsAckFrame``: endpoints, cluster, profile, counter,
+      no payload) is ``ok`` when it decodes exactly.
     * The fallback scan (offsets 8..17 of the NWK payload, as ``codec.fallback``) replaces the
       standard inner decode when the APS header looks garbled (the bytes right behind a
       garbled header are never decoded), and is used only then: the APS decode failed, the
@@ -49,6 +53,7 @@ from typing import TYPE_CHECKING, Final, Literal
 from vicare_local_ble.zigbee_direct.codec.aps import (
     HA_PROFILE_ID,
     ZDO_PROFILE_ID,
+    ApsAckFrame,
     ApsDataFrame,
     ApsFrameControl,
     ApsFrameType,
@@ -63,6 +68,7 @@ from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
     RouteRequest,
     decode_nwk_command,
 )
+from vicare_local_ble.zigbee_direct.codec.nwk_mesh import LinkStatus, RouteRecord
 from vicare_local_ble.zigbee_direct.codec.tlv import Tlv, decode_tlvs
 from vicare_local_ble.zigbee_direct.codec.zcl import ZclFrame, ZclFrameType
 from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
@@ -210,7 +216,7 @@ def _nwk_command(payload: bytes, c: _Collector) -> Verdict:
     except DecodeError:
         return "undecodable"
     c.walk(command)
-    if isinstance(command, RouteRequest | NetworkStatus):
+    if isinstance(command, RouteRequest | NetworkStatus | RouteRecord | LinkStatus):
         return "undecodable" if command.tlvs else "ok"
     if isinstance(command, RouteReply):
         return _route_reply_tail(payload[1], command, c)
@@ -305,6 +311,12 @@ def _aps(payload: bytes, c: _Collector) -> Verdict:
     fc = ApsFrameControl.from_byte(payload[0])
     if fc.frame_type is ApsFrameType.COMMAND:
         return "aps_command"
+    if fc.frame_type is ApsFrameType.ACK:
+        try:
+            ApsAckFrame.decode(payload)
+        except DecodeError:
+            return "undecodable"
+        return "ok"
     if (
         fc.frame_type is not ApsFrameType.DATA
         or fc.delivery_mode == 1

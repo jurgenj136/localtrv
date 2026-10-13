@@ -12,9 +12,10 @@ Composition (one node per connection generation, built by ``ZdConnection``, T13)
     transport's fatal handler (the connection does).
 
 Tasks
-    Node-owned tasks (join-burst MTORRs, the periodic MTORR, RREP sends, the rate-limited MTORR
-    after Network Status 0x02) are created on the running loop, kept in a strong set, and
-    cancelled **and awaited** by ``close()``. Request coroutines run in the caller's task.
+    Node-owned tasks (join-burst MTORRs, the periodic MTORR, RREP sends, APS ack sends, the
+    rate-limited MTORR after Network Status 0x02) are created on the running loop, kept in a
+    strong set, and cancelled **and awaited** by ``close()``. Request coroutines run in the
+    caller's task.
 
 Requests
     ``zdo_request``/``zcl_read``/``zcl_write`` take the per-destination lock, then the global

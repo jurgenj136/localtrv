@@ -13,6 +13,7 @@ from enum import IntEnum
 from typing import Self
 
 from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from vicare_local_ble.zigbee_direct.codec.nwk_mesh import LinkStatus, RouteRecord
 from vicare_local_ble.zigbee_direct.codec.tlv import Tlv, decode_tlvs, encode_tlvs
 from vicare_local_ble.zigbee_direct.errors import (
     EncodeError,
@@ -417,7 +418,13 @@ class CommissioningResponse:
 
 
 type NwkCommand = (
-    RouteRequest | RouteReply | NetworkStatus | CommissioningRequest | CommissioningResponse
+    RouteRequest
+    | RouteReply
+    | NetworkStatus
+    | RouteRecord
+    | LinkStatus
+    | CommissioningRequest
+    | CommissioningResponse
 )
 
 
@@ -432,6 +439,10 @@ def decode_nwk_command(payload: bytes) -> NwkCommand:
             return RouteReply.decode(payload)
         case NwkCommandId.NETWORK_STATUS:
             return NetworkStatus.decode(payload)
+        case NwkCommandId.ROUTE_RECORD:
+            return RouteRecord.decode(payload)
+        case NwkCommandId.LINK_STATUS:
+            return LinkStatus.decode(payload)
         case NwkCommandId.COMMISSIONING_REQUEST:
             return CommissioningRequest.decode(payload)
         case NwkCommandId.COMMISSIONING_RESPONSE:

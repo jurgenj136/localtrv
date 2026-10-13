@@ -19,7 +19,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID, ApsDataFrame, ApsDeliveryMode
+from vicare_local_ble.zigbee_direct.codec.aps import (
+    ZDO_PROFILE_ID,
+    ApsAckFrame,
+    ApsDataFrame,
+    ApsDeliveryMode,
+)
 from vicare_local_ble.zigbee_direct.codec.nwk import DISCOVER_ROUTE_ENABLE, NwkFrame, NwkFrameType
 from vicare_local_ble.zigbee_direct.codec.nwk_commands import DEFAULT_ZVD_CAPABILITY, RouteReply
 from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce, ZdoCluster
@@ -36,7 +41,9 @@ LOCAL_ENDPOINT: Final = 1
 LIVE_ROUTE_REPLY_OPTIONS: Final = 0x20
 
 
-def _data_npdu(*, dst: int, own_short: int, nwk_seq: int, radius: int, aps: ApsDataFrame) -> bytes:
+def _data_npdu(
+    *, dst: int, own_short: int, nwk_seq: int, radius: int, aps: ApsDataFrame | ApsAckFrame
+) -> bytes:
     """Post-join NWK data frame: discover_route=1, security bit set (FC ``48 02``)."""
     return NwkFrame(
         frame_type=NwkFrameType.DATA,
@@ -131,6 +138,29 @@ def zcl_unicast_npdu(
     return _data_npdu(dst=dst, own_short=own_short, nwk_seq=nwk_seq, radius=radius, aps=aps)
 
 
+def aps_ack_npdu(
+    *,
+    dst: int,
+    own_short: int,
+    nwk_seq: int,
+    inbound: ApsDataFrame,
+    radius: int = DEFAULT_RADIUS,
+) -> bytes:
+    """APS ack (R23 2.2.5.2.3, ack format 0) of the unicast data frame ``inbound`` from
+    ``dst``: NWK ``48 02 <dst> <own> 1E seq`` (as every unicast we send), APS ``02 <inbound src
+    ep> <cluster> <profile> <inbound dst ep> <inbound counter>`` (``ApsAckFrame.for_frame``).
+
+    Hardware example: the valve's ``40 01 0102 0401 01 51`` is acked with
+    ``02 01 0102 0401 01 51``."""
+    return _data_npdu(
+        dst=dst,
+        own_short=own_short,
+        nwk_seq=nwk_seq,
+        radius=radius,
+        aps=ApsAckFrame.for_frame(inbound),
+    )
+
+
 def route_reply_npdu(
     *,
     originator: int,
@@ -175,6 +205,7 @@ __all__ = [
     "DEFAULT_RADIUS",
     "LIVE_ROUTE_REPLY_OPTIONS",
     "LOCAL_ENDPOINT",
+    "aps_ack_npdu",
     "device_annce_npdu",
     "route_reply_npdu",
     "zcl_unicast_npdu",

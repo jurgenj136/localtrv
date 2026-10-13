@@ -24,6 +24,13 @@ Behaviours (spec §1.7) and their knobs
         * Frames to a short no device has (stale short) go unanswered.
         * ``emit_route_request``: RREQs with option 0x20 + dst IEEE, repeated route ids,
           other destinations, unknown originators. ``route_replies`` records every RREP.
+    APS reliability (``network_aps``)
+        * ``aps_ack_request`` (default True, as the live devices): every unicast to the ZVD
+          sets the APS ack-request bit and is retransmitted (same APS counter, new NWK seq)
+          up to ``aps_max_retries`` times, ``aps_ack_wait`` apart, until the ZVD acks it.
+          False sends plain frames once (the pre-hardware simulator). An ack counts only
+          when it is delivered like any other unicast (gate open, discover_route=1, not a
+          broadcast) and carries the NWK security bit and the tunnel's secure flag.
     Quirk and noise
         * ``variant_weights``: per reply frame ``plain | source_route | garbage4``.
         * ``emit_noise``: foreign broadcasts, Network Status for others, frames for other dsts.
@@ -55,9 +62,15 @@ Implementation notes (T9)
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, Literal, Protocol
+from typing import TYPE_CHECKING, Final, Literal
 
 from vicare_local_ble.testing import network_frames as nf
+from vicare_local_ble.testing.network_aps import (
+    SIM_APS_ACK_WAIT,
+    SIM_APS_MAX_FRAME_RETRIES,
+    is_aps_ack,
+)
+from vicare_local_ble.testing.network_link import SimMeshLink, TunnelHost
 from vicare_local_ble.testing.network_topology import FIRST_BROADCAST, MeshTopology
 from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID, ApsDataFrame
 from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
@@ -82,29 +95,18 @@ from vicare_local_ble.zigbee_direct.types import (
 
 if TYPE_CHECKING:
     import random
-    from collections.abc import Callable, Mapping
+    from collections.abc import Mapping
 
-    from vicare_local_ble.testing.gatt import TunnelPeer
     from vicare_local_ble.testing.valve import SimValve
     from vicare_local_ble.zigbee_direct.clock import VirtualClock
     from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
     from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import Neighbor
 
-type _Builder = Callable[[], bytes | None]
 type FrameVariant = Literal["plain", "source_route", "garbage4"]
 type NoiseKind = Literal["foreign_annce", "foreign_broadcast", "network_status_other", "other_dst"]
 
 _FC1_COMMISSIONING: Final = 0x18
 _ROUTER_REPLY_DELAY: Final = (0.2, 1.0)
-
-
-class TunnelHost(Protocol):
-    """What the network needs from the R0 (``SimulatedR0`` implements it; T9 tests may pass a
-    recording stub instead)."""
-
-    def attach_network(self, peer: TunnelPeer) -> None: ...
-
-    def indicate_npdu(self, npdu: bytes, *, secure: bool = True) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +127,7 @@ class RecordedRrep:
     raw: bytes
 
 
-class SimNetwork:
+class SimNetwork(SimMeshLink):
     """The mesh behind the R0; implements ``testing.gatt.TunnelPeer`` and
     ``testing.valve.ValveUplink``."""
 
@@ -145,12 +147,21 @@ class SimNetwork:
         lqi_page_size: int = 2,
         router_timeout: frozenset[int] = frozenset(),
         variant_weights: Mapping[FrameVariant, float] | None = None,
+        aps_ack_request: bool = True,
+        aps_ack_wait: float = SIM_APS_ACK_WAIT,
+        aps_max_retries: int = SIM_APS_MAX_FRAME_RETRIES,
     ) -> None:
         if lqi_page_size < 1:
             raise ValueError("lqi_page_size must be >= 1")
-        self._clock = clock
-        self._rng = rng
-        self._zdd_short = validate_short(zdd_short)
+        super().__init__(
+            clock,
+            rng=rng,
+            zdd_short=validate_short(zdd_short),
+            variant_weights=variant_weights,
+            aps_ack_request=aps_ack_request,
+            aps_ack_wait=aps_ack_wait,
+            aps_max_retries=aps_max_retries,
+        )
         self._zdd_eui = zdd_eui
         self._mesh = MeshTopology(coordinator_eui=coordinator_eui, extended_pan_id=extended_pan_id)
         self.commissioning_delay = commissioning_delay
@@ -159,19 +170,10 @@ class SimNetwork:
         self.unrelated_commissioning_response = unrelated_commissioning_response
         self.lqi_page_size = lqi_page_size
         self.router_timeout = router_timeout
-        self._weights = nf.check_variant_weights(variant_weights)
-        self._host: TunnelHost | None = None
         self._drop_requests = 0
-        self._generation = 0
-        self._joined: int | None = None
         self._zvd_eui: Eui64 | None = None
-        self._annce_seen = False
-        self._mtorr_seen = False
         self._received: list[NwkFrame] = []
         self._rreps: list[RecordedRrep] = []
-        self._nwk_seq = 0x20
-        self._aps_counter = 0x10
-        self._zdo_seq = 0x60
         self.add_router(SimRouter(eui=zdd_eui, short=self._zdd_short))
 
     # --- topology ---
@@ -211,64 +213,6 @@ class SimNetwork:
         """The Mgmt_Lqi table of the coordinator or a router: its valves, then its routers."""
         return self._mesh.neighbor_table(short)
 
-    # --- sending ---
-
-    def _next_seq(self) -> int:
-        self._nwk_seq = (self._nwk_seq + 1) & 0xFF
-        return self._nwk_seq
-
-    def _next_aps(self) -> int:
-        self._aps_counter = (self._aps_counter + 1) & 0xFF
-        return self._aps_counter
-
-    def _next_zdo_seq(self) -> int:
-        self._zdo_seq = (self._zdo_seq + 1) & 0xFF
-        return self._zdo_seq
-
-    def _later(self, delay: float, build: _Builder, *, secure: bool = True) -> None:
-        """Send ``build()`` after ``delay`` unless the session changed or it returns None."""
-        generation = self._generation
-
-        def fire() -> None:
-            if generation != self._generation or self._host is None:
-                return
-            npdu = build()
-            if npdu is not None:
-                self._host.indicate_npdu(npdu, secure=secure)
-
-        self._clock.call_later(delay, fire)
-
-    def _status_later(self, dst: int, status: int, *, about: int) -> None:
-        """Network Status from the R0, sent from a zero-delay clock callback."""
-        self._later(
-            0.0,
-            lambda: nf.network_status_npdu(
-                dst=dst, src=self._zdd_short, seq=self._next_seq(), status=status, about=about
-            ),
-        )
-
-    def _pick_variant(self) -> FrameVariant:
-        if self._weights is None:
-            return "plain"
-        return self._rng.choices(self._weights[0], weights=self._weights[1])[0]
-
-    def _reply_later(self, src: int, aps: ApsDataFrame, delay: float) -> None:
-        """A unicast from ``src`` to the ZVD; dropped when the gate is closed at send time."""
-
-        def build() -> bytes | None:
-            if self._joined is None or not self.gated_open:
-                return None
-            return nf.data_npdu(
-                dst=self._joined,
-                src=src,
-                seq=self._next_seq(),
-                aps=aps,
-                variant=self._pick_variant(),
-                relay=self._zdd_short,
-            )
-
-        self._later(delay, build)
-
     def deliver_from_valve(self, valve: SimValve, aps: ApsDataFrame, *, delay: float) -> None:
         """``ValveUplink``: an unsolicited frame from ``valve`` (reports)."""
         if valve not in self.valves:
@@ -287,7 +231,7 @@ class SimNetwork:
         if frame.frame_type is NwkFrameType.COMMAND:
             self._on_command(frame, raw)
         elif frame.frame_type is NwkFrameType.DATA:
-            self._on_data(frame)
+            self._on_data(frame, secure=npdu.nwk_security)
 
     def on_session_reset(self) -> None:
         self._generation += 1
@@ -296,6 +240,7 @@ class SimNetwork:
         self._annce_seen = False
         self._mtorr_seen = False
         self._received.clear()
+        self.aps.clear()
 
     def _on_command(self, frame: NwkFrame, raw: bytes) -> None:
         try:
@@ -361,21 +306,27 @@ class SimNetwork:
 
         self._later(self.commissioning_delay, respond, secure=False)
 
-    def _on_data(self, frame: NwkFrame) -> None:
+    def _on_data(self, frame: NwkFrame, *, secure: bool) -> None:
         joined = self._joined
         if joined is None or frame.src != joined:
             return
-        try:
-            aps = ApsDataFrame.decode(frame.payload)
-        except DecodeError:
-            return
+        ack = is_aps_ack(frame)  # delivered like any other unicast before it counts
+        if not ack:
+            try:
+                aps = ApsDataFrame.decode(frame.payload)
+            except DecodeError:
+                return
         if frame.dst >= FIRST_BROADCAST:
-            self._on_broadcast(aps)
+            if not ack:
+                self._on_broadcast(aps)
             return
         if frame.discover_route == 0:
             self._status_later(joined, nf.NETWORK_STATUS_NO_ROUTE, about=frame.dst)
             return
         if not self.gated_open:
+            return
+        if ack:
+            self._on_aps_ack(frame, secure=secure)
             return
         if self._mesh.is_router(frame.dst):
             self._on_router_request(frame.dst, aps)
@@ -507,15 +458,6 @@ class SimNetwork:
         self._status_later(BROADCAST_RX_ON, nf.NETWORK_STATUS_ADDRESS_CONFLICT, about=joined)
 
     # --- observation ---
-
-    @property
-    def joined_short(self) -> int | None:
-        return self._joined
-
-    @property
-    def gated_open(self) -> bool:
-        """True once a Device_annce and an MTORR from the ZVD were seen this session."""
-        return self._annce_seen and self._mtorr_seen
 
     @property
     def route_replies(self) -> tuple[RecordedRrep, ...]:

@@ -78,6 +78,9 @@ def make_rig(
 ) -> Rig:
     clock = VirtualClock()
     rng = seeded(seed)
+    # The golden replies predate the APS ack-request capture and the recording host never acks:
+    # unit rigs send plain frames once unless a test opts in (test_sim_network_aps.py).
+    net_kwargs.setdefault("aps_ack_request", False)
     net = SimNetwork(
         clock,
         zdd_short=g.ZDD_SHORT,
