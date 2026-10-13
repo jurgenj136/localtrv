@@ -6,7 +6,12 @@ the ``ViCareBridge``) -> ``bridge.attach()`` and the state/issue/advertisement l
 device -> HA stop listener -> platforms (any failure there shuts down).
 
 Shutdown (unload, HA stop or a failed setup): bounded ``connection.stop()``, listener cleanup
-and repair issues removed, then the cache is saved (``VicareRuntime.async_shutdown``).
+and repair issues removed, then the cache is saved (``VicareRuntime.async_shutdown``). Unload
+stops the platforms first and keeps the connection running if that fails. A reload therefore
+releases the R0 (one client only) before the new setup connects.
+
+Remove: a runtime still alive after a failed unload is shut down, then the entry's repair
+issues and its cache ``Store`` file are deleted.
 
 Test seams: ``LoopClock``, ``establish_connection`` and ``async_ble_device_from_address`` are
 module attributes so the HA tests can swap in the simulator's ``VirtualClock``, its
@@ -194,6 +199,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: VicareConfigEntry) -> b
     if unloaded:
         await entry.runtime_data.async_shutdown()
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: VicareConfigEntry) -> None:
+    """Delete what outlives an unload: repair issues (if any) and the cache file.
+
+    HA also removes an entry whose unload failed; its runtime (kept running by the failed
+    unload) is shut down first, so the R0 is released and its final cache save lands before
+    the file is deleted.
+    """
+    runtime: VicareRuntime | None = getattr(entry, "runtime_data", None)
+    if runtime is not None:
+        await runtime.async_shutdown()  # idempotent; a no-op after a normal unload
+    _delete_issues(hass, entry)
+    store: CacheStore = Store(hass, STORAGE_VERSION, storage_key(entry.entry_id))
+    await store.async_remove()
 
 
 @callback

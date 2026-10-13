@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
@@ -14,9 +15,11 @@ from custom_components.vicare_local_ble.const import (
     storage_key,
 )
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.json import json_bytes
 from pytest_homeassistant_custom_component.common import (  # type: ignore[import-untyped]
     async_fire_time_changed,
 )
@@ -330,3 +333,157 @@ async def test_long_write_issue_appears_and_clears(hass: HomeAssistant, sim: Sim
 
     assert await sim.unload()  # unload removes the entry's issues
     assert _issue(hass, sim, ConnectionIssue.MTU_TOO_SMALL) is None
+
+
+# --- unload, reload and remove (supports_unload) -------------------------------------------
+
+
+def _entity_ids(hass: HomeAssistant, sim: Sim) -> list[str]:
+    entries = er.async_entries_for_config_entry(er.async_get(hass), sim.entry.entry_id)
+    return [e.entity_id for e in entries]
+
+
+async def test_entry_supports_unload(hass: HomeAssistant, sim: Sim) -> None:
+    assert await sim.setup()
+    entry = hass.config_entries.async_get_entry(sim.entry.entry_id)
+    assert entry is not None
+    assert entry.supports_unload is True
+    api = json.loads(json_bytes(entry.as_json_fragment))  # what the HA frontend reads
+    assert api["supports_unload"] is True
+
+
+async def test_unload_makes_entities_unavailable(hass: HomeAssistant, sim: Sim) -> None:
+    assert await sim.setup()
+    coordinator = sim.runtime.coordinator
+    euis = {v.eui for v in sim.inst.valves}
+    await sim.drive_until(lambda: all(coordinator.data.available.get(e) for e in euis))
+    await hass.async_block_till_done()
+    live = [
+        e
+        for e in _entity_ids(hass, sim)
+        if (state := hass.states.get(e)) is not None and state.state != STATE_UNAVAILABLE
+    ]
+    assert live
+
+    assert await sim.unload()
+    await hass.async_block_till_done()
+    assert sim.entry.state is ConfigEntryState.NOT_LOADED
+    for e in live:
+        state = hass.states.get(e)
+        assert state is None or state.state == STATE_UNAVAILABLE
+    assert our_tasks() == []
+
+
+async def test_reload_stops_old_connection_before_new_connect(
+    hass: HomeAssistant, sim: Sim
+) -> None:
+    assert await sim.setup()
+    old = sim.runtime
+    assert sim.inst.r0.client is not None
+    seen: list[tuple[ConnectionState, bool]] = []
+    real = sim.inst.connector
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:
+        # the R0 accepts one client: the old one must be gone before a new connect starts
+        seen.append((old.connection.state, sim.inst.r0.client is None))
+        return await real(*args, **kwargs)
+
+    with patch(f"{INIT}.establish_connection", spy):
+        assert await sim.drive(hass.config_entries.async_reload(sim.entry.entry_id))
+    assert sim.entry.state is ConfigEntryState.LOADED
+    assert sim.runtime is not old
+    assert seen
+    assert seen[0] == (ConnectionState.STOPPED, True)
+    assert old.connection.state is ConnectionState.STOPPED
+    assert sim.runtime.connection.state is READY
+    assert sim.inst.r0.client is not None
+
+
+async def test_unload_keeps_connection_when_platforms_fail(hass: HomeAssistant, sim: Sim) -> None:
+    assert await sim.setup()
+    runtime = sim.runtime
+
+    async def refuse(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    with patch.object(type(hass.config_entries), "async_unload_platforms", refuse):
+        assert not await sim.unload()
+    assert sim.entry.state is ConfigEntryState.FAILED_UNLOAD
+    assert runtime.connection.state is READY
+    assert sim.inst.r0.client is not None
+    assert our_tasks() != []
+
+    await sim.drive(runtime.async_shutdown())  # the fixture only unloads LOADED entries
+    await hass.async_block_till_done()
+    assert our_tasks() == []
+
+
+async def test_remove_deletes_issues_and_cache(
+    hass: HomeAssistant, sim: Sim, hass_storage: dict[str, Any]
+) -> None:
+    assert await sim.setup()
+    key = storage_key(sim.entry.entry_id)
+    assert await sim.unload()
+    assert key in hass_storage  # unload saved the cache
+    # an issue left behind (e.g. by an older version) goes with the entry
+    ident = issue_id(ConnectionIssue.MTU_TOO_SMALL.value, sim.entry.entry_id)
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        ident,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=ConnectionIssue.MTU_TOO_SMALL.value,
+    )
+
+    result = await sim.drive(hass.config_entries.async_remove(sim.entry.entry_id))
+    await hass.async_block_till_done()
+    assert result == {"require_restart": False}
+    assert ir.async_get(hass).async_get_issue(DOMAIN, ident) is None
+    assert key not in hass_storage
+    assert our_tasks() == []
+
+
+async def test_remove_loaded_entry_releases_r0(
+    hass: HomeAssistant, sim: Sim, hass_storage: dict[str, Any]
+) -> None:
+    sim.inst.r0.mtu_size = 100  # raises a repair issue while loaded
+    assert await sim.setup()
+    connection = sim.runtime.connection
+    assert _issue(hass, sim, ConnectionIssue.MTU_TOO_SMALL) is not None
+
+    result = await sim.drive(hass.config_entries.async_remove(sim.entry.entry_id))
+    await hass.async_block_till_done()
+    assert result == {"require_restart": False}
+    assert connection.state is ConnectionState.STOPPED
+    assert sim.inst.r0.client is None
+    assert _issue(hass, sim, ConnectionIssue.MTU_TOO_SMALL) is None
+    assert storage_key(sim.entry.entry_id) not in hass_storage
+    assert our_tasks() == []
+
+
+async def test_remove_after_failed_unload_shuts_down_first(
+    hass: HomeAssistant, sim: Sim, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    sim.inst.r0.mtu_size = 100  # raises a repair issue while loaded
+    assert await sim.setup()
+    runtime = sim.runtime
+    await sim.drive_until(lambda: len(runtime.coordinator.data.valves) == 2)  # cache pending
+
+    async def refuse(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    with patch.object(type(hass.config_entries), "async_unload_platforms", refuse):
+        result = await sim.drive(hass.config_entries.async_remove(sim.entry.entry_id))
+    assert result == {"require_restart": True}  # HA: the platforms did not unload
+    assert runtime.connection.state is ConnectionState.STOPPED
+    assert sim.inst.r0.client is None
+
+    # nothing recreates the cache or the issue afterwards
+    await sim.drive(runtime.async_shutdown())
+    freezer.tick(timedelta(seconds=60))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert storage_key(sim.entry.entry_id) not in hass_storage
+    assert _issue(hass, sim, ConnectionIssue.MTU_TOO_SMALL) is None
+    assert our_tasks() == []
