@@ -190,25 +190,25 @@ def test_battery_range() -> None:
     ) == (AttrIssue(CLUSTER_POWER, ATTR_BATTERY_PERCENTAGE, "range"),)
 
 
-def test_heating_demand_above_seven_is_kept_with_issue() -> None:
-    assert HEATING_DEMAND_MAX == 7
-    assert decode_attr(A_HEATING_DEMAND, U8, 7) == 7
-    assert decode_attr(A_HEATING_DEMAND, U8, 80) == 80
-    for raw in (8, 80):
+def test_heating_demand_above_hundred_is_kept_with_issue() -> None:
+    assert HEATING_DEMAND_MAX == 100
+    assert decode_attr(A_HEATING_DEMAND, U8, 100) == 100
+    assert decode_attr(A_HEATING_DEMAND, U8, 101) == 101
+    for raw in (101, 200):
         rec = ok(ATTR_PI_HEATING_DEMAND, U8, raw)
         assert read_issues(CLUSTER_THERMOSTAT, [rec], manufacturer=None) == (
             AttrIssue(CLUSTER_THERMOSTAT, ATTR_PI_HEATING_DEMAND, "demand_scale"),
         )
         new = apply_reads(ValveState(), CLUSTER_THERMOSTAT, [rec], manufacturer=None)
         assert new.heating_demand == raw
-    for raw in (0, 5, 6, 7):
+    for raw in (0, 5, 11, 100):
         rec = ok(ATTR_PI_HEATING_DEMAND, U8, raw)
         assert read_issues(CLUSTER_THERMOSTAT, [rec], manufacturer=None) == ()
 
 
 @pytest.mark.parametrize(
     ("demand", "expected"),
-    [(None, None), (0, False), (1, True), (7, True), (8, None), (80, None), (-1, None)],
+    [(None, None), (0, False), (1, True), (11, True), (100, True), (101, None), (-1, None)],
 )
 def test_heating_active(demand: int | None, expected: bool | None) -> None:
     assert heating_active(demand) is expected

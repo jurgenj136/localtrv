@@ -18,7 +18,7 @@ not be a sentinel, and scaled values must be in range; otherwise the field becom
 |-------------------|----------|----------|--------------|----------------------------------|
 | temperature/setp. | int16    | 0x8000   | -50..100 °C  | /100                             |
 | battery           | uint8    | 0xFF     | 0..200 raw   | /2 (0.5 % units)                 |
-| heating demand    | uint8    | 0xFF     | -            | raw 0-7; >7 kept, issue reported |
+| heating demand    | uint8    | 0xFF     | -            | percent 0-100; >100 kept, flagged |
 | LQI               | uint8    | 0xFF     | -            | raw                              |
 | RSSI              | int8     | 0x80     | -            | raw (decoded int8 -128 is the    |
 |                   |          |          |              | sentinel)                        |

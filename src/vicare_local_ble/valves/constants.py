@@ -65,10 +65,10 @@ UINT8_SENTINEL: Final = 0xFF
 INT8_SENTINEL: Final = -0x80  # int8 0x80 as decoded
 TEMPERATURE_RANGE_C: Final = (-50.0, 100.0)
 BATTERY_RAW_MAX: Final = 200
-#: piHeatingDemand ceiling: 0 (off) to 7 (max), the PI-loop demand the ViCare app shows as red
-#: bubbles, not a valve position (kristian/ViLocal CHANGELOG 2.1; unverified by us). Values 2
-#: and 5 observed live. Above it the value is kept and flagged ``demand_scale``.
-HEATING_DEMAND_MAX: Final = 7
+#: piHeatingDemand ceiling: ZCL PIHeatingDemand percent (0-100). Live values 2, 5, 11 seen
+#: 2026-10-13; ViLocal's 0-7 claim is disproven. Above it the value is kept and flagged
+#: ``demand_scale``.
+HEATING_DEMAND_MAX: Final = 100
 #: Limits are accepted only inside this band (and inside valid abs limits).
 LIMITS_BAND_C: Final = (5.0, 35.0)
 SETPOINT_STEP_C: Final = 0.5

@@ -52,6 +52,7 @@ VALVE_SENSORS: tuple[VicareSensorDescription, ...] = (
     VicareSensorDescription(
         key="heating_demand",
         translation_key="heating_demand",
+        native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda s: s.heating_demand,
     ),

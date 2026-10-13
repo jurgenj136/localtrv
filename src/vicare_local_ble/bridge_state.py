@@ -319,7 +319,7 @@ class BridgeCore:
                 if eui not in self.demand_warned:
                     self.demand_warned.add(eui)
                     _LOGGER.warning(
-                        "valve 0x%04X: heating demand above the expected scale (0-%d)",
+                        "valve 0x%04X: heating demand above the expected scale (0-%d %%)",
                         self.valves[eui].short,
                         valves.HEATING_DEMAND_MAX,
                     )

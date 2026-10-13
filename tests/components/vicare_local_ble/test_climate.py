@@ -316,8 +316,9 @@ async def test_climate_unavailable_after_three_misses(hass: HomeAssistant, sim: 
     [
         (0, HVACAction.IDLE),
         (1, HVACAction.HEATING),
-        (7, HVACAction.HEATING),  # top of the 0-7 scale
-        (8, None),  # above the scale: flagged demand_scale, action unknown
+        (11, HVACAction.HEATING),  # live value
+        (100, HVACAction.HEATING),  # top of the percent scale
+        (101, None),  # above the scale: flagged demand_scale, action unknown
         (0xFF, None),  # sentinel: demand unknown
     ],
 )
