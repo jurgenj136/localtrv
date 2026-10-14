@@ -516,7 +516,10 @@ From the `transport.py` and `node.py` stubs (not implemented):
    reads bits 27-31 (Zigbee channel page structure, Wireshark ZDP `0xF8000000`); Wireshark's ZD
    TLV helper reads only bits 27-29 (`(mask >> 27) & 0x07`). Both agree on page 0 (2.4 GHz).
 9. **Passive updates.** Do the valves already report to the coordinator, and does the R0 forward
-   those frames into the tunnel? If yes, change detection needs no polling.
+   those frames into the tunnel? If yes, change detection needs no polling. Live (21 h,
+   2026-10-13/14, valves polled every 300 s): no Report Attributes frame reached the tunnel, so
+   polling stays required. Whether the valves report to the coordinator at all is still unknown
+   (needs a sniffer).
 10. **Counters beyond 2^32 frames.** Handled by forced reconnect; behaviour of long-lived sessions
     near the limit is untested (practically unreachable).
 11. **Single BLE connection.** The R0 allows one client; a second client (including the vendor app)
