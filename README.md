@@ -93,7 +93,9 @@ Secret:
 ### Install
 
 HACS: Integrations, menu, Custom repositories, add this repository URL, category Integration.
-Install "ViCare Local (Bluetooth via ubisys R0)", restart HA.
+Install "ViCare Local (Bluetooth via ubisys R0)", restart HA. Every release so far is a
+pre-release: HACS offers pre-releases only when you enable them for this repository (or pick the
+version when downloading).
 
 Manual: copy `custom_components/vicare_local_ble/` into `<config>/custom_components/`, restart HA.
 HA installs the pinned library (`vicare-local-ble==<version>`) from PyPI on start. Until the first

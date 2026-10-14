@@ -42,5 +42,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # The brands check is unverified for in-repo brand/ dirs (spec section 7, item 15).
-          ignore: brands
