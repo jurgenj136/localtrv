@@ -1,190 +1,232 @@
-# vicare-local-ble
+# ViCare Local (Bluetooth via ubisys R0)
 
-Local, cloud-free control of Viessmann ViCare radiator valves (ZK03840) over Bluetooth, through a ubisys Router R0 (Series 2). Talks Zigbee Direct over Bluetooth LE to an R0 that is already on the valves' Zigbee network. (Formerly "vicare-direct".)
+[![GitHub release](https://img.shields.io/github/v/release/jurgenj136/vicare-local-ble?include_prereleases)](https://github.com/jurgenj136/vicare-local-ble/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![License: MIT](https://img.shields.io/github/license/jurgenj136/vicare-local-ble)](https://github.com/jurgenj136/vicare-local-ble/blob/main/LICENSE)
+[![CI](https://github.com/jurgenj136/vicare-local-ble/actions/workflows/ci.yml/badge.svg)](https://github.com/jurgenj136/vicare-local-ble/actions/workflows/ci.yml)
 
-## Status
+Control your Viessmann ViCare radiator valves from Home Assistant, locally, through a ubisys R0.
 
-**Pre-alpha.** First live session 2026-10-13: join, discovery and polling of 8 valves work through an ESPHome Bluetooth proxy. Setpoint write and long-running checks are still open.
+<!-- screenshot: docs/images/climate-card.png (to be added) -->
 
-- Phase 1, done: offline protocol library. AES-MMO, SPEKE session, session-frame crypto,
-  TLV/NWK/APS/ZDO/ZCL codecs, commissioning and route-reply builders, offset-scan fallback decoder,
-  `FakeZdd` test helper. Tested against spec vectors and fakes.
-- Phase 2, in progress ([docs/spec-phase2-ha.md](docs/spec-phase2-ha.md)): runtime (BLE transport,
-  node/join flow, valve API) and a HACS Home Assistant integration "ViCare Local (Bluetooth via
-  ubisys R0)" (domain `vicare_local_ble`), using HA's Bluetooth stack or an ESPHome Bluetooth proxy.
-  Verified against a simulator only.
-- Thin CLI: `vicare-local-ble scan` and `vicare-local-ble status --address … --key-env VAR`.
-- Later: MQTT bridge.
+> [!WARNING]
+> **Alpha software.** It runs stable on one installation, but setting a temperature, a wrong
+> network key and recovery after a restart of the R0 or proxy are not yet tested on real hardware.
+> Expect rough edges.
 
-Protocol details: [docs/protocol.md](docs/protocol.md).
+Not affiliated with or endorsed by Viessmann or ubisys. ViCare is a trademark of Viessmann. Use at
+your own risk; no warranty.
 
-## Architecture
+## How it works
 
-```text
- you (CLI / HA)                       ubisys R0 (ZDD)            Zigbee network
-+---------------+   BLE GATT      +----------------+   NWK   +------------------+
-| vicare-local-ble | --------------> | Zigbee Direct  | ------> | coordinator (TC) |
-| = ZVD         | <-------------- | router         | <------ | ZK03840 valves   |
-+---------------+  AES-CCM frames +----------------+         +------------------+
-   plaintext NPDUs in the session; the R0 applies NWK security for us
-```
+The ubisys R0 is a Zigbee router that also speaks **Zigbee Direct**: a way to reach a Zigbee
+network over Bluetooth. Home Assistant connects to the R0 over Bluetooth and talks to your ViCare
+valves through it. Your ViCare gateway, app and schedules keep working as before.
 
-The network key is used once, offline, to derive the Basic Authorization Key for the BLE session.
+## What you need
 
-## Package layout
-
-```text
-src/vicare_local_ble/                  library (PyPI: vicare-local-ble)
-  valves/                Viessmann ZK03840 mapping (only vendor-specific package)
-  bridge*.py             ViCareBridge: discovery, polling, setpoint transactions, cache
-  testing/               simulator: fake R0 (GATT + session crypto), fake network and valves
-  cli.py                 `scan` / `status` CLI (key from env or file only)
-  zigbee_direct/         generic Zigbee Direct, no Viessmann knowledge
-    crypto.py mmo.py     key derivation, SPEKE, AES-MMO, CCM session frames
-    session.py           sans-IO handshake initiator + SessionCipher
-    transport*.py        BLE GATT transport (bleak)
-    connection*.py       supervised connection: backoff, rejoin, repair issues
-    node*.py routing.py  virtual Zigbee node: join, requests, route replies
-    debug.py redact.py   NPDU debug logging with redaction
-    codec/               tlv, nwk, aps, zdo, zcl, commissioning, fallback
-custom_components/vicare_local_ble/    Home Assistant integration (HACS)
-scripts/                 check_secrets.py, extract_npdu_fixtures.py
-docs/                    protocol.md, spec-phase2-ha.md, release.md
-```
-
-## Home Assistant integration
-
-"ViCare Local (Bluetooth via ubisys R0)", domain `vicare_local_ble`. Local push-style integration
-(`iot_class: local_push`): joins the valves' Zigbee network as a virtual node through the R0,
-polls the valves, exposes each as a climate entity. No cloud.
-
-### Requirements
-
-Hardware:
-
-- **Viessmann ViCare radiator valves ZK03840**, on a ViCare Zigbee network. The research setup
-  (protocol work, not yet this integration) used a Vitoconnect OPTO2 as coordinator (Trust
-  Center) and valve firmware `01.18.0008 02.06`.
-- **A ubisys Router R0 (Series 2)**, already joined to that same Zigbee network (coupled through
-  ViCare). The integration talks Zigbee Direct to it over Bluetooth; it is the only way in. Zigbee
-  routers without Zigbee Direct will not work; other R0 generations are untested.
-
-Home Assistant:
-
-- Home Assistant 2026.10.0 or newer (built against 2026.10.1).
-- A Bluetooth adapter in range of the R0, or an ESPHome Bluetooth proxy with active connections
-  (`bluetooth_proxy: active: true`). The integration holds one persistent connection, so it uses one
-  of the proxy's connection slots. An MTU of at least 131 is recommended (an ESP32-C3 proxy
-  negotiated 247).
-- No other Bluetooth client connected to the R0: it accepts only one.
-
-Secret:
-
-- The Zigbee network key (32 hex characters). Required. It is stored in the config entry (HA's
-  `.storage`). Treat backups accordingly.
-
-  This project does not extract the key. One documented way is the third-party
-  [ViLocal](https://github.com/kristian/ViLocal) guide, section "Find the Channel of your ViCare
-  Network and sniff for your Network Key". It needs a Zigbee sniffer (for example a ubisys stick or
-  an SMLIGHT SLZB-06M) and re-pairing one ViCare device, so the Trust Center sends the network key
-  in a Transport Key you can decrypt with that device's install-code link key. Re-pairing
-  briefly disconnects that device; follow ViLocal's own instructions and warnings.
-
-### Install
-
-HACS: Integrations, menu, Custom repositories, add this repository URL, category Integration.
-Install "ViCare Local (Bluetooth via ubisys R0)", restart HA. Every release so far is a
-pre-release: HACS offers pre-releases only when you enable them for this repository (or pick the
-version when downloading).
-
-Manual: copy `custom_components/vicare_local_ble/` into `<config>/custom_components/`, restart HA.
-HA installs the pinned library (`vicare-local-ble==<version>`) from PyPI on start. Until the first
-PyPI release exists, pre-release installs cannot resolve that pin.
-
-### Setup
-
-1. **Make sure no other device is connected to the R0.** It accepts only one Bluetooth client (another adapter or proxy, another Home Assistant instance, or a phone app would block it).
-2. If HA discovers an R0 (service `0xFFF7`, name `ubisys*`), accept it under Settings, Devices.
-   Otherwise: Add Integration, "ViCare Local", pick the R0 from the list of connectable devices
-   (service `0xFFF7` or a name starting with `ubisys`).
-3. Enter the network key. It must be 32 hex characters. Leave "Test the connection" on.
-
-Validate: connects to the R0, runs the Zigbee Direct handshake and the join, within 60 s. Nothing is
-written to the valves.
-
-| Result | Meaning |
-|---|---|
-| `invalid_auth` | R0 rejected the key |
-| `cannot_connect` | no connection or timeout. Make sure no other device is connected to the R0; move adapter/proxy closer |
-
-Untick "Test the connection" to save without checking. If the R0 later rejects the key, HA starts a
-reauth flow for a new key.
-
-### ESPHome Bluetooth proxy
-
-- Dedicate a proxy connection slot to the R0. It holds the connection permanently.
-- ESPHome config: `bluetooth_proxy: active: true`. Active connections are required.
-- The R0 needs an ATT MTU large enough for Zigbee Direct frames, and GATT long writes. Some
-  adapters or proxies do not provide them. The integration does not refuse; it raises a repair
-  issue instead:
-  - `mtu_too_small` (Bluetooth MTU too small): some replies may be lost.
-  - `long_write_unsupported` (long GATT writes unsupported): large frames fail.
-  Fix: use another adapter or proxy. The `mtu=` INFO line in the debug log shows the MTU.
-
-### Entities
-
-Per valve (device "ZK03840", via the R0 bridge device):
-
-| Platform | Entity | Notes |
+| Component | Required | Tested with |
 |---|---|---|
-| climate | thermostat (name = device) | HVAC mode `heat` only, target temperature, 0.5 °C step, limits from the valve. `hvac_action`: heating while heating demand > 0, idle at 0, unknown otherwise |
-| sensor | Battery | %, diagnostic |
-| sensor | Heating demand | 0-100 % |
-| sensor | Link quality | LQI to the valve's parent. Diagnostic, disabled by default |
-| sensor | Signal strength | dBm. Diagnostic, disabled by default |
-| binary_sensor | Window open (experimental) | disabled by default. Raw value is in diagnostics |
+| Radiator valves | Viessmann ViCare ZK03840 | 8 valves, firmware `01.18.0008 02.06`, model id `7637434` |
+| Zigbee router | ubisys Router R0 Series 2, on the same Zigbee network as the valves | ubisys R0 Series 2 |
+| ViCare gateway | the gateway that runs your ViCare Zigbee network | Vitoconnect OPTO2 |
+| Home Assistant | 2026.10.0 or newer | 2026.10.1 on Home Assistant OS |
+| Bluetooth | a local adapter or an ESPHome Bluetooth proxy in range of the R0 | ESP32-C3 ESPHome proxy |
 
-Per R0 (bridge device):
+Bluetooth details:
 
-| Platform | Entity | Notes |
+- An ESPHome proxy must allow active connections:
+
+  ```yaml
+  bluetooth_proxy:
+    active: true
+  ```
+
+- The integration keeps one connection to the R0 open all the time. It needs one free connection
+  slot on your adapter or proxy.
+- The adapter must handle large Bluetooth packets (MTU). The tested ESP32-C3 proxy negotiated 247,
+  which is plenty. If yours is too small, Home Assistant shows a repair issue
+  ([Troubleshooting](#troubleshooting)).
+- The R0 accepts only one Bluetooth client at a time.
+
+You also need **the network key** of your ViCare Zigbee network. See the next section.
+
+## The network key
+
+The integration needs the 128-bit network key of your ViCare Zigbee network (32 hexadecimal
+characters). Without it the R0 does not let anyone in. There is no way around this.
+
+- This project does not retrieve the key for you.
+- Only obtain the key for equipment you own or are authorized to administer.
+- The third-party [ViLocal](https://github.com/kristian/ViLocal) guide describes one method, in
+  the section "Find the Channel of your ViCare Network and sniff for your Network Key". It needs a
+  Zigbee sniffer and (re)pairing a ViCare device; a spare or new device works too. Follow that
+  guide's own instructions and warnings.
+- Home Assistant stores the key in the config entry and uses it on every (re)connect. Home
+  Assistant backups therefore contain it. Protect them.
+- Never paste the key in issues, forum posts or logs. The integration never logs it.
+
+## Installation
+
+### HACS (recommended)
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jurgenj136&repository=vicare-local-ble&category=integration)
+
+Or by hand:
+
+1. In HACS, open the menu (three dots, top right) and choose **Custom repositories**.
+2. Add `https://github.com/jurgenj136/vicare-local-ble` with type **Integration**.
+3. Open **ViCare Local (Bluetooth via ubisys R0)**.
+4. Every release so far is a pre-release. Enable pre-releases for this repository, or pick the
+   version in the download dialog.
+5. Download it and restart Home Assistant.
+
+### Manual
+
+1. Download a [release](https://github.com/jurgenj136/vicare-local-ble/releases).
+2. Copy `custom_components/vicare_local_ble/` into the `custom_components/` folder of your Home
+   Assistant config.
+3. Restart Home Assistant.
+
+On first start, Home Assistant downloads the matching `vicare-local-ble` Python package from PyPI.
+After that, the integration needs no internet.
+
+## Setup
+
+1. Make sure nothing else is connected to the R0 over Bluetooth: another adapter or proxy,
+   another Home Assistant instance, or a phone app that talks to the R0.
+2. Add the R0:
+   - **Discovered:** go to **Settings > Devices & services**. Under Discovered you see
+     **ubisys R0 found**. Click **Add** and confirm.
+   - **Not discovered:** click **Add integration**, search for **ViCare Local**, and choose your R0
+     in **Select the ubisys R0**.
+3. In **Zigbee network key**, enter the key (32 hexadecimal characters).
+4. Leave **Test the connection** on and submit.
+
+**Test the connection** connects to the R0 and checks the key, then disconnects. It takes up to 60
+seconds and writes nothing to the valves. It does not join the network or look for valves; that
+happens after you save. Turn it off to save without checking, for example when the R0 is briefly
+busy.
+
+After saving, the integration joins the Zigbee network through the R0 and starts looking for
+valves. Each valve appears as its own device once it answers. Valves sleep most of the time, so
+this can take a few minutes.
+
+**New key.** If the R0 rejects the stored key, Home Assistant asks you to **Re-enter the network
+key**. Enter the current key. It is tested before it is saved. If the test times out, the key is saved
+anyway; other connection errors keep the form open until you fix them and try again.
+
+## What you get
+
+Each valve is a device "ViCare valve …" (Viessmann ZK03840), linked to the R0 device.
+
+| Entity | Type | Notes |
 |---|---|---|
-| binary_sensor | Connection | connectivity, diagnostic, on when the session is ready |
-| sensor | Connection state | idle, connecting, joining, ready, backoff, auth_failed, stopped. Diagnostic |
+| (valve name) | Thermostat | Heat mode only. Current and target temperature, 0.5 °C steps, limits from the valve (8-30 °C if the valve does not report them). Shows heating while the valve asks for heat, idle when it does not, unknown while the heating demand is unknown |
+| Heating demand | Sensor | 0-100 %, how far the valve wants to open |
+| Battery | Sensor | %. Diagnostic |
+| Link quality | Sensor | Zigbee link quality to the valve's parent. Diagnostic, disabled by default |
+| Signal strength | Sensor | dBm. Diagnostic, disabled by default |
+| Window open (experimental) | Binary sensor | Disabled by default. The meaning of the raw value is still a guess |
 
-A valve is unavailable after 3 consecutive missed polls. Valves already seen are cached and appear
-immediately after a restart.
+The R0 device has:
 
-### Options
-
-Settings, Devices, ViCare Local, Configure.
-
-| Option | Range | Default |
+| Entity | Type | Notes |
 |---|---|---|
-| Poll interval (`scan_interval`) | 60-3600 s | 300 s |
-| Route reply mode (`route_reply_mode`), under Advanced | `live`, `spec`, `off` | `live` |
+| Connection | Binary sensor | On while the R0 connection is ready. Diagnostic |
+| Connection state | Sensor | Idle, Connecting, Joining, Ready, Waiting to retry, Authentication failed or Stopped. Diagnostic |
 
-Valves are battery powered and answer slowly; do not poll faster than needed. Push updates (valve
-reports, connection state) do not reset the poll schedule. Leave route reply mode on `live` unless
-asked to change it. Changing options reloads the entry.
+### Setting a temperature
 
-### Setpoint semantics
-
-- `climate.set_temperature` returns at the valve's acknowledgement, up to about 60 s (a sleepy
-  valve answers in 2-30 s per attempt). The UI shows the requested value meanwhile.
-- A confirming read runs in the background and updates the state. The service call does not wait
-  for it.
-- No acknowledgement: the request is reverted and the call fails with "did not acknowledge".
-- A write is a manual override, same as turning the valve wheel. Observed 2026-10-11: after a
-  write over Zigbee Direct (19.0 to 23.0 °C, read back 23.00), the ViCare app showed the room as
+- The thermostat shows your new target right away, while the valve is still asleep.
+- The call finishes when the valve acknowledges the write, usually within seconds and at most after
+  about 60 seconds.
+- If the valve does not acknowledge, the target goes back to the old value and you get the error
+  "Could not set the temperature on … The valve did not acknowledge the write."
+- After the acknowledgement, the integration reads the target back in the background to confirm
+  it. The call does not wait for that.
+- A change from Home Assistant acts like turning the valve by hand. In an earlier test (with a
+  research client, not yet through this integration), the ViCare app then showed the room as
   "manually set, for 2 hours".
-  - The 2 h is gateway/cloud logic (OPTO2), not a valve feature. The thermostat cluster has no
-    hold or duration attribute.
-  - After 2 h, or at the next schedule transition, the schedule setpoint is pushed again. Last
-    writer wins.
-  - The manual state cannot be cancelled over Zigbee, only in the ViCare app or by expiry.
-  - The valve reports the change at its next check-in (up to about 5 min).
+- Your ViCare gateway and schedule push their own target again later: after that period, or at the
+  next schedule change. The last change wins. Only the ViCare app (or waiting) ends the manual
+  override; Home Assistant cannot cancel it.
 
-### Debug logging and diagnostics
+The thermostat also has the attributes `setpoint_pending`, `setpoint_acknowledged` and
+`setpoint_confirmed` to follow a change.
+
+## How updates work
+
+- The integration asks every valve for its state every 300 seconds by default. In 21 hours of
+  testing no valve update reached the integration on its own, so polling is how the data arrives.
+- Valves sleep and answer slowly: typically 2-4 seconds, sometimes 10.
+- A valve that misses 3 polls in a row becomes unavailable (15 minutes at the default). It comes
+  back by itself when it answers again, and the log says so.
+- If all valves stay silent, the integration rejoins the network by itself. If the Bluetooth
+  connection drops, it reconnects with growing pauses (up to about 6 minutes).
+- Known valves are remembered across restarts. They show up right away but stay unavailable until
+  they answer. The valve list is refreshed every 6 hours, so new valves appear on their own.
+- The effect on battery life is not measured yet. Keep the default interval.
+
+## Options
+
+**Settings > Devices & services > ViCare Local > Configure.** Saving reloads the integration.
+
+| Option | Range | Default | Notes |
+|---|---|---|---|
+| Poll interval (seconds) | 60-3600 | 300 | Valves run on batteries; do not poll faster than you need |
+| Route reply mode (under Advanced) | Live, Specification, Off | Live | Leave on Live unless asked to change it |
+
+## Known limitations
+
+- Heat mode only. No control over schedules, holiday mode or turning a valve off.
+- Window open is experimental and disabled by default.
+- The R0 accepts one Bluetooth client. While this integration runs, nothing else can connect to it.
+- Polling only. Changes made in ViCare or on the valve show up at the next poll.
+- Alpha. Not yet tested on real hardware: setting a temperature through this integration, a wrong
+  or changed network key, and recovery after a restart of the R0 or the Bluetooth proxy.
+- Only tested with one installation (see [What you need](#what-you-need)).
+
+## FAQ
+
+**Does the ViCare app keep working?**
+Yes. Your valves stay on the ViCare network and the app works as before. The app goes through the
+Viessmann cloud, not Bluetooth, so it does not compete for the R0. You do not need to close it.
+
+**Why did my target temperature change back?**
+Your ViCare schedule or gateway set it again. A change from Home Assistant is a manual override that
+ViCare ends after a while or at the next schedule change. If the valve never confirmed the change,
+the integration also puts the old value back.
+
+**Can I use it without the network key?**
+No. The R0 requires it. See [The network key](#the-network-key).
+
+**Does it work with other Zigbee routers?**
+Only the ubisys R0 Series 2 with Zigbee Direct is tested. Routers without Zigbee Direct cannot work.
+Other R0 versions are untested.
+
+**Does it need the internet?**
+Only to install or update it (HACS and the Python package). After that everything stays local.
+
+## Troubleshooting
+
+| You see | Likely cause | Fix |
+|---|---|---|
+| "No ubisys R0 found over Bluetooth." | The R0 is out of range, or no adapter or proxy can connect to it | Move the adapter or proxy closer. Check `bluetooth_proxy: active: true` |
+| "This device is not a ubisys R0 with Zigbee Direct." | A different Bluetooth device | Pick the R0 |
+| "Could not connect to the R0. …" | Another client holds the R0, it is out of range, or the proxy has no free slot | Disconnect the other client, move closer, free a proxy slot, try again |
+| "The R0 rejected the network key." | Wrong key | Check the key. Only the ViCare network key works |
+| "The key must be exactly 32 hexadecimal characters." | Typo, spaces inside the key, or a different format | Enter 32 characters 0-9 and a-f |
+| Setup keeps retrying with "The ubisys R0 is not reachable over Bluetooth." | After a reload the R0 needs about 15 seconds before it accepts a connection again | Wait; Home Assistant retries by itself |
+| Repair issue "Bluetooth MTU too small" | Your adapter or proxy sends too small packets. Some replies may be lost | Use another adapter or an ESPHome proxy |
+| Repair issue "Bluetooth long writes unsupported" | Your adapter or proxy cannot send large frames | Use another adapter or an ESPHome proxy |
+| Connection state "Authentication failed" | The R0 rejected the stored key | Enter the key again when Home Assistant asks you to **Re-enter the network key** |
+| A valve is unavailable | Weak Zigbee link, or the valve's parent did not get the request to it in time | Wait; it usually comes back within minutes. Check Battery and Link quality |
+| Setting a temperature is slow or fails | The valve is asleep or has a weak link | Wait up to a minute. Try again later |
+
+### Debug logging
+
+Add this to `configuration.yaml` and restart:
 
 ```yaml
 logger:
@@ -192,108 +234,61 @@ logger:
     vicare_local_ble: debug
 ```
 
-- NPDU frames are logged as JSON lines (logger `vicare_local_ble`). Redaction: keys are never
-  logged (`SecretBytes` prints `<redacted>`); EUIs are scrubbed; frames that may carry key material
-  are logged header-only or suppressed; undecodable frames are not logged raw.
-- Turn saved HA log lines into test fixtures (review the output by hand):
+Or use **Enable debug logging** on the integration page. The line `connected, mtu=…` shows the
+negotiated MTU. Debug logs never contain the network key, but they can contain Bluetooth and
+Zigbee network addresses.
 
-  ```bash
-  uv run python scripts/extract_npdu_fixtures.py --from-ha-log home-assistant.log > fixtures.jsonl
-  ```
+### Diagnostics
 
-- Diagnostics: Settings, Devices, ViCare Local, Download diagnostics. Built from an explicit
-  allowlist: option values, "has key" booleans, connection counters (state, MTU, replay drops, MIC
-  failures), join and topology summary, per-valve model/limits/state, redacted NPDU ring buffer. No
-  keys; EUIs and the Bluetooth address are excluded or pseudonymised.
+**Settings > Devices & services > ViCare Local**, menu, **Download diagnostics**.
 
-### Hardware validation checklist
+- Never included: the network key or anything derived from it, the R0's Bluetooth address.
+- Pseudonymised: device IDs (EUI-64) and the extended network ID.
+- Included: options, connection counters, the MTU, network metadata (PAN ID, channel, short
+  addresses), each valve's model, firmware, limits and state (temperatures, target, battery,
+  heating demand), and a short, redacted log of recent frames.
 
-First session done 2026-10-13 (results in spec §5); write, reports and longevity still open. Spec [§5](docs/spec-phase2-ha.md#5-hardware-validation-checklist-first-session-with-the-r0)
-has the full list. In short, in order:
+### Reporting a bug
 
-1. Advertisement: name and `0xFFF7` together, scan-response name, service data.
-2. MTU: local adapter and ESP32 proxy; long write of 48 B; truncated Mgmt_Lqi.
-3. Handshake: SE2 TLVs, SE4; exact exception for a wrong key.
-4. Counter model: per characteristic or shared (nonce reuse risk).
-5. Join: response within 2 s, assigned short equals requested.
-6. RREQ/RREP: one hour each in `live`, `spec`, `off`; compare timeouts.
-7. Quirk: FC byte1 bit 0x04, `fallback_hits` = 0; save 20+ redacted NPDUs as fixtures.
-8. Topology: valve count, valves behind routers, `complete` flag.
-9. Latency: per-valve distribution, timeouts per 100 requests, `late_drops`.
-10. Manufacturer read: header present, raw window values with a window open.
-11. Reports: any report events over 24 h.
-12. Write: ack and confirm times; reconfirm "manually set, for 2 hours".
-13. Longevity: 24 h of MIC failures, replay drops, rejoins, availability.
-14. Back-to-back ZDO requests to one device all answered.
-15. Recovery: R0 power cycle and proxy reboot, time to ready.
+Open an [issue](https://github.com/jurgenj136/vicare-local-ble/issues/new/choose) and attach:
 
-## Safety
+- Home Assistant and integration versions
+- your Bluetooth adapter or proxy, and the `mtu=` log line
+- a debug log covering the problem
+- the diagnostics file
 
-- **Secrets.** The Zigbee network key is required to derive the session key. Pass it as a parameter
-  only. Never commit it or captures (`.gitignore` excludes `.viessmann-local/`). Key material is
-  wrapped in `SecretBytes`; `repr` and `str` print `<redacted>`. Commissioning Status can carry
-  network, link and admin keys: treat decoded frames accordingly.
-- **Writes change a real heating system.** A setpoint write acts as a manual override. Read before
-  writing, change one valve at a time, restore afterwards.
-- **One BLE client at a time.** The R0 accepts a single connection. Make sure no other device
-  (adapter, proxy, HA instance, phone app) is connected first.
-- **Mind the counter.** A failed write burns a session frame counter; reconnect with a new
-  handshake rather than reusing a session in doubt.
+Read your log before you post it. Never include the network key.
 
-## Disclaimer
+## Removing the integration
 
-Not affiliated with or endorsed by Viessmann or ubisys. ViCare is a trademark of Viessmann.
-Reverse-engineered from a single installation and public specs (Zigbee R23, Zigbee Direct 1.0).
-Use at your own risk; no warranty.
+1. **Settings > Devices & services > ViCare Local**, menu, **Delete**.
+2. To remove the files too, uninstall it in HACS (or delete
+   `custom_components/vicare_local_ble/`) and restart.
 
-## Development
+Deleting stops the Bluetooth connection, so the R0 is free again. It also deletes the stored valve
+list and any repair issues of this integration. Older Home Assistant backups still contain the
+network key.
 
-Python 3.14.2+, [uv](https://docs.astral.sh/uv/). Integration tests use
-[pytest-homeassistant-custom-component](https://pypi.org/project/pytest-homeassistant-custom-component/)
-(PHACC, pinned to Home Assistant 2026.10.x). No hardware, BLE or network in tests: the library
-ships a simulator (`vicare_local_ble.testing`: fake R0, network and valves) that the tests drive.
+## Contributing
 
-```bash
-uv sync
-uv run ruff check
-uv run ruff format --check
-uv run mypy
-uv run pytest
-uv run pre-commit install                      # git hooks
-uv run python scripts/check_secrets.py $(git ls-files)
-```
+See [CONTRIBUTING.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/CONTRIBUTING.md).
 
-Run HA locally against the working tree (`.ha-config/` is gitignored):
+## Security
 
-```bash
-mkdir -p .ha-config/custom_components
-ln -s "$PWD/custom_components/vicare_local_ble" .ha-config/custom_components/vicare_local_ble
-uv run hass -c .ha-config --skip-pip-packages vicare-local-ble
-```
+Please report vulnerabilities privately. See [SECURITY.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/SECURITY.md).
 
-Fixtures from saved terminal output of the research client (stdlib only, redaction is
-best-effort, review the output by hand):
+## Python library
 
-```bash
-uv run python scripts/extract_npdu_fixtures.py capture.txt \
-  --redact-eui 00:11:22:33:44:55:66:77 --redact-short 0x1234 > fixtures.jsonl
-```
+The integration is built on the Python package
+[`vicare-local-ble`](https://pypi.org/project/vicare-local-ble/) (alpha). It handles the Bluetooth
+connection, the Zigbee Direct session and the valve mapping, and includes a small CLI
+(`vicare-local-ble scan`, `vicare-local-ble status`). The API is not stable yet. Start with
+[CONTRIBUTING.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/CONTRIBUTING.md) for the layout and [docs/](https://github.com/jurgenj136/vicare-local-ble/tree/main/docs) for the details.
 
-Test vectors that are public spec constants carry a trailing `# secret-scan: allow`. Tests use
-dummy keys and EUIs only; no hardware, BLE or network.
+## Protocol documentation
 
-## Release
-
-Details and dry run: [docs/release.md](docs/release.md).
-
-- Version lockstep: `pyproject.toml` `version`, `manifest.json` `version`, and the manifest pin
-  `requirements: ["vicare-local-ble==X.Y.Z"]` must be identical.
-- Tag `vX.Y.Z` triggers `.github/workflows/release.yml`: verify versions against the tag, run the
-  gate (ruff, mypy, pytest), `uv build`, publish to PyPI via trusted publishing, create the GitHub
-  release. PEP 440 pre-releases (`a`, `b`, `rc`, `.dev` suffixes) become GitHub prereleases.
-- The first PyPI publish needs the owner's go-ahead and a PyPI trusted-publisher setup
-  (project `vicare-local-ble`, this repo, workflow `release.yml`, environment `pypi`).
+How the R0, the Zigbee Direct session and the valves work: [docs/protocol.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/docs/protocol.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/jurgenj136/vicare-local-ble/blob/main/LICENSE).

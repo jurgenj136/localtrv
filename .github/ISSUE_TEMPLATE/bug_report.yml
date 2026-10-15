@@ -1,0 +1,66 @@
+name: Bug report
+description: Something does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Never paste your network key, here or in an attachment.
+        Security problems go through private reporting instead (see SECURITY.md).
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.10.1"
+    validations:
+      required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: "0.1.0a1"
+    validations:
+      required: true
+  - type: input
+    id: bluetooth
+    attributes:
+      label: Bluetooth adapter or proxy
+      description: Local adapter model, or ESPHome proxy board and ESPHome version.
+      placeholder: "ESP32-C3, ESPHome 2026.9.1"
+    validations:
+      required: true
+  - type: input
+    id: mtu
+    attributes:
+      label: MTU log line
+      description: The `connected, mtu=…` line from the debug log.
+      placeholder: "connected, mtu=247"
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: debug_log
+    attributes:
+      label: Debug log
+      description: |
+        Enable debug logging (see the README), reproduce the problem, and paste the relevant part.
+        Read it first and remove anything you do not want to share.
+      render: text
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        Settings > Devices & services > ViCare Local, menu, Download diagnostics.
+        Drag the file here. It contains no keys, but does contain temperatures and network metadata.
+  - type: checkboxes
+    id: no_key
+    attributes:
+      label: Network key
+      options:
+        - label: I removed my network key and did not paste it anywhere.
+          required: true
