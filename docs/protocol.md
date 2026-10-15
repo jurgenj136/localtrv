@@ -493,10 +493,14 @@ writer wins. The manual state cannot be cancelled over Zigbee, only in the app o
 
 ## 11. Phase 2 design constraints
 
-From the `transport.py` and `node.py` stubs (not implemented):
+Written before phase 2 as the contract for `transport.py` and `node.py`; all of it is now
+implemented. Where the build differs, the bullet says so.
 
-- `ZigbeeDirectTransport` wraps a caller-owned, already connected `BleakClient`; the library never
-  scans or connects (HA supplies the client, possibly through an ESPHome proxy).
+- `ZigbeeDirectTransport` wraps an already connected GATT client. `ZdConnection`
+  (`connection.py`) owns the connection: it asks the caller for the device (HA supplies a
+  `BLEDevice`, possibly behind an ESPHome proxy), connects with `bleak_retry_connector` and
+  reconnects with backoff. The library itself never scans; only the CLI does (`scan`, and
+  `status` to find the device by address).
 - One critical section per send: allocate counter, encrypt, await GATT write (single `asyncio.Lock`
   or writer task). Ingress is ordered; replay/MIC failures surface as errors.
 - Futures, locks and queues are created lazily inside the running loop.
@@ -508,8 +512,8 @@ From the `transport.py` and `node.py` stubs (not implemented):
   prototype used 10-15 s plus one retry, PN §5.8).
 - Own short: random valid address avoiding known shorts; the short in the Commissioning Response
   is authoritative and may be persisted for the next join.
-- Persistent connection preferred; start with passive change detection (listen for reports) before
-  active polling, to spare the battery-powered valves.
+- Persistent connection. Passive change detection was the plan, but no attribute reports ever
+  reach the tunnel (§5 of the phase 2 spec), so the bridge polls.
 - Test helper: `vicare_local_ble.testing.FakeZdd` (responder side of SE1-SE4 plus session crypto);
   phase 2 adds a scripted NWK/ZCL peer.
 
