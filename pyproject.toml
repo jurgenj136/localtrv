@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vicare-local-ble"
-version = "0.1.0a1"
+version = "0.1.0a2.dev1"
 description = "Local Zigbee Direct (BLE) client for Viessmann ZK03840 radiator valves."
 readme = "README.md"
 requires-python = ">=3.14.2"
