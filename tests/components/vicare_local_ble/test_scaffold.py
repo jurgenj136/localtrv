@@ -44,7 +44,7 @@ def test_manifest_required_keys() -> None:
     assert MANIFEST["domain"] == COMPONENT.name == "vicare_local_ble"
     assert MANIFEST["config_flow"] is True
     assert MANIFEST["dependencies"] == ["bluetooth_adapters"]
-    assert MANIFEST["iot_class"] == "local_push"
+    assert MANIFEST["iot_class"] == "local_polling"
     assert MANIFEST["integration_type"] == "hub"
 
 
