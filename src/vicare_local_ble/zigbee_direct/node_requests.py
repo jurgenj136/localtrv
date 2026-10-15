@@ -113,12 +113,8 @@ async def _attempts(
         for attempt in range(config.request_attempts):
             if pending.future.done():  # answered in the same iteration as a timeout / delay
                 return pending.future.result()
-            if attempt:
-                core.stats.retransmits += 1
-                if dropped is not None:
-                    core.stats.indirect_retries += 1
+            resend_after_drop = dropped is not None
             dropped = None
-            pending.attempts += 1
             # armed before the send: a status racing the write still ends this attempt
             signal = pending.arm_attempt()
             try:
@@ -126,6 +122,11 @@ async def _attempts(
             except BaseException:
                 pending.disarm(signal)
                 raise
+            pending.attempts += 1  # counted once the frame is out
+            if attempt:
+                core.stats.retransmits += 1
+                if resend_after_drop:
+                    core.stats.indirect_retries += 1
             with contextlib.suppress(TimeoutError):
                 async with core.clock.timeout(config.request_timeout):
                     await asyncio.wait(

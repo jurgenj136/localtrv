@@ -355,3 +355,22 @@ async def test_answer_during_the_capacity_delay_resolves_at_once() -> None:
         assert r.clock.now() - start == pytest.approx(2.0)
         assert (r.node.stats.indirect_retries, r.node.stats.retransmits) == (0, 0)
         assert len(zcl_tsns(r)) == 1
+
+
+async def test_resend_that_fails_to_send_is_not_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+    async with rig() as r:
+        valve = r.inst.valves[0]
+        r.inst.network.drop_indirect(valve.short, status=NWK_STATUS_NO_INDIRECT_CAPACITY, delay=0.5)
+        task = read(r)
+        await r.clock.advance(1.0)  # status at 0.5, now inside the retry delay
+        core = r.node._core
+
+        async def broken(npdu: bytes) -> None:
+            raise ConnectionLostError("write failed")
+
+        monkeypatch.setattr(core, "send_secure", broken)
+        await r.clock.advance(NO_INDIRECT_CAPACITY_RETRY_DELAY)
+        with pytest.raises(ConnectionLostError):
+            await task
+        assert (r.node.stats.indirect_retries, r.node.stats.retransmits) == (0, 0)
+        assert len(zcl_tsns(r)) == 1
