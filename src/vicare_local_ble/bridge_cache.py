@@ -6,10 +6,11 @@ form), identification strings and validated limits.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final, Self
+from typing import TYPE_CHECKING, Final, Literal, Self
 
 from vicare_local_ble.valves import SetpointLimits, Valve
 from vicare_local_ble.zigbee_direct.types import Eui64, validate_short
@@ -20,6 +21,8 @@ if TYPE_CHECKING:
 CACHE_VERSION: Final = 1
 
 type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
+#: The ``SetpointLimits.source`` values a cache records (``"cached"`` is stored as ``None``).
+type _StoredSource = Literal["limits", "abs"]
 
 _LOGGER = logging.getLogger("vicare_local_ble.bridge")
 _ENDPOINT_RANGE: Final = (1, 240)
@@ -31,7 +34,11 @@ class _BadCacheError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class CachedValve:
-    """Persisted identity of a valve (``eui`` in display form); limits in °C."""
+    """Persisted identity of a valve (``eui`` in display form); limits in °C.
+
+    ``limits_source`` is the ``SetpointLimits.source`` of the limits. ``None`` (caches written
+    by 0.1.0a1 and earlier have no such field) loads them as provisional ``"cached"`` limits.
+    """
 
     eui: str
     short: int
@@ -41,11 +48,18 @@ class CachedValve:
     sw_build: str | None
     min_c: float | None = None
     max_c: float | None = None
+    limits_source: _StoredSource | None = None
 
     @classmethod
     def from_valve(cls, valve: Valve) -> Self:
         limits = valve.limits
         keep = limits.source != "default"
+        source: _StoredSource | None
+        match limits.source:
+            case "limits" | "abs":
+                source = limits.source
+            case _:
+                source = None
         return cls(
             eui=str(valve.eui),
             short=valve.short,
@@ -55,6 +69,7 @@ class CachedValve:
             sw_build=valve.sw_build,
             min_c=limits.min_c if keep else None,
             max_c=limits.max_c if keep else None,
+            limits_source=source,
         )
 
     def to_valve(self) -> Valve:
@@ -66,8 +81,18 @@ class CachedValve:
             manufacturer=self.manufacturer,
             model=self.model,
             sw_build=self.sw_build,
-            limits=SetpointLimits.from_attrs(min_c=self.min_c, max_c=self.max_c),
+            limits=self._limits(),
         )
+
+    def _limits(self) -> SetpointLimits:
+        if self.limits_source == "abs":
+            return SetpointLimits.from_attrs(
+                min_c=None, max_c=None, abs_min_c=self.min_c, abs_max_c=self.max_c
+            )
+        limits = SetpointLimits.from_attrs(min_c=self.min_c, max_c=self.max_c)
+        if self.limits_source is None and limits.source != "default":
+            return dataclasses.replace(limits, source="cached")
+        return limits
 
     def to_json(self) -> dict[str, JsonValue]:
         return {
@@ -79,6 +104,7 @@ class CachedValve:
             "sw_build": self.sw_build,
             "min_c": self.min_c,
             "max_c": self.max_c,
+            "limits_source": self.limits_source,
         }
 
     @classmethod
@@ -96,6 +122,7 @@ class CachedValve:
             sw_build=_opt_str(data.get("sw_build")),
             min_c=_opt_float(data.get("min_c")),
             max_c=_opt_float(data.get("max_c")),
+            limits_source=_opt_source(data.get("limits_source")),
         )
 
 
@@ -193,6 +220,16 @@ def _opt_float(value: object) -> float | None:
     if not math.isfinite(value):
         raise _BadCacheError("number field is not finite")
     return float(value)
+
+
+def _opt_source(value: object) -> _StoredSource | None:
+    if value is None:
+        return None
+    if value == "limits":
+        return "limits"
+    if value == "abs":
+        return "abs"
+    raise _BadCacheError("limits source is not recognised")
 
 
 def _eui(value: object) -> str:

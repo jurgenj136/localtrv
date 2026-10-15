@@ -57,8 +57,9 @@ type _Outcome = Literal["ok", "miss", "busy", "stale"]
 NO_RESPONSE = (RequestTimeoutError, RouteError, SequenceExhaustedError)
 #: The limits request of ``STATIC`` (everything in it except the Basic identification).
 _LIMIT_REQUESTS = tuple(r for r in valves.STATIC if r != valves.IDENTIFY)
-#: ``SetpointLimits.source`` quality: a refresh never downgrades.
-_LIMIT_RANK: Final = {"default": 0, "abs": 1, "limits": 2}
+#: ``SetpointLimits.source`` quality: a refresh never downgrades. ``"cached"`` (a legacy cache
+#: without a source) ranks lowest, so any fresh read replaces it.
+_LIMIT_RANK: Final = {"cached": 0, "default": 0, "abs": 1, "limits": 2}
 
 
 class StaleGenerationError(Exception):

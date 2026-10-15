@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -26,6 +27,9 @@ from vicare_local_ble.testing import valve_table as vt
 from vicare_local_ble.testing.scenario import valve_eui
 from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
 
+if TYPE_CHECKING:
+    from vicare_local_ble.testing.scenario import Installation
+
 GOOD_EUI = "02:00:00:00:00:01:00:01"
 
 
@@ -39,6 +43,7 @@ def good_valve(**changes: object) -> dict[str, object]:
         "sw_build": None,
         "min_c": 8.0,
         "max_c": 30.0,
+        "limits_source": "limits",
     }
     entry.update(changes)
     return entry
@@ -114,6 +119,9 @@ def test_cached_valve_round_trip_and_limit_revalidation() -> None:
         good(valves={GOOD_EUI: good_valve(min_c="8")}),
         good(valves={GOOD_EUI: good_valve(min_c=True)}),
         good(valves={GOOD_EUI: good_valve(max_c=math.inf)}),
+        good(valves={GOOD_EUI: good_valve(limits_source="default")}),
+        good(valves={GOOD_EUI: good_valve(limits_source="cached")}),
+        good(valves={GOOD_EUI: good_valve(limits_source=1)}),
     ],
 )
 def test_from_json_never_raises(data: object, caplog: pytest.LogCaptureFixture) -> None:
@@ -207,3 +215,65 @@ async def test_callback_errors_are_logged_and_swallowed(caplog: pytest.LogCaptur
         assert f"{name} callback raised" in caplog.text
     assert any(r.name == LOGGER for r in caplog.records)
     await inst.clock.run_task(conn.stop())
+
+
+def _inverted_limits(inst: Installation) -> None:
+    """Invalid (inverted) min/max: the valve's absolute limits are the ones applied."""
+    sim = inst.valves[0]
+    sim.set_attribute(vt.CL_THERMOSTAT, vt.ATTR_MIN_LIMIT, ZclDataType.INT16, 2500)
+    sim.set_attribute(vt.CL_THERMOSTAT, vt.ATTR_MAX_LIMIT, ZclDataType.INT16, 1000)
+
+
+def _narrower_abs(inst: Installation) -> None:
+    _inverted_limits(inst)
+    sim = inst.valves[0]
+    sim.set_attribute(vt.CL_THERMOSTAT, vt.ATTR_ABS_MIN, ZclDataType.INT16, 1000)
+    sim.set_attribute(vt.CL_THERMOSTAT, vt.ATTR_ABS_MAX, ZclDataType.INT16, 2500)
+
+
+@pytest.mark.parametrize("source", ["limits", "abs"])
+def test_cached_valve_keeps_the_limit_source(source: str) -> None:
+    entry = CachedValve.from_json(good_valve(limits_source=source))
+    valve = entry.to_valve()
+    assert (valve.limits.min_c, valve.limits.max_c, valve.limits.source) == (8.0, 30.0, source)
+    assert CachedValve.from_valve(valve) == entry
+    assert CachedValve.from_json(json.loads(json.dumps(entry.to_json()))) == entry
+    # abs limits are revalidated against the same band as min/max
+    bad = CachedValve.from_json(good_valve(min_c=3.0, limits_source=source)).to_valve()
+    assert bad.limits == valves.DEFAULT_LIMITS
+
+
+def test_legacy_entry_without_source_loads_provisional() -> None:
+    """0.1.0a1 caches have no ``limits_source``: the values load at the lowest quality."""
+    legacy = good_valve()
+    del legacy["limits_source"]
+    entry = CachedValve.from_json(legacy)
+    assert entry.limits_source is None
+    valve = entry.to_valve()
+    assert valve.limits == valves.SetpointLimits(8.0, 30.0, "cached")
+    again = CachedValve.from_valve(valve)  # re-saved before any refresh: still provisional
+    assert (again.min_c, again.max_c, again.limits_source) == (8.0, 30.0, None)
+    assert CachedValve.from_json(good_valve(limits_source=None)) == entry
+    inverted = CachedValve.from_json({**legacy, "min_c": 30.0, "max_c": 10.0}).to_valve()
+    assert inverted.limits == valves.DEFAULT_LIMITS
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["with-source", "legacy-no-source"])
+async def test_fresh_abs_limits_replace_cached_abs_limits_after_restart(legacy: bool) -> None:
+    """Regression: cached abs limits reloaded as "limits" blocked a later abs refresh."""
+    first = make_rig(n_valves=1, behind_router=0, setup=_inverted_limits)
+    await discovered(first)
+    eui = first.euis()[0]
+    assert first.snap().valves[eui].limits == valves.SetpointLimits(8.0, 30.0, "abs")
+    stored = json.loads(json.dumps(first.bridge.export_cache().to_json()))
+    await stop(first)
+    if legacy:
+        del stored["valves"][str(eui)]["limits_source"]
+
+    cache = BridgeCache.from_json(stored)
+    r = make_rig(n_valves=1, behind_router=0, cache=cache, setup=_narrower_abs)
+    await discovered(r)
+    await poll(r)  # the first poll after a restart reads STATIC
+    assert r.snap().valves[eui].limits == valves.SetpointLimits(10.0, 25.0, "abs")
+    assert r.bridge.export_cache().valves[str(eui)].limits_source == "abs"
+    await stop(r)

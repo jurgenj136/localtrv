@@ -87,11 +87,14 @@ def _pair(low: float | None, high: float | None) -> tuple[float, float] | None:
 
 @dataclass(frozen=True, slots=True)
 class SetpointLimits:
-    """Validated setpoint limits in °C; ``source`` says which rule produced them."""
+    """Validated setpoint limits in °C; ``source`` says which rule produced them.
+
+    ``"cached"``: values restored from a persisted cache that did not record their source;
+    provisional, so any fresh read replaces them."""
 
     min_c: float
     max_c: float
-    source: Literal["limits", "abs", "default"] = "default"
+    source: Literal["limits", "abs", "cached", "default"] = "default"
 
     @classmethod
     def from_attrs(
