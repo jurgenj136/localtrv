@@ -8,13 +8,17 @@ Private helper of ``node.py`` (see the ``ZigbeeDirectNode`` docstring "Requests"
 3. register the pending entry BEFORE the first send (a response racing the write still
    matches);
 4. up to ``request_attempts`` attempts, each a new NWK seq (and APS counter for ZCL) with the
-   same ZDO seq / TSN, awaiting ``asyncio.shield(future)`` inside ``clock.timeout``: an attempt
-   timeout never cancels the future, so a late answer to attempt 1 resolves attempt 2;
-4a. a retryable Network Status (``routing.ATTEMPT_FAILURE_STATUSES``: 0x05/0x06, the parent of
-   a sleepy destination dropped the frame) ends the attempt early through the pending entry's
-   attempt signal; the next attempt is sent at once (0x05: after
-   ``routing.NO_INDIRECT_CAPACITY_RETRY_DELAY``) and counted in ``NodeStats.indirect_retries``.
-   It consumes one attempt of the budget: after the last one the ``RouteError`` is raised;
+   same ZDO seq / TSN, awaiting the future (never cancelled) or the attempt's signal inside
+   ``clock.timeout``: an attempt timeout never cancels the future, so a late answer to
+   attempt 1 resolves attempt 2;
+4a. each attempt's signal is armed BEFORE its send (``Pending.arm_attempt``; removed if the
+   send raises). A retryable Network Status (``routing.ATTEMPT_FAILURE_STATUSES``: 0x05/0x06,
+   the parent of a sleepy destination dropped a frame) goes to the OLDEST outstanding attempt
+   (``PendingMap.fail_attempt``): one of the current attempt ends it early, one of an earlier,
+   timed-out attempt is consumed without effect. The next attempt is sent at once (0x05: after
+   ``routing.NO_INDIRECT_CAPACITY_RETRY_DELAY``, cut short if the request completes meanwhile)
+   and counted in ``NodeStats.indirect_retries`` when it is sent. It consumes one attempt of
+   the budget: after the last one the ``RouteError`` is raised;
 5. an answer that arrived in the same loop iteration as the last attempt's timeout still
    wins over ``RequestTimeoutError``;
 6. ``PendingMap.retire`` in a ``finally`` exactly once (success, timeout, error, cancel).
@@ -23,6 +27,7 @@ Private helper of ``node.py`` (see the ``ZigbeeDirectNode`` docstring "Requests"
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 from typing import TYPE_CHECKING, Final
@@ -106,25 +111,31 @@ async def _attempts(
     try:
         dropped: RouteError | None = None  # the last attempt's retryable Network Status
         for attempt in range(config.request_attempts):
-            if pending.future.done():  # answered in the same iteration as the timeout
+            if pending.future.done():  # answered in the same iteration as a timeout / delay
                 return pending.future.result()
             if attempt:
                 core.stats.retransmits += 1
-            pending.attempts += 1
-            await core.send_secure(build(seq, core.allocators.nwk.next()))
-            # created after the send: a status about an earlier attempt cannot end this one
-            signal = pending.start_attempt()
+                if dropped is not None:
+                    core.stats.indirect_retries += 1
             dropped = None
+            pending.attempts += 1
+            # armed before the send: a status racing the write still ends this attempt
+            signal = pending.arm_attempt()
             try:
+                await core.send_secure(build(seq, core.allocators.nwk.next()))
+            except BaseException:
+                pending.disarm(signal)
+                raise
+            with contextlib.suppress(TimeoutError):
                 async with core.clock.timeout(config.request_timeout):
                     await asyncio.wait(
                         (pending.future, signal), return_when=asyncio.FIRST_COMPLETED
                     )
-            except TimeoutError:
+            if pending.future.done():  # also an answer racing the timeout: it wins
+                return pending.future.result()
+            if not signal.done():  # stays outstanding: its status may still come
                 _LOGGER.debug("%s seq %d to 0x%04X: attempt %d timed out", kind, seq, dst, attempt)
                 continue
-            if pending.future.done():
-                return pending.future.result()
             dropped = _dropped(signal)
             _LOGGER.debug(
                 "%s seq %d to 0x%04X: attempt %d dropped (network status 0x%02X)",
@@ -134,12 +145,10 @@ async def _attempts(
                 attempt,
                 dropped.status,
             )
-            if attempt + 1 < config.request_attempts:
-                core.stats.indirect_retries += 1
-                if delay := attempt_retry_delay(dropped.status):
-                    await core.clock.sleep(delay)
-        if pending.future.done():  # answered in the same iteration as the last timeout
-            return pending.future.result()
+            if attempt + 1 < config.request_attempts and (
+                delay := attempt_retry_delay(dropped.status)
+            ):
+                await _backoff(core, pending.future, delay)
         if dropped is not None:
             raise dropped
         core.stats.timeouts += 1
@@ -147,6 +156,14 @@ async def _attempts(
     finally:
         pending_map.retire(envelope.key)
         _LOGGER.debug("pending %s seq %d to 0x%04X retired", kind, seq, dst)
+
+
+async def _backoff(core: NodeCore, future: asyncio.Future[PendingResult], delay: float) -> None:
+    """Wait ``delay`` s before a resend, or less if ``future`` completes first (answer,
+    ``fail_dst``, node close); never cancels ``future``. The caller checks it next."""
+    with contextlib.suppress(TimeoutError):
+        async with core.clock.timeout(delay):
+            await asyncio.wait((future,))
 
 
 def _dropped(signal: asyncio.Future[None]) -> RouteError:

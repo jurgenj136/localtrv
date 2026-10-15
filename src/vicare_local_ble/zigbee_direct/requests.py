@@ -14,8 +14,8 @@ Who calls what
       late answer to attempt 1 resolves the request during attempt 2. Besides a matching
       response (``resolve``), only ``fail_dst`` (``RouteError``), ``retire`` and ``fail_all``
       (node close) complete or cancel a pending future. ``fail_attempt`` (a retryable Network
-      Status) fails only the current attempt's ``Pending.attempt`` signal: the node resends
-      under the same key, so a late answer still resolves the request.
+      Status) touches only the oldest outstanding attempt signal (``Pending.signals``): the
+      node resends under the same key, so a late answer still resolves the request.
     * ``Dispatcher`` (``dispatch.py``) calls ``match_*``/``resolve``, ``is_retired`` and
       ``for_src`` (fallback); ``Router.on_network_status`` calls ``fail_dst`` or
       ``fail_attempt``.
@@ -28,6 +28,8 @@ Who calls what
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Final, Self
@@ -61,6 +63,8 @@ if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiReq
     from vicare_local_ble.zigbee_direct.errors import RequestKind
     from vicare_local_ble.zigbee_direct.types import Eui64
+
+_LOGGER = logging.getLogger("vicare_local_ble.zigbee_direct.node")
 
 #: Retired keys kept at most (oldest evicted first), in addition to the TTL.
 MAX_RETIRED: Final = 512
@@ -234,27 +238,38 @@ class Pending:
     """One in-flight request. ``future`` resolves with the matched response or fails with
     ``RouteError``/``ConnectionLostError``. Attempt timeouts are the node's and never touch the
     future (attempts never cancel it); ``retire`` cancels it if unfinished. ``attempts`` counts
-    sends so far (diagnostics). ``attempt`` is the current attempt's signal (``start_attempt``):
-    ``PendingMap.fail_attempt`` fails it to end that attempt early without touching ``future``."""
+    sends so far (diagnostics). ``signals``: one per attempt, armed BEFORE its send; the last
+    is the current attempt. A signal not yet done is outstanding (its frame may still draw a
+    0x05/0x06; a timed-out attempt stays outstanding). ``PendingMap.fail_attempt`` gives each
+    status to the OLDEST outstanding one: the current one fails with the ``RouteError``, an
+    earlier one is consumed (``None``). ``retire`` drops them all."""
 
     envelope: Envelope
     future: asyncio.Future[PendingResult]
     created_at: float
     attempts: int = 0
-    attempt: asyncio.Future[None] | None = None
+    signals: list[asyncio.Future[None]] = field(default_factory=list)
 
-    def start_attempt(self) -> asyncio.Future[None]:
-        """A fresh signal for the attempt just sent; the previous one is dropped."""
-        _drop(self.attempt)
+    def arm_attempt(self) -> asyncio.Future[None]:
+        """A fresh outstanding signal for the attempt about to be sent (now the current one)."""
         signal: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        self.attempt = signal
+        self.signals.append(signal)
         return signal
 
+    def disarm(self, signal: asyncio.Future[None]) -> None:
+        """Forget ``signal`` (its send raised, so no frame went out)."""
+        with contextlib.suppress(ValueError):
+            self.signals.remove(signal)
+        _drop(signal)
 
-def _drop(signal: asyncio.Future[None] | None) -> None:
+    def drop_signals(self) -> None:
+        for signal in self.signals:
+            _drop(signal)
+        self.signals.clear()
+
+
+def _drop(signal: asyncio.Future[None]) -> None:
     """Cancel an unfinished attempt signal, or mark its failure as retrieved."""
-    if signal is None:
-        return
     if not signal.done():
         signal.cancel()
     elif not signal.cancelled():
@@ -369,8 +384,7 @@ class PendingMap:
             future.cancel()
         elif not future.cancelled():
             future.exception()  # mark a failure as retrieved (the caller already saw it)
-        _drop(pending.attempt)
-        pending.attempt = None
+        pending.drop_signals()
         self._retired.add(key)
 
     def fail_dst(self, dst: int, exc: BaseException) -> int:
@@ -387,16 +401,22 @@ class PendingMap:
         return failed
 
     def fail_attempt(self, dst: int, exc: BaseException) -> int:
-        """Fail the current attempt (not the request) of every pending entry expecting ``dst``
-        with ``exc``; returns how many. Entries that are done or have no running attempt are
-        skipped, so a status about a destination with nothing in flight is harmless."""
+        """Give a retryable status about ``dst`` to the oldest outstanding attempt of each
+        unfinished entry expecting ``dst`` (see ``Pending``); returns how many CURRENT attempts
+        were failed. Nothing outstanding (or nothing pending) -> no effect."""
         failed = 0
         for key, pending in self._entries.items():
-            signal = pending.attempt
-            if key[0] != dst or pending.future.done() or signal is None or signal.done():
+            if key[0] != dst or pending.future.done():
                 continue
-            signal.set_exception(exc)
-            failed += 1
+            signal = next((s for s in pending.signals if not s.done()), None)
+            if signal is None:
+                continue
+            if signal is pending.signals[-1]:
+                signal.set_exception(exc)
+                failed += 1
+            else:
+                signal.set_result(None)
+                _LOGGER.debug("status for an earlier attempt of %r consumed", key)
         return failed
 
     def fail_all(self, exc: BaseException) -> None:

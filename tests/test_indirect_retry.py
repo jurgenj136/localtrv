@@ -24,7 +24,11 @@ from vicare_local_ble.zigbee_direct.clock import VirtualClock
 from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
 from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
 from vicare_local_ble.zigbee_direct.codec.zcl import ZclFrame
-from vicare_local_ble.zigbee_direct.errors import RequestTimeoutError, RouteError
+from vicare_local_ble.zigbee_direct.errors import (
+    ConnectionLostError,
+    RequestTimeoutError,
+    RouteError,
+)
 from vicare_local_ble.zigbee_direct.node import NodeConfig
 from vicare_local_ble.zigbee_direct.requests import PendingMap
 from vicare_local_ble.zigbee_direct.routing import (
@@ -66,28 +70,47 @@ async def test_fail_attempt_fails_the_signal_not_the_request() -> None:
     assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 0  # nothing pending
     entry = pending.register(zcl_envelope())
     other = pending.register(zcl_envelope(src_short=VALVE + 1))
-    assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 0  # no attempt running
-    first = entry.start_attempt()
-    other.start_attempt()
+    assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 0  # no attempt armed
+    first = entry.arm_attempt()
+    other_signal = other.arm_attempt()
     assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 1
-    assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 0  # already failed
+    assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 0  # nothing outstanding
     assert not entry.future.done()
-    assert other.attempt is not None
-    assert not other.attempt.done()
+    assert not other_signal.done()
     assert isinstance(first.exception(), RouteError)
-    second = entry.start_attempt()  # a new attempt replaces the failed signal
-    assert second is not first
+    second = entry.arm_attempt()
     assert not second.done()
     entry.future.set_result(object())  # type: ignore[arg-type]
     assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 0  # answered: skipped
+    assert not second.done()
     pending.retire(entry.envelope.key)
     assert second.cancelled()
-    assert entry.attempt is None
-    other_signal = other.attempt
+    assert entry.signals == []
     pending.fail_attempt(VALVE + 1, RouteError(VALVE + 1, EXPIRY))
     pending.retire(other.envelope.key)  # marks the failed signal retrieved, no warning
     assert other_signal.done()
     assert pending.is_retired((VALVE, "zcl", TSN))
+
+
+async def test_fail_attempt_goes_to_the_oldest_outstanding_attempt() -> None:
+    pending = PendingMap(clock=VirtualClock(), late_window=1.0)
+    entry = pending.register(zcl_envelope())
+    timed_out = entry.arm_attempt()  # attempt 1 timed out: still outstanding
+    current = entry.arm_attempt()
+    assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 0  # attempt 1's status
+    assert timed_out.done()
+    assert timed_out.result() is None  # consumed, no error
+    assert not current.done()
+    assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 1  # the current one's
+    assert isinstance(current.exception(), RouteError)
+    third = entry.arm_attempt()
+    entry.disarm(third)  # its send raised: no frame, nothing outstanding
+    assert third.cancelled()
+    assert entry.signals == [timed_out, current]
+    assert pending.fail_attempt(VALVE, RouteError(VALVE, EXPIRY)) == 0
+    entry.disarm(third)  # idempotent
+    pending.retire(entry.envelope.key)
+    assert entry.signals == []
 
 
 # --- node ------------------------------------------------------------------------------------
@@ -225,6 +248,7 @@ async def test_cancel_during_the_capacity_delay_retires_the_key() -> None:
         assert len(r.core.pending) == 0
         assert r.core.pending.is_retired((valve.short, "zcl", tsn))
         assert len(zcl_tsns(r)) == 1
+        assert (r.node.stats.indirect_retries, r.node.stats.retransmits) == (0, 0)
 
 
 # --- end to end ------------------------------------------------------------------------------
@@ -254,3 +278,80 @@ async def test_e2e_expiry_on_every_attempt_is_a_miss() -> None:
     snap = await poll(r)
     assert snap.misses[valve.eui] == 0
     await stop(r)
+
+
+# --- attribution and backoff races (review of 2bea1e4) ----------------------------------------
+
+
+async def test_status_arriving_during_the_send_ends_that_attempt() -> None:
+    # The attempt is armed before the write: a status landing while the write completes
+    # still ends it (it used to find no signal and wait for the full request timeout).
+    async with rig() as r:
+        valve = r.inst.valves[0]
+        r.inst.r0.write_latency = 1.0
+        r.inst.network.drop_indirect(valve.short, delay=0.5)
+        start = r.clock.now()
+        records = await r.clock.run_task(read(r))
+        assert records[0].status == 0
+        assert r.clock.now() - start < r.node.config.request_timeout
+        stats = r.node.stats
+        assert (stats.indirect_retries, stats.retransmits, stats.timeouts) == (1, 1, 0)
+
+
+async def test_delayed_status_of_a_timed_out_attempt_does_not_end_the_next() -> None:
+    # Attempt 1 is dropped and times out at 5 s; its 0x06 arrives at 8.8 s, during attempt 2.
+    # FIFO attribution consumes it for attempt 1, so attempt 2's answer at 9 s resolves.
+    async with rig(config=NodeConfig(request_timeout=5.0), latency=4.0) as r:
+        valve = r.inst.valves[0]
+        r.inst.network.drop_indirect(valve.short, delay=SIM_INDIRECT_EXPIRY_DELAY)
+        start = r.clock.now()
+        records = await r.clock.run_task(read(r))
+        assert records[0].status == 0
+        assert r.clock.now() - start == pytest.approx(9.0)
+        stats = r.node.stats
+        assert (stats.indirect_retries, stats.retransmits, stats.timeouts) == (0, 1, 0)
+        assert stats.late_drops == 0
+        assert stats.network_status == 1
+
+
+async def test_two_statuses_for_two_attempts_are_attributed_in_order() -> None:
+    # One status per dropped frame: the first ends attempt 1 early, the second attempt 2.
+    async with rig(config=NodeConfig(request_attempts=3)) as r:
+        valve = r.inst.valves[0]
+        r.inst.network.drop_indirect(valve.short, count=2, delay=1.0)
+        records = await r.clock.run_task(read(r))
+        assert records[0].status == 0
+        stats = r.node.stats
+        assert (stats.indirect_retries, stats.retransmits, stats.timeouts) == (2, 2, 0)
+
+
+async def test_node_close_during_the_capacity_delay_fails_at_once() -> None:
+    async with rig() as r:
+        valve = r.inst.valves[0]
+        r.inst.network.drop_indirect(valve.short, status=NWK_STATUS_NO_INDIRECT_CAPACITY, delay=0.5)
+        task = read(r)
+        await r.clock.advance(1.0)  # status at 0.5, now inside the retry delay
+        now = r.clock.now()
+        await r.node.close()
+        await r.clock.advance(0)
+        assert task.done()
+        with pytest.raises(ConnectionLostError):
+            await task
+        assert r.clock.now() == now
+        assert (r.node.stats.indirect_retries, r.node.stats.retransmits) == (0, 0)
+        assert len(zcl_tsns(r)) == 1
+
+
+async def test_answer_during_the_capacity_delay_resolves_at_once() -> None:
+    # The parent claims no capacity, yet the valve got attempt 1 and answers during the delay.
+    async with rig(latency=2.0) as r:
+        valve = r.inst.valves[0]
+        task = read(r)
+        start = r.clock.now()
+        await r.clock.advance(1.0)
+        r.inject(status_npdu(r, status=NWK_STATUS_NO_INDIRECT_CAPACITY, about=valve.short))
+        records = await r.clock.run_task(task)
+        assert records[0].status == 0
+        assert r.clock.now() - start == pytest.approx(2.0)
+        assert (r.node.stats.indirect_retries, r.node.stats.retransmits) == (0, 0)
+        assert len(zcl_tsns(r)) == 1

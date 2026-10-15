@@ -29,8 +29,8 @@ Requests
     still resolves the request, and an answer racing the last timeout still wins. Only
     ``PendingMap.retire`` (in a ``finally`` once the request ends) or ``node.close`` completes
     or cancels a pending future. Errors: ``RequestTimeoutError`` after the last attempt,
-    ``RouteError`` from Network Status (for 0x05/0x06, which fail only the current attempt, only
-    when it was the last one), ``ZclStatusError(status)`` for a matched ZCL Default
+    ``RouteError`` from Network Status (for 0x05/0x06, which end only the oldest outstanding
+    attempt, only when that was the last one), ``ZclStatusError(status)`` for a matched ZCL Default
     Response (any status for a read; a non-zero status for a write, whose SUCCESS Default
     Response returns an all-success ``WriteAttributesResponse`` instead),
     ``ConnectionLostError`` if the node is or becomes closed or the transport is broken

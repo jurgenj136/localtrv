@@ -74,7 +74,7 @@ ROUTE_FAILURE_STATUSES: Final = frozenset(
         NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE,
     }
 )
-#: Statuses (addressed to us) that fail only the current attempt: the parent of a sleepy
+#: Statuses (addressed to us) that fail only one attempt: the parent of a sleepy
 #: destination dropped our frame from its indirect queue (expired, or the queue was full), the
 #: route itself is fine. The node resends under the same ZDO seq / TSN.
 ATTEMPT_FAILURE_STATUSES: Final = frozenset(
@@ -259,7 +259,7 @@ class Router:
           status about our own traffic; broadcast statuses about others never fail requests).
           Before the join completed nothing is pending, so this is skipped.
         * Exception, same condition: an ``ATTEMPT_FAILURE_STATUSES`` status (0x05 no indirect
-          capacity, 0x06 indirect transaction expiry) fails only the current attempt
+          capacity, 0x06 indirect transaction expiry) ends only the oldest outstanding attempt
           (``host.pending.fail_attempt``); the node resends and raises the ``RouteError`` only
           when that was its last attempt.
         * A route failure (``ROUTE_FAILURE_STATUSES``: 0x00 no route available, 0x01 tree

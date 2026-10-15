@@ -229,10 +229,18 @@ request pending for ends that request with `RouteError(dst, status)`. Route fail
 (indirect transaction expiry) and **0x05** (no indirect capacity) come from the parent of a
 sleepy valve that dropped our frame from its indirect queue. The route is fine, and the request
 is never answered later (21 h run: 189 of 191 statuses were 0x06, 1.6-12 s after the request,
-none answered within 60 s). Those two fail only the current attempt: the node resends under the
-same ZDO seq / TSN (0x06 at once, as the valve's next poll gets a fresh window; 0x05 after 2 s),
-counted in `indirect_retries`. It uses one attempt of `request_attempts`; after the last one the
-`RouteError` is raised as before. A late answer to an earlier attempt still resolves the request.
+none answered within 60 s). Those two fail only one attempt: the node resends under the same ZDO
+seq / TSN (0x06 at once, as the valve's next poll gets a fresh window; 0x05 after 2 s, cut short
+if the request is answered or fails meanwhile), counted in `indirect_retries` when the resend goes
+out. It uses one attempt of `request_attempts`; after the last one the `RouteError` is raised as
+before. A late answer to an earlier attempt still resolves the request.
+
+The status names only the destination, and the parent sends at most one per frame it dropped, so
+the node attributes each one to the oldest outstanding attempt of that request (FIFO). An attempt
+is outstanding from just before its write (a status racing the write still counts) until a status
+is attributed to it; one that timed out stays outstanding. A status for an earlier, timed-out
+attempt is consumed without effect, so it cannot end the current attempt (live, a 0x06 can arrive
+up to 12 s after the request, later than a short `request_timeout`).
 
 ### 6.4 Answering Route Requests
 
