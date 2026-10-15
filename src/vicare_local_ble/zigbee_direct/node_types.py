@@ -42,6 +42,10 @@ class NodeConfig:
 
     * ``request_timeout`` per attempt; ``request_attempts`` total attempts per request
       (retransmits reuse the ZDO seq / ZCL TSN, with a new NWK seq).
+      ``indirect_extra_attempts``: further attempts allowed beyond ``request_attempts``, only
+      while the previous attempt was dropped by a Network Status 0x05/0x06 (a sleepy device's
+      parent dropped the frame; that error comes within seconds, a timeout takes
+      ``request_timeout``). A timed-out last attempt never gets one.
     * ``late_window``: how long a retired ``(src, kind, seq)`` key stays reserved (late or
       duplicate responses for it are dropped and counted; the seq is not reallocated).
     * ``join_timeout`` per Commissioning Request attempt; ``join_attempts`` total attempts,
@@ -56,7 +60,8 @@ class NodeConfig:
 
     ``__post_init__`` raises ``ValueError`` for: non-positive (or NaN/inf) ``request_timeout``,
     ``join_timeout``, ``rreq_dedupe_ttl``; ``request_attempts``, ``join_attempts``,
-    ``mtorr_count``, ``max_in_flight`` below 1; negative ``late_window`` or ``mtorr_spacing``;
+    ``mtorr_count``, ``max_in_flight`` below 1; negative ``indirect_extra_attempts``,
+    ``late_window`` or ``mtorr_spacing``;
     a positive ``mtorr_interval`` below ``MIN_MTORR_INTERVAL`` (a value <= 0 or NaN disables
     the periodic MTORR, T12); a ``preferred_short`` outside 0x0001..0xFFF7.
     * ``avoid_shorts``: shorts never used as the placeholder (known device shorts, a short that
@@ -65,6 +70,7 @@ class NodeConfig:
 
     request_timeout: float = 30.0
     request_attempts: int = 2
+    indirect_extra_attempts: int = 1
     late_window: float = 120.0
     join_timeout: float = 15.0
     join_attempts: int = 2
@@ -95,6 +101,10 @@ class NodeConfig:
         ):
             if count < 1:
                 raise ValueError(f"{name} must be >= 1: {count!r}")
+        if self.indirect_extra_attempts < 0:
+            raise ValueError(
+                f"indirect_extra_attempts must be >= 0: {self.indirect_extra_attempts!r}"
+            )
         if not self.late_window >= 0 or math.isinf(self.late_window):
             raise ValueError(f"late_window must be >= 0 seconds: {self.late_window!r}")
         if not self.mtorr_spacing >= 0:

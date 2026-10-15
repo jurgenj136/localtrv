@@ -133,23 +133,61 @@ async def test_expiry_retries_with_the_same_tsn_and_succeeds() -> None:
 
 
 async def test_expiry_on_every_attempt_raises_route_error() -> None:
+    # 2 attempts plus the 1 extra a drop earns (indirect_extra_attempts), all dropped.
     async with rig() as r:
         valve = r.inst.valves[0]
-        r.inst.network.drop_indirect(valve.short, count=2)
+        r.inst.network.drop_indirect(valve.short, count=3)
         tsn = r.core.allocators.tsn.peek()
         start = r.clock.now()
         with pytest.raises(RouteError) as exc:
             await r.clock.run_task(read(r))
         assert (exc.value.dst, exc.value.status) == (valve.short, EXPIRY)
-        assert r.clock.now() - start == pytest.approx(2 * SIM_INDIRECT_EXPIRY_DELAY)
+        assert r.clock.now() - start == pytest.approx(3 * SIM_INDIRECT_EXPIRY_DELAY)
         stats = r.node.stats
-        assert (stats.indirect_retries, stats.retransmits, stats.timeouts) == (1, 1, 0)
+        assert (stats.indirect_retries, stats.retransmits, stats.timeouts) == (2, 2, 0)
         assert len(r.core.pending) == 0
         assert r.core.pending.is_retired((valve.short, "zcl", tsn))
 
 
+async def test_two_drops_then_an_answer_succeeds_on_the_extra_attempt() -> None:
+    # Hardware 2026-10-15: the weak valve's parent dropped both attempts of a poll ~1 in 7.
+    async with rig() as r:
+        valve = r.inst.valves[0]
+        r.inst.network.drop_indirect(valve.short, count=2)
+        records = await r.clock.run_task(read(r))
+        assert records[0].status == 0
+        assert (r.node.stats.indirect_retries, r.node.stats.retransmits) == (2, 2)
+
+
+async def test_no_extra_attempt_after_a_timeout() -> None:
+    # A drop, then a timed-out last regular attempt: the extra attempt is for drops only.
+    async with rig() as r:
+        valve = r.inst.valves[0]
+        r.inst.network.drop_indirect(valve.short)
+        valve.drop_rate = 1.0
+        mark = len(zcl_tsns(r))
+        with pytest.raises(RequestTimeoutError):
+            await r.clock.run_task(read(r))
+        assert len(zcl_tsns(r)) - mark == 2
+        assert r.node.stats.timeouts == 1
+
+
+async def test_extra_attempts_can_be_disabled() -> None:
+    async with rig(config=NodeConfig(indirect_extra_attempts=0)) as r:
+        valve = r.inst.valves[0]
+        r.inst.network.drop_indirect(valve.short, count=2)
+        with pytest.raises(RouteError):
+            await r.clock.run_task(read(r))
+        assert (r.node.stats.indirect_retries, r.node.stats.retransmits) == (1, 1)
+
+
+def test_negative_extra_attempts_are_rejected() -> None:
+    with pytest.raises(ValueError, match="indirect_extra_attempts"):
+        NodeConfig(indirect_extra_attempts=-1)
+
+
 async def test_single_attempt_budget_raises_at_once() -> None:
-    async with rig(config=NodeConfig(request_attempts=1)) as r:
+    async with rig(config=NodeConfig(request_attempts=1, indirect_extra_attempts=0)) as r:
         r.inst.network.drop_indirect(r.inst.valves[0].short)
         with pytest.raises(RouteError):
             await r.clock.run_task(read(r))
@@ -270,11 +308,11 @@ async def test_e2e_expiry_on_every_attempt_is_a_miss() -> None:
     r = e2e_rig()
     gen = await begin(r)
     valve = r.inst.valves[0]
-    r.inst.network.drop_indirect(valve.short, count=2)
+    r.inst.network.drop_indirect(valve.short, count=3)
     snap = await poll(r)
     assert snap.misses[valve.eui] == 1  # RouteError, as before the retry
     assert snap.misses[r.inst.valves[1].eui] == 0
-    assert gen.node.stats.indirect_retries == 1
+    assert gen.node.stats.indirect_retries == 2
     snap = await poll(r)
     assert snap.misses[valve.eui] == 0
     await stop(r)

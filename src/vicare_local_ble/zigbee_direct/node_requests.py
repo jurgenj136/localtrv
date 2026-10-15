@@ -21,7 +21,9 @@ Private helper of ``node.py`` (see the ``ZigbeeDirectNode`` docstring "Requests"
    timed-out attempt is consumed without effect. The next attempt is sent at once (0x05: after
    ``routing.NO_INDIRECT_CAPACITY_RETRY_DELAY``, cut short if the request completes meanwhile)
    and counted in ``NodeStats.indirect_retries`` when it is sent. It consumes one attempt of
-   the budget: after the last one the ``RouteError`` is raised;
+   the budget, but a dropped attempt may be followed by up to
+   ``NodeConfig.indirect_extra_attempts`` attempts beyond ``request_attempts`` (a timed-out
+   one never is); when no attempt is left the ``RouteError`` is raised;
 5. an answer that arrived in the same loop iteration as the last attempt's timeout still
    wins over ``RequestTimeoutError``;
 6. ``PendingMap.retire`` in a ``finally`` exactly once (success, timeout, error, cancel).
@@ -32,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import itertools
 import logging
 from typing import TYPE_CHECKING, Final
 
@@ -120,7 +123,7 @@ async def _attempts(
     _LOGGER.debug("pending %s seq %d to 0x%04X registered", kind, seq, dst)
     try:
         dropped: RouteError | None = None  # the last attempt's retryable Network Status
-        for attempt in range(config.request_attempts):
+        for attempt in itertools.count():
             if pending.future.done():  # answered in the same iteration as a timeout / delay
                 return pending.future.result()
             resend_after_drop = dropped is not None
@@ -148,6 +151,8 @@ async def _attempts(
                 return pending.future.result()
             if not signal.done():  # stays outstanding: its status may still come
                 _LOGGER.debug("%s seq %d to 0x%04X: attempt %d timed out", kind, seq, dst, attempt)
+                if attempt + 1 >= config.request_attempts:
+                    break
                 continue
             dropped = _dropped(signal)
             _LOGGER.debug(
@@ -158,9 +163,9 @@ async def _attempts(
                 attempt,
                 dropped.status,
             )
-            if attempt + 1 < config.request_attempts and (
-                delay := attempt_retry_delay(dropped.status)
-            ):
+            if attempt + 1 >= config.request_attempts + config.indirect_extra_attempts:
+                break
+            if delay := attempt_retry_delay(dropped.status):
                 await _backoff(core, pending.future, delay)
         if dropped is not None:
             raise dropped

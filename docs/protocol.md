@@ -232,8 +232,11 @@ is never answered later (21 h run: 189 of 191 statuses were 0x06, 1.6-12 s after
 none answered within 60 s). Those two fail only one attempt: the node resends under the same ZDO
 seq / TSN (0x06 at once, as the valve's next poll gets a fresh window; 0x05 after 2 s, cut short
 if the request is answered or fails meanwhile), counted in `indirect_retries` when the resend goes
-out. It uses one attempt of `request_attempts`; after the last one the `RouteError` is raised as
-before. A late answer to an earlier attempt still resolves the request.
+out. It uses one attempt of `request_attempts`, but a dropped attempt may be followed by
+`indirect_extra_attempts` (default 1) attempts beyond that budget; a timed-out attempt never is.
+With the defaults a request survives two drops; after the last attempt the `RouteError` is raised
+as before (0.1.0a1 9.1 h run: the second attempt to the weakest valve was dropped 15 times in 39).
+A late answer to an earlier attempt still resolves the request.
 
 The status names only the destination, and the parent sends at most one per frame it dropped, so
 the node attributes each one to the oldest outstanding attempt of that request (FIFO). An attempt
