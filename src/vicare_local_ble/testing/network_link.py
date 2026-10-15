@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Final, Protocol
 
 from vicare_local_ble.testing import network_frames as nf
 from vicare_local_ble.testing.network_aps import ApsRetransmitter
@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
 
 type _Builder = Callable[[], bytes | None]
+
+#: Live median delay of a parent's Network Status 0x06 after our request (1.6-12 s observed).
+SIM_INDIRECT_EXPIRY_DELAY: Final = 8.8
 
 
 class TunnelHost(Protocol):
@@ -69,6 +72,7 @@ class SimMeshLink:
         self._nwk_seq = 0x20
         self._aps_counter = 0x10
         self._zdo_seq = 0x60
+        self._indirect_drops: dict[int, list[tuple[int, float]]] = {}
 
     def _next_seq(self) -> int:
         self._nwk_seq = (self._nwk_seq + 1) & 0xFF
@@ -103,6 +107,34 @@ class SimMeshLink:
                 dst=dst, src=self._zdd_short, seq=self._next_seq(), status=status, about=about
             ),
         )
+
+    def drop_indirect(
+        self,
+        short: int,
+        *,
+        count: int = 1,
+        status: int = nf.NETWORK_STATUS_INDIRECT_EXPIRY,
+        delay: float = SIM_INDIRECT_EXPIRY_DELAY,
+    ) -> None:
+        """The parent of the sleepy ``short`` drops the next ``count`` unicasts to it from its
+        indirect queue (the device never sees them) and ``delay`` s later sends the ZVD a
+        Network Status ``status`` about ``short`` (0x06 expiry, or 0x05 no capacity)."""
+        self._indirect_drops.setdefault(short, []).extend([(status, delay)] * count)
+
+    def _indirect_dropped(self, short: int) -> bool:
+        """Consume one scripted ``drop_indirect`` for ``short``; True if the frame is dropped."""
+        queue = self._indirect_drops.get(short)
+        joined = self._joined
+        if not queue or joined is None:
+            return False
+        status, delay = queue.pop(0)
+        self._later(
+            delay,
+            lambda: nf.network_status_npdu(
+                dst=joined, src=self._zdd_short, seq=self._next_seq(), status=status, about=short
+            ),
+        )
+        return True
 
     def _pick_variant(self) -> FrameVariant:
         if self._weights is None:
@@ -164,4 +196,4 @@ class SimMeshLink:
         return self._annce_seen and self._mtorr_seen
 
 
-__all__ = ["SimMeshLink", "TunnelHost"]
+__all__ = ["SIM_INDIRECT_EXPIRY_DELAY", "SimMeshLink", "TunnelHost"]

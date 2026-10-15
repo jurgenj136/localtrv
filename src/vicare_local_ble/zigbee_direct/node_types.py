@@ -188,6 +188,8 @@ class NodeStats:
 
     * ``timeouts``: requests that exhausted every attempt.
     * ``retransmits``: attempts after the first.
+    * ``indirect_retries``: attempts ended by Network Status 0x05/0x06 (the parent of a sleepy
+      destination dropped our frame) and followed by another attempt (also in ``retransmits``).
     * ``late_drops``: responses matching a retired key (late or duplicate).
     * ``fallback_hits``: responses matched only through ``codec.fallback``.
     * ``mfr_header_missing``: manufacturer-specific requests answered without the MS header.
@@ -205,6 +207,7 @@ class NodeStats:
 
     timeouts: int = 0
     retransmits: int = 0
+    indirect_retries: int = 0
     late_drops: int = 0
     fallback_hits: int = 0
     mfr_header_missing: int = 0

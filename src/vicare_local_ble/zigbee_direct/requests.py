@@ -13,9 +13,12 @@ Who calls what
       ``clock.timeout(request_timeout)``, so an attempt timeout never cancels the future and a
       late answer to attempt 1 resolves the request during attempt 2. Besides a matching
       response (``resolve``), only ``fail_dst`` (``RouteError``), ``retire`` and ``fail_all``
-      (node close) complete or cancel a pending future.
+      (node close) complete or cancel a pending future. ``fail_attempt`` (a retryable Network
+      Status) fails only the current attempt's ``Pending.attempt`` signal: the node resends
+      under the same key, so a late answer still resolves the request.
     * ``Dispatcher`` (``dispatch.py``) calls ``match_*``/``resolve``, ``is_retired`` and
-      ``for_src`` (fallback); ``Router.on_network_status`` calls ``fail_dst``.
+      ``for_src`` (fallback); ``Router.on_network_status`` calls ``fail_dst`` or
+      ``fail_attempt``.
     * ``node.join`` opens a ``JoinToken`` per attempt, each with a NEW placeholder (previous
       placeholders of this join are avoided); the dispatcher offers every NWK Commissioning
       Response to ``JoinSlot.offer``, so a response to an older attempt's placeholder is
@@ -230,13 +233,32 @@ type PendingResult = ZdoResponse | ZclResponse
 class Pending:
     """One in-flight request. ``future`` resolves with the matched response or fails with
     ``RouteError``/``ConnectionLostError``. Attempt timeouts are the node's and never touch the
-    future (attempts await it through ``asyncio.shield``); ``retire`` cancels it if unfinished.
-    ``attempts`` counts sends so far (diagnostics)."""
+    future (attempts never cancel it); ``retire`` cancels it if unfinished. ``attempts`` counts
+    sends so far (diagnostics). ``attempt`` is the current attempt's signal (``start_attempt``):
+    ``PendingMap.fail_attempt`` fails it to end that attempt early without touching ``future``."""
 
     envelope: Envelope
     future: asyncio.Future[PendingResult]
     created_at: float
     attempts: int = 0
+    attempt: asyncio.Future[None] | None = None
+
+    def start_attempt(self) -> asyncio.Future[None]:
+        """A fresh signal for the attempt just sent; the previous one is dropped."""
+        _drop(self.attempt)
+        signal: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self.attempt = signal
+        return signal
+
+
+def _drop(signal: asyncio.Future[None] | None) -> None:
+    """Cancel an unfinished attempt signal, or mark its failure as retrieved."""
+    if signal is None:
+        return
+    if not signal.done():
+        signal.cancel()
+    elif not signal.cancelled():
+        signal.exception()
 
 
 @dataclass(slots=True)
@@ -347,6 +369,8 @@ class PendingMap:
             future.cancel()
         elif not future.cancelled():
             future.exception()  # mark a failure as retrieved (the caller already saw it)
+        _drop(pending.attempt)
+        pending.attempt = None
         self._retired.add(key)
 
     def fail_dst(self, dst: int, exc: BaseException) -> int:
@@ -360,6 +384,19 @@ class PendingMap:
             if key[0] == dst and not pending.future.done():
                 pending.future.set_exception(exc)
                 failed += 1
+        return failed
+
+    def fail_attempt(self, dst: int, exc: BaseException) -> int:
+        """Fail the current attempt (not the request) of every pending entry expecting ``dst``
+        with ``exc``; returns how many. Entries that are done or have no running attempt are
+        skipped, so a status about a destination with nothing in flight is harmless."""
+        failed = 0
+        for key, pending in self._entries.items():
+            signal = pending.attempt
+            if key[0] != dst or pending.future.done() or signal is None or signal.done():
+                continue
+            signal.set_exception(exc)
+            failed += 1
         return failed
 
     def fail_all(self, exc: BaseException) -> None:

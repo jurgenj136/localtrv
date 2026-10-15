@@ -22,6 +22,9 @@ Behaviours (spec §1.7) and their knobs
         * A unicast with ``discover_route=0`` -> Network Status ``03 02 <dst>`` (always).
     Routing
         * Frames to a short no device has (stale short) go unanswered.
+        * ``drop_indirect(short, count, status, delay)``: the sleepy valve's parent drops the
+          next ``count`` unicasts to it and sends Network Status 0x06 (or 0x05) ``delay`` s
+          later (live: 0x06 after 1.6-12 s).
         * ``emit_route_request``: RREQs with option 0x20 + dst IEEE, repeated route ids,
           other destinations, unknown originators. ``route_replies`` records every RREP.
     APS reliability (``network_aps``)
@@ -335,6 +338,8 @@ class SimNetwork(SimMeshLink):
         if valve is None:
             return  # stale or unknown short: unanswered
         src = valve.short
+        if self._indirect_dropped(src):
+            return
         for reply in valve.handle_request(aps):
             self._reply_later(src, reply.aps, reply.delay)
 

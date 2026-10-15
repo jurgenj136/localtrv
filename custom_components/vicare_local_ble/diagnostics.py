@@ -111,6 +111,7 @@ def _node(stats: NodeStats | None) -> dict[str, Any] | None:
     return {
         "timeouts": stats.timeouts,
         "retransmits": stats.retransmits,
+        "indirect_retries": stats.indirect_retries,
         "late_drops": stats.late_drops,
         "fallback_hits": stats.fallback_hits,
         "mfr_header_missing": stats.mfr_header_missing,

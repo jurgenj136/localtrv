@@ -221,6 +221,19 @@ Link Status every ~15 s (`08 ‖ options ‖ 3-byte entries`, FC `09 10`, dst 0x
 are decoded and counted (`route_records`, `link_status`) and logged in full by the NPDU recorder
 (shorts and link costs only). Echoes of our own MTORRs count in `rreq_own_echo`, not `rreq_seen`.
 
+### 6.3b Network Status about our requests (route errors)
+
+A Network Status (`03 ‖ status ‖ dst(2)`) unicast to our short about a destination we have a
+request pending for ends that request with `RouteError(dst, status)`. Route failures (0x00, 0x01,
+0x02, 0x0B, 0x0C) also trigger one rate-limited MTORR. Two codes are different: **0x06**
+(indirect transaction expiry) and **0x05** (no indirect capacity) come from the parent of a
+sleepy valve that dropped our frame from its indirect queue. The route is fine, and the request
+is never answered later (21 h run: 189 of 191 statuses were 0x06, 1.6-12 s after the request,
+none answered within 60 s). Those two fail only the current attempt: the node resends under the
+same ZDO seq / TSN (0x06 at once, as the valve's next poll gets a fresh window; 0x05 after 2 s),
+counted in `indirect_retries`. It uses one attempt of `request_attempts`; after the last one the
+`RouteError` is raised as before. A late answer to an earlier attempt still resolves the request.
+
 ### 6.4 Answering Route Requests
 
 Devices without a route to us send Route Request (`01`) targeting our short; the ZDD relays it in

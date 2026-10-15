@@ -59,6 +59,8 @@ MTORR_ON_ROUTE_FAILURE_INTERVAL: Final = 30.0
 NWK_STATUS_NO_ROUTE_AVAILABLE: Final = 0x00
 NWK_STATUS_TREE_LINK_FAILURE: Final = 0x01
 NWK_STATUS_NON_TREE_LINK_FAILURE: Final = 0x02
+NWK_STATUS_NO_INDIRECT_CAPACITY: Final = 0x05
+NWK_STATUS_INDIRECT_TRANSACTION_EXPIRY: Final = 0x06
 NWK_STATUS_SOURCE_ROUTE_FAILURE: Final = 0x0B
 NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE: Final = 0x0C
 NWK_STATUS_ADDRESS_CONFLICT: Final = 0x0D
@@ -72,6 +74,23 @@ ROUTE_FAILURE_STATUSES: Final = frozenset(
         NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE,
     }
 )
+#: Statuses (addressed to us) that fail only the current attempt: the parent of a sleepy
+#: destination dropped our frame from its indirect queue (expired, or the queue was full), the
+#: route itself is fine. The node resends under the same ZDO seq / TSN.
+ATTEMPT_FAILURE_STATUSES: Final = frozenset(
+    {NWK_STATUS_NO_INDIRECT_CAPACITY, NWK_STATUS_INDIRECT_TRANSACTION_EXPIRY}
+)
+#: Wait before resending after 0x05 (the parent's indirect queue was full; resending at once
+#: would likely meet the same full queue). 0x06 resends at once: the child's next poll gets a
+#: fresh persistence window. Unmeasured; 0x05 was 2 of 191 statuses in the 21 h run.
+NO_INDIRECT_CAPACITY_RETRY_DELAY: Final = 2.0
+
+
+def attempt_retry_delay(status: int) -> float:
+    """Seconds to wait before resending after an ``ATTEMPT_FAILURE_STATUSES`` status."""
+    return NO_INDIRECT_CAPACITY_RETRY_DELAY if status == NWK_STATUS_NO_INDIRECT_CAPACITY else 0.0
+
+
 #: Hard cap on the dedupe set (oldest key dropped first), against RREQ floods.
 _MAX_DEDUPE_ENTRIES: Final = 256
 #: Shorts at or above this are broadcast addresses (never noted in the neighbor table).
@@ -239,6 +258,10 @@ class Router:
           (``host.pending.fail_dst``) ONLY if the NWK ``frame.dst == own_short`` (a unicast
           status about our own traffic; broadcast statuses about others never fail requests).
           Before the join completed nothing is pending, so this is skipped.
+        * Exception, same condition: an ``ATTEMPT_FAILURE_STATUSES`` status (0x05 no indirect
+          capacity, 0x06 indirect transaction expiry) fails only the current attempt
+          (``host.pending.fail_attempt``); the node resends and raises the ``RouteError`` only
+          when that was its last attempt.
         * A route failure (``ROUTE_FAILURE_STATUSES``: 0x00 no route available, 0x01 tree
           link, 0x02 non-tree link, 0x0B source route, 0x0C many-to-one route), under the same
           condition, also schedules one MTORR, at most every
@@ -262,9 +285,17 @@ class Router:
         code, about = status.status, status.destination
         _LOGGER.debug("Network Status 0x%02X about 0x%04X (to 0x%04X)", code, about, frame.dst)
         if frame.dst == own:
-            failed = host.pending.fail_dst(about, RouteError(about, code))
-            if failed:
-                _LOGGER.debug("%d request(s) to 0x%04X failed with a route error", failed, about)
+            error = RouteError(about, code)
+            if code in ATTEMPT_FAILURE_STATUSES:
+                failed = host.pending.fail_attempt(about, error)
+                if failed:
+                    _LOGGER.debug("%d attempt(s) to 0x%04X dropped by the parent", failed, about)
+            else:
+                failed = host.pending.fail_dst(about, error)
+                if failed:
+                    _LOGGER.debug(
+                        "%d request(s) to 0x%04X failed with a route error", failed, about
+                    )
             if code in ROUTE_FAILURE_STATUSES:
                 self._schedule_failure_mtorr()
         if code == NWK_STATUS_ADDRESS_CONFLICT and about == own:
@@ -411,10 +442,14 @@ class Router:
 
 
 __all__ = [
+    "ATTEMPT_FAILURE_STATUSES",
     "MTORR_ON_ROUTE_FAILURE_INTERVAL",
+    "NO_INDIRECT_CAPACITY_RETRY_DELAY",
     "NWK_STATUS_ADDRESS_CONFLICT",
+    "NWK_STATUS_INDIRECT_TRANSACTION_EXPIRY",
     "NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE",
     "NWK_STATUS_NON_TREE_LINK_FAILURE",
+    "NWK_STATUS_NO_INDIRECT_CAPACITY",
     "NWK_STATUS_NO_ROUTE_AVAILABLE",
     "NWK_STATUS_SOURCE_ROUTE_FAILURE",
     "NWK_STATUS_TREE_LINK_FAILURE",
@@ -423,4 +458,5 @@ __all__ = [
     "NeighborTable",
     "Router",
     "RoutingHost",
+    "attempt_retry_delay",
 ]

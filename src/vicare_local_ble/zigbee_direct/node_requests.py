@@ -10,6 +10,11 @@ Private helper of ``node.py`` (see the ``ZigbeeDirectNode`` docstring "Requests"
 4. up to ``request_attempts`` attempts, each a new NWK seq (and APS counter for ZCL) with the
    same ZDO seq / TSN, awaiting ``asyncio.shield(future)`` inside ``clock.timeout``: an attempt
    timeout never cancels the future, so a late answer to attempt 1 resolves attempt 2;
+4a. a retryable Network Status (``routing.ATTEMPT_FAILURE_STATUSES``: 0x05/0x06, the parent of
+   a sleepy destination dropped the frame) ends the attempt early through the pending entry's
+   attempt signal; the next attempt is sent at once (0x05: after
+   ``routing.NO_INDIRECT_CAPACITY_RETRY_DELAY``) and counted in ``NodeStats.indirect_retries``.
+   It consumes one attempt of the budget: after the last one the ``RouteError`` is raised;
 5. an answer that arrived in the same loop iteration as the last attempt's timeout still
    wins over ``RequestTimeoutError``;
 6. ``PendingMap.retire`` in a ``finally`` exactly once (success, timeout, error, cancel).
@@ -34,10 +39,11 @@ from vicare_local_ble.zigbee_direct.codec.zcl import (
     ZclFrame,
     ZclStatus,
 )
-from vicare_local_ble.zigbee_direct.errors import RequestTimeoutError, ZclStatusError
+from vicare_local_ble.zigbee_direct.errors import RequestTimeoutError, RouteError, ZclStatusError
 from vicare_local_ble.zigbee_direct.frames import LOCAL_ENDPOINT, zcl_unicast_npdu, zdo_unicast_npdu
 from vicare_local_ble.zigbee_direct.node_match import ADDRESS_OF_INTEREST_REQUESTS
 from vicare_local_ble.zigbee_direct.requests import Envelope, ZclResponse
+from vicare_local_ble.zigbee_direct.routing import attempt_retry_delay
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -98,6 +104,7 @@ async def _attempts(
     pending = pending_map.register(envelope)
     _LOGGER.debug("pending %s seq %d to 0x%04X registered", kind, seq, dst)
     try:
+        dropped: RouteError | None = None  # the last attempt's retryable Network Status
         for attempt in range(config.request_attempts):
             if pending.future.done():  # answered in the same iteration as the timeout
                 return pending.future.result()
@@ -105,18 +112,49 @@ async def _attempts(
                 core.stats.retransmits += 1
             pending.attempts += 1
             await core.send_secure(build(seq, core.allocators.nwk.next()))
+            # created after the send: a status about an earlier attempt cannot end this one
+            signal = pending.start_attempt()
+            dropped = None
             try:
                 async with core.clock.timeout(config.request_timeout):
-                    return await asyncio.shield(pending.future)
+                    await asyncio.wait(
+                        (pending.future, signal), return_when=asyncio.FIRST_COMPLETED
+                    )
             except TimeoutError:
                 _LOGGER.debug("%s seq %d to 0x%04X: attempt %d timed out", kind, seq, dst, attempt)
+                continue
+            if pending.future.done():
+                return pending.future.result()
+            dropped = _dropped(signal)
+            _LOGGER.debug(
+                "%s seq %d to 0x%04X: attempt %d dropped (network status 0x%02X)",
+                kind,
+                seq,
+                dst,
+                attempt,
+                dropped.status,
+            )
+            if attempt + 1 < config.request_attempts:
+                core.stats.indirect_retries += 1
+                if delay := attempt_retry_delay(dropped.status):
+                    await core.clock.sleep(delay)
         if pending.future.done():  # answered in the same iteration as the last timeout
             return pending.future.result()
+        if dropped is not None:
+            raise dropped
         core.stats.timeouts += 1
         raise RequestTimeoutError(dst, kind, seq)
     finally:
         pending_map.retire(envelope.key)
         _LOGGER.debug("pending %s seq %d to 0x%04X retired", kind, seq, dst)
+
+
+def _dropped(signal: asyncio.Future[None]) -> RouteError:
+    """The ``RouteError`` an attempt signal was failed with (``PendingMap.fail_attempt``)."""
+    exc = signal.exception()
+    if not isinstance(exc, RouteError):  # pragma: no cover - fail_attempt sets RouteError only
+        raise TypeError(f"unexpected attempt signal {exc!r}")
+    return exc
 
 
 async def zdo_request[R: ZdoResponse](
