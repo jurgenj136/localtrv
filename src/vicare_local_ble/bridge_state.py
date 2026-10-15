@@ -340,6 +340,8 @@ class BridgeCore:
         self.silent_rejoins = 0
         if self.misses.get(eui) == 0 and self.available.get(eui):
             return False
+        if self.misses.get(eui, 0) >= MISSES_UNAVAILABLE:
+            _LOGGER.info("valve 0x%04X available again", self.valves[eui].short)
         self.misses[eui] = 0
         self.available[eui] = True
         return True

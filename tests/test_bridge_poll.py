@@ -107,11 +107,15 @@ async def test_misses_unavailable_then_rewalk_and_recovery(
     await poll(r)
     await r.clock.advance(30)
     assert zdo_requests(r, ZdoCluster.MGMT_LQI_REQ, mark) == []
-    # Any response resets the misses.
+    # Any response resets the misses; the recovery is logged once.
+    assert "available again" not in caplog.text
     dead.drop_rate = 0.0
     snap = await poll(r)
     assert snap.misses[dead.eui] == 0
     assert snap.available[dead.eui] is True
+    assert caplog.text.count(f"valve 0x{dead.short:04X} available again") == 1
+    await poll(r)
+    assert caplog.text.count("available again") == 1
     await stop(r)
 
 
