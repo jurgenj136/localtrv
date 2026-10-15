@@ -34,10 +34,12 @@ Setpoints (``set_setpoint``), per valve, in this order
        ``pending = True``, ``on_update`` (the UI updates optimistically at once).
     3. Preempt: if an older version's background confirm task holds the lock, cancel it (its
        exit path releases the lock; it no longer touches ``pending``, it is not the latest).
-    4. Acquire the per-valve transaction lock and write ``valves.setpoint_record`` with
-       ``node.zcl_write``, all inside ``clock.timeout`` bounded by ``SETPOINT_ACK_DEADLINE``
-       from step 2. If a newer version arrived meanwhile, this call still writes its own value
-       (the newer write follows it under the lock; last writer wins on the valve).
+    4. Acquire the per-valve transaction lock, verify the valve's short (IEEE_addr_req: the
+       device there must name the valve, else ``ValveAddressUnknownError`` and nothing is
+       written) and write ``valves.setpoint_record`` with ``node.zcl_write``, all inside
+       ``clock.timeout`` bounded by ``SETPOINT_ACK_DEADLINE`` from step 2. If a newer version
+       arrived meanwhile, this call still writes its own value (the newer write follows it
+       under the lock; last writer wins on the valve).
     5. Success: ``acknowledged_c`` = clamped value, ``on_update``; spawn the confirm task on the
        generation and return the ``SetpointStatus``. The HA call ends here. Lock ownership
        passes to the confirm task.
@@ -57,7 +59,21 @@ Setpoints (``set_setpoint``), per valve, in this order
 
     Raised to HA: ``ZclStatusError``, ``RequestTimeoutError`` or a bare ``TimeoutError`` (the
     ack deadline; ``RequestTimeoutError`` subclasses ``TimeoutError``, so HA catches
-    ``TimeoutError``), ``ConnectionLostError``.
+    ``TimeoutError``), ``ConnectionLostError``, ``ValveAddressUnknownError`` (a ``RouteError``:
+    the valve's cached short now belongs to another valve and its own is not re-learned yet;
+    nothing was written, or the ack came from that other valve).
+
+Short ownership (``bridge_owner``, ``bridge_verify``): one EUI per short. Only authoritative
+evidence moves or evicts it: a Device_annce, a frame whose NWK header names its source IEEE
+(``node.on_sender``), an IEEE_addr response from the short asked. Walk results are hints: a known
+valve listed at another short, or an unaddressed one, is verified with IEEE_addr_req (once per
+valve per walk) and adopted only if the device names itself; a walk never evicts. Restored
+(cached) shorts are trusted for reads. Every ZCL request for a valve runs under a lease, checked
+before queueing and at transmission of every attempt (the node's ``guard``) and on the answer,
+which must not name another source IEEE (``expect_ieee``). An unaddressed valve gets no ZCL
+request (a poll counts a miss; the usual re-walk follows). An identification holds an epoch
+lease on its short; if evidence changes meanwhile, its result is discarded (not added, not
+ignored).
 
 HA wiring (T16): ``on_update`` and ``connection.add_state_listener`` both push
 ``bridge.snapshot()`` to the coordinator (``async_update_listeners``, no schedule reset), so the
@@ -83,6 +99,7 @@ from vicare_local_ble.bridge_cache import CACHE_VERSION, BridgeCache, CachedValv
 from vicare_local_ble.bridge_state import BridgeCore
 from vicare_local_ble.bridge_types import (
     ANNCE_IDENTIFY_DEBOUNCE,
+    ANNCE_IDENTIFY_RETRY,
     DISCOVERY_RETRY_DELAYS,
     IDENTIFY_CONCURRENCY,
     IDENTIFY_DIAGNOSTIC_AFTER,
@@ -97,6 +114,7 @@ from vicare_local_ble.bridge_types import (
     DiscoveryStatus,
     SetpointStatus,
     TopologySummary,
+    ValveAddressUnknownError,
 )
 
 if TYPE_CHECKING:
@@ -179,6 +197,11 @@ class ViCareBridge:
             node.on_report(lambda event: self._on_report(gen, event)),
             node.on_device_annce(lambda annce, _src: self._on_annce(gen, annce)),
             node.on_address_conflict(lambda: self._on_conflict(gen)),
+            node.on_sender(
+                lambda short, ieee: bridge_discovery.on_address(
+                    core, gen, ieee, short, identify=False
+                )
+            ),
         ]
         core.changed()
         bridge_discovery.spawn_safely(
@@ -195,10 +218,10 @@ class ViCareBridge:
             event.cluster,
             ",".join(f"0x{r.attribute_id:04X}" for r in event.records),
         )
+        if event.src_ieee is not None:  # address evidence (maybe on a reused valve short)
+            bridge_discovery.on_sender_ieee(core, gen, event.src_ieee, event.src_short)
         eui = core.eui_for_short(event.src_short, event.src_ieee)
         if eui is None:
-            if event.src_ieee is not None:  # unknown sender (maybe on a reused valve short)
-                bridge_discovery.on_unknown_sender(core, gen, event.src_ieee, event.src_short)
             return
         changed = core.apply(eui, event.cluster, event.records, event.manufacturer_code)
         if core.responded(eui) or changed:
@@ -230,9 +253,11 @@ class ViCareBridge:
 
         Raises ``KeyError`` (unknown valve), ``ValueError`` (non-finite), ``ZclStatusError``
         (write rejected), ``RequestTimeoutError`` or bare ``TimeoutError`` (no acknowledgement
-        within ``SETPOINT_ACK_DEADLINE``; HA must catch ``TimeoutError``) or
-        ``ConnectionLostError`` (not READY, or lost meanwhile). ``CancelledError`` of the caller
-        propagates after the cleanup described in the module docstring.
+        within ``SETPOINT_ACK_DEADLINE``; HA must catch ``TimeoutError``),
+        ``ConnectionLostError`` (not READY, or lost meanwhile) or ``ValveAddressUnknownError``
+        (a ``RouteError``; the valve's short is not established, see module docstring).
+        ``CancelledError`` of the caller propagates after the cleanup described in the module
+        docstring.
         """
         return await bridge_setpoint.set_setpoint(self._core, eui, celsius)
 
@@ -242,6 +267,7 @@ class ViCareBridge:
 
 __all__ = [
     "ANNCE_IDENTIFY_DEBOUNCE",
+    "ANNCE_IDENTIFY_RETRY",
     "CACHE_VERSION",
     "DISCOVERY_RETRY_DELAYS",
     "IDENTIFY_CONCURRENCY",
@@ -260,5 +286,6 @@ __all__ = [
     "JsonValue",
     "SetpointStatus",
     "TopologySummary",
+    "ValveAddressUnknownError",
     "ViCareBridge",
 ]

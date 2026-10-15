@@ -9,6 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
+from vicare_local_ble.zigbee_direct.errors import (
+    RequestTimeoutError,
+    RouteError,
+    SequenceExhaustedError,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -27,11 +33,31 @@ SETPOINT_TOTAL_DEADLINE: Final = 90.0
 #: Discovery retries after an incomplete topology, an identification timeout or 0 valves.
 DISCOVERY_RETRY_DELAYS: Final = (300.0, 900.0, 3600.0)
 TOPOLOGY_REFRESH: Final = 21_600.0
-#: Identification of an unknown Device_annce sender: debounce, once per EUI per generation.
+#: Identification of an unknown Device_annce sender: debounce, one at a time per EUI.
 ANNCE_IDENTIFY_DEBOUNCE: Final = 10.0
+#: After a failed one, the next announcement retries no earlier than this after the failure.
+ANNCE_IDENTIFY_RETRY: Final = 300.0
 IDENTIFY_CONCURRENCY: Final = 4
 #: Basic-read timeouts after which Active_EP/Simple_Desc are sent (diagnostic only).
 IDENTIFY_DIAGNOSTIC_AFTER: Final = 2
+
+
+#: Errors meaning "no response from the device" for one request.
+NO_RESPONSE: Final = (RequestTimeoutError, RouteError, SequenceExhaustedError)
+#: NWK status "no route available": what an unestablished valve address amounts to.
+_NO_ROUTE: Final = 0x00
+
+
+class ValveAddressUnknownError(RouteError):
+    """The valve's cached short now belongs to another valve and its own is not re-learned yet.
+
+    Raised before anything is sent (or when the short changed owner during the request). A
+    ``RouteError``, so polling counts it as no response and HA maps it to a failed write.
+    """
+
+    def __init__(self, dst: int) -> None:
+        super().__init__(dst, _NO_ROUTE)
+        self.args = (f"valve address unknown: 0x{dst:04X} belongs to another valve",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,10 +122,12 @@ class BridgeSnapshot:
 
 __all__ = [
     "ANNCE_IDENTIFY_DEBOUNCE",
+    "ANNCE_IDENTIFY_RETRY",
     "DISCOVERY_RETRY_DELAYS",
     "IDENTIFY_CONCURRENCY",
     "IDENTIFY_DIAGNOSTIC_AFTER",
     "MISSES_UNAVAILABLE",
+    "NO_RESPONSE",
     "SETPOINT_ACK_DEADLINE",
     "SETPOINT_TOTAL_DEADLINE",
     "SILENT_POLLS_REJOIN",
@@ -110,4 +138,5 @@ __all__ = [
     "DiscoveryStatus",
     "SetpointStatus",
     "TopologySummary",
+    "ValveAddressUnknownError",
 ]

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.clock import VirtualClock
     from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
     from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
+    from vicare_local_ble.zigbee_direct.types import Eui64
 
 type _Builder = Callable[[], bytes | None]
 
@@ -73,6 +74,8 @@ class SimMeshLink:
         self._aps_counter = 0x10
         self._zdo_seq = 0x60
         self._indirect_drops: dict[int, list[tuple[int, float]]] = {}
+        #: Scripted NWK source IEEE per replying short (tests: a frame naming its sender).
+        self.reply_src_ieee: dict[int, Eui64] = {}
 
     def _next_seq(self) -> int:
         self._nwk_seq = (self._nwk_seq + 1) & 0xFF
@@ -152,6 +155,7 @@ class SimMeshLink:
             aps=aps,
             variant=self._pick_variant(),
             relay=self._zdd_short,
+            src_ieee=self.reply_src_ieee.get(src),
         )
 
     def _send_reply(self, src: int, aps: ApsDataFrame) -> bool:

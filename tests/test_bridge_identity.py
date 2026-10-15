@@ -42,12 +42,17 @@ async def test_report_with_unknown_ieee_on_reused_short_is_not_applied() -> None
     assert r.snap().states[valve_a.eui] == before  # B's report never lands on A
     assert NEW_EUI in r.core.annce_seen  # B gets identified like a Device_annce sender
     assert r.core.annce_short[NEW_EUI][0] == short
-    # Without an IEEE the short lookup is still the fallback.
+    # B's frame is address evidence: the short is no longer A's, not even by short lookup.
+    assert valve_a.eui in r.core.unaddressed
+    r.bridge._on_report(gen, temperature_report(short, None, 1234))
+    assert r.snap().states[valve_a.eui] == before
+    # A frame with A's own IEEE re-establishes A there and applies.
+    r.bridge._on_report(gen, temperature_report(short, valve_a.eui, 1500))
+    assert valve_a.eui not in r.core.unaddressed
+    assert r.snap().states[valve_a.eui].local_temperature_c == 15.0
+    # Without an IEEE the short lookup is the fallback again.
     r.bridge._on_report(gen, temperature_report(short, None, 1234))
     assert r.snap().states[valve_a.eui].local_temperature_c == 12.34
-    # A matching explicit IEEE applies too.
-    r.bridge._on_report(gen, temperature_report(short, valve_a.eui, 1500))
-    assert r.snap().states[valve_a.eui].local_temperature_c == 15.0
     await stop(r)
 
 

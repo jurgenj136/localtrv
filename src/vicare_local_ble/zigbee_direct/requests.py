@@ -174,10 +174,17 @@ class Envelope:
     request_command: int | None = None
     response_commands: frozenset[int] = frozenset()
     nwk_addr_of_interest: int | None = None
+    #: The device the request is meant for: a response whose NWK header names another source
+    #: IEEE never resolves it (a header without a source IEEE is not checked).
+    expect_ieee: Eui64 | None = None
 
     @property
     def key(self) -> PendingKey:
         return (self.src_short, self.kind, self.seq)
+
+    def sender_ok(self, src_ieee: Eui64 | None) -> bool:
+        """False if a frame names a source IEEE other than ``expect_ieee``."""
+        return self.expect_ieee is None or src_ieee is None or src_ieee == self.expect_ieee
 
     def match_zcl(self, src_short: int, aps: ApsDataFrame, frame: ZclFrame) -> EnvelopeMatch:
         """Check a standard-decoded ZCL response against every envelope field."""

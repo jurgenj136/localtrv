@@ -27,19 +27,15 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from vicare_local_ble import valves
 from vicare_local_ble.bridge_types import (
+    NO_RESPONSE,
     SILENT_POLLS_REJOIN,
     SILENT_REJOIN_BACKOFF,
     SILENT_REJOIN_BACKOFF_MAX,
 )
+from vicare_local_ble.bridge_verify import adopt_walk
 from vicare_local_ble.zigbee_direct.connection import ConnectionState
 from vicare_local_ble.zigbee_direct.discovery import walk_topology
-from vicare_local_ble.zigbee_direct.errors import (
-    ConnectionLostError,
-    RequestTimeoutError,
-    RouteError,
-    SequenceExhaustedError,
-    ZclStatusError,
-)
+from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, ZclStatusError
 
 if TYPE_CHECKING:
     from vicare_local_ble.bridge_state import BridgeCore
@@ -53,8 +49,6 @@ _LOGGER = logging.getLogger("vicare_local_ble.bridge")
 
 type _Outcome = Literal["ok", "miss", "busy", "stale"]
 
-#: Errors meaning "no response from the device" for one request.
-NO_RESPONSE = (RequestTimeoutError, RouteError, SequenceExhaustedError)
 #: The limits request of ``STATIC`` (everything in it except the Basic identification).
 _LIMIT_REQUESTS = tuple(r for r in valves.STATIC if r != valves.IDENTIFY)
 #: ``SetpointLimits.source`` quality: a refresh never downgrades. ``"cached"`` (a legacy cache
@@ -71,17 +65,21 @@ async def read(
 ) -> tuple[ReadAttributeStatus, ...] | None:
     """One read of a valve's ``req``; ``None`` for a Default Response error (a response).
 
-    Raises ``StaleGenerationError`` if ``gen`` ended, ``NO_RESPONSE`` errors as they come.
+    Raises ``StaleGenerationError`` if ``gen`` ended, ``NO_RESPONSE`` errors as they come;
+    ``ValveAddressUnknownError`` (a ``RouteError``) if the valve's lease on its short does not
+    hold before an attempt or at the answer (``bridge_owner``).
     """
-    valve = core.valves[eui]
+    lease = core.owner.lease(eui)
     try:
         statuses = await gen.node.zcl_read(
-            valve.short,
-            valve.endpoint,
+            lease.short,
+            core.valves[eui].endpoint,
             req.cluster,
             req.attrs,
             profile=valves.PROFILE,
             manufacturer=req.manufacturer,
+            expect_ieee=eui,
+            guard=lambda: core.owner.check(lease),
         )
     except ZclStatusError as exc:
         _LOGGER.debug(
@@ -92,6 +90,7 @@ async def read(
         raise StaleGenerationError from exc
     if not core.is_current(gen):
         raise StaleGenerationError
+    core.owner.check(lease)
     return statuses
 
 
@@ -250,9 +249,10 @@ async def rewalk(core: BridgeCore, gen: Generation) -> None:
         _LOGGER.debug("generation %d lost: re-walk ends", gen.number)
         return
     if core.is_current(gen):
-        core.set_topology(topology, started=started)
-        core.push_avoid_shorts()
-        core.changed()
+        await adopt_walk(core, gen, topology, started=started)
+        if core.is_current(gen):
+            core.push_avoid_shorts()
+            core.changed()
 
 
 __all__ = [

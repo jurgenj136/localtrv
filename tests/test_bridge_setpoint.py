@@ -12,6 +12,7 @@ import pytest
 from test_bridge import (
     BRig,
     discovered,
+    hardware_latency,
     make_rig,
     poll,
     ready_again,
@@ -91,7 +92,7 @@ async def test_returns_at_ack_then_background_confirm() -> None:
 
 
 async def test_concurrent_writes_are_serialised_and_newest_wins() -> None:
-    r = make_rig(n_valves=1, behind_router=0)
+    r = make_rig(n_valves=1, behind_router=0, setup=hardware_latency)
     await discovered(r)
     eui = r.euis()[0]
     a = asyncio.ensure_future(r.bridge.set_setpoint(eui, 20.0))
@@ -100,6 +101,7 @@ async def test_concurrent_writes_are_serialised_and_newest_wins() -> None:
     await r.clock.advance(0)
     assert status(r, eui).requested_c == 23.0
     assert status(r, eui).version == 2
+    await run_until(r.clock, lambda: writes(r) != [])  # A's write follows its verification
     assert writes(r) == [(vt.CL_THERMOSTAT, 2000)]  # B waits for the lock
     await run_until(r.clock, lambda: a.done() and b.done() and not status(r, eui).pending)
     assert writes(r) == [(vt.CL_THERMOSTAT, 2000), (vt.CL_THERMOSTAT, 2300)]
@@ -129,7 +131,7 @@ async def test_newer_version_preempts_the_older_confirm() -> None:
 
 
 async def test_failing_older_write_does_not_revert_newer() -> None:
-    r = make_rig(n_valves=1, behind_router=0)
+    r = make_rig(n_valves=1, behind_router=0, setup=hardware_latency)
     await discovered(r)
     eui = r.euis()[0]
     r.inst.valves[0].queue_default_response(ZclCommandId.WRITE_ATTRIBUTES, ZclStatus.INVALID_VALUE)
@@ -171,7 +173,7 @@ async def test_confirm_timeout_is_acknowledged_unconfirmed() -> None:
         if snap.setpoints.get(sim.eui, SetpointStatus()).acknowledged_c is not None:
             sim.drop_rate = 1.0
 
-    r = make_rig(n_valves=1, behind_router=0, on_update=hook)
+    r = make_rig(n_valves=1, behind_router=0, on_update=hook, setup=hardware_latency)
     await discovered(r)
     eui = r.euis()[0]
     before = r.snap().states[eui].setpoint_c
@@ -192,7 +194,7 @@ def add_slow_valve(inst: Installation) -> None:
         eui=SLOW_EUI,
         short=0x5005,
         rng=random.Random(4),  # noqa: S311
-        latency=(35.0, 35.0),
+        latency=(21.0, 21.0),  # three 7 s polls
     )
     inst.network.add_valve(slow, parent=COORDINATOR)
 
@@ -206,7 +208,7 @@ async def test_total_deadline_ninety_seconds() -> None:
     await discovered(r)
     t0 = r.clock.now()
     await setpoint(r, SLOW_EUI, 19.0)
-    assert r.clock.now() == pytest.approx(t0 + 35)  # ack after the retransmit
+    assert r.clock.now() == pytest.approx(t0 + 42)  # IEEE_addr answer + write ack, 21 s each
     await run_until(r.clock, lambda: not status(r, SLOW_EUI).pending)
     assert r.clock.now() == pytest.approx(t0 + SETPOINT_TOTAL_DEADLINE)
     assert status(r, SLOW_EUI).confirmed_c is None

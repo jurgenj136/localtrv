@@ -18,6 +18,7 @@ import pytest
 
 from vicare_local_ble import bridge_discovery, valves
 from vicare_local_ble.bridge import (
+    ANNCE_IDENTIFY_RETRY,
     DISCOVERY_RETRY_DELAYS,
     TOPOLOGY_REFRESH,
     BridgeCache,
@@ -211,6 +212,17 @@ def zdo_requests(r: BRig, cluster: int, start: int = 0) -> list[int]:
         for to, aps in frames(r, start)
         if aps.profile_id == ZDO_PROFILE_ID and aps.cluster_id == cluster
     ]
+
+
+#: Reply latency as measured on hardware (median 2.1-3.8 s, max 10.2 s; spec §1.6 item 9). The
+#: simulator default (2-30 s) is pessimistic; a verified setpoint costs two round trips plus
+#: any lock wait, so timing tests of queued setpoints use the measured range.
+HARDWARE_LATENCY = (2.0, 10.2)
+
+
+def hardware_latency(inst: Installation) -> None:
+    for valve in inst.valves:
+        valve.latency = HARDWARE_LATENCY
 
 
 def add_acme(inst: Installation) -> None:
@@ -422,7 +434,7 @@ async def test_device_annce_known_valve_updates_short_and_ignored_is_skipped() -
     await stop(r)
 
 
-async def test_unknown_annce_identified_once_per_generation_even_if_it_times_out() -> None:
+async def test_unknown_annce_retry_after_a_timeout_is_rate_limited() -> None:
     r = make_rig(n_valves=1, behind_router=0)
     await discovered(r)
     net = r.inst.network
@@ -430,10 +442,15 @@ async def test_unknown_annce_identified_once_per_generation_even_if_it_times_out
     mark = len(net.received)
     net.add_valve_later(dead)
     await r.clock.advance(80)  # debounce + one Basic read timing out (2 x 30 s)
+    failed_at = r.clock.now()
     net.valve_rejoin(dead, 0x3001)
+    net.valve_rejoin(dead, 0x3002)  # flapping: still one retry, at the latest short
     await r.clock.advance(80)
     basic = [to for to, req in zcl_requests(r, mark) if req == valves.IDENTIFY]
-    assert basic == [0x3000]
+    assert basic == [0x3000]  # the retry waits ANNCE_IDENTIFY_RETRY after the failure
+    await r.clock.advance_to(failed_at + ANNCE_IDENTIFY_RETRY + 80)
+    basic = [to for to, req in zcl_requests(r, mark) if req == valves.IDENTIFY]
+    assert basic == [0x3000, 0x3002]
     assert DEAD_EUI not in r.snap().valves
     await stop(r)
 

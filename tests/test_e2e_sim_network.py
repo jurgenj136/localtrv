@@ -11,7 +11,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from test_bridge import poll, ready_again, run_times, run_until, settled, stop, zcl_requests
+from test_bridge import (
+    hardware_latency,
+    poll,
+    ready_again,
+    run_times,
+    run_until,
+    settled,
+    stop,
+    zcl_requests,
+)
 from test_e2e_sim import S, all_available, begin, e2e_rig, on_attempt, track_states
 from vicare_local_ble import valves
 from vicare_local_ble.bridge import (
@@ -305,7 +314,7 @@ async def test_invalid_values_and_limits() -> None:
 
 
 async def test_concurrent_setpoints_newest_wins() -> None:
-    r = e2e_rig(n_valves=1)
+    r = e2e_rig(n_valves=1, setup=hardware_latency)
     await begin(r)
     eui = r.euis()[0]
     mark = len(r.updates)

@@ -19,10 +19,13 @@ from vicare_local_ble import valves
 from vicare_local_ble.bridge_poll import NO_RESPONSE, poll
 from vicare_local_ble.bridge_types import (
     ANNCE_IDENTIFY_DEBOUNCE,
+    ANNCE_IDENTIFY_RETRY,
     DISCOVERY_RETRY_DELAYS,
     IDENTIFY_DIAGNOSTIC_AFTER,
     TOPOLOGY_REFRESH,
+    ValveAddressUnknownError,
 )
+from vicare_local_ble.bridge_verify import adopt_walk, ask_ieee
 from vicare_local_ble.zigbee_direct.codec.zdo import (
     ActiveEpReq,
     ActiveEpRsp,
@@ -35,7 +38,7 @@ from vicare_local_ble.zigbee_direct.discovery import walk_topology
 from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, ZclStatusError
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
+    from collections.abc import Callable, Coroutine
 
     from vicare_local_ble.bridge_state import BridgeCore
     from vicare_local_ble.valves import SetpointLimits
@@ -108,7 +111,9 @@ async def discovery_run(core: BridgeCore, gen: Generation) -> bool:
         topology = await walk_topology(gen.node)
         if not core.is_current(gen):
             return False
-        core.set_topology(topology, started=started)
+        await adopt_walk(core, gen, topology, started=started)
+        if not core.is_current(gen):
+            return False
         candidates = [
             (eui, n.nwk_addr)
             for eui, n in topology.neighbors.items()
@@ -151,29 +156,65 @@ async def _identify_all(
 ) -> list[_Identified]:
     return list(
         await asyncio.gather(
-            *(_identify_guarded(core, gen, e, s, learned_at) for e, s in candidates)
+            *(_identify_guarded(core, gen, e, s, learned_at, verified=False) for e, s in candidates)
         )
     )
 
 
 async def _identify_guarded(
-    core: BridgeCore, gen: Generation, eui: Eui64, short: int, learned_at: float
+    core: BridgeCore,
+    gen: Generation,
+    eui: Eui64,
+    short: int,
+    learned_at: float,
+    *,
+    verified: bool,
 ) -> _Identified:
     async with core.identify_sem:
-        return await identify(core, gen, eui, short, learned_at=learned_at)
+        return await identify(core, gen, eui, short, learned_at=learned_at, verified=verified)
 
 
 async def identify(
-    core: BridgeCore, gen: Generation, eui: Eui64, short: int, *, learned_at: float | None = None
+    core: BridgeCore,
+    gen: Generation,
+    eui: Eui64,
+    short: int,
+    *,
+    learned_at: float | None = None,
+    verified: bool = True,
 ) -> _Identified:
     """Basic read; a supported valve also gets its limits read and is added.
 
-    ``learned_at`` is when ``short`` was learned (default: now). A Device_annce of ``eui``
-    learned at or after it wins when the valve is added (same freshness rule as
-    ``BridgeCore.set_topology``): the valve may have rejoined while it was being identified.
+    ``verified=False`` (a walk candidate, hearsay): an IEEE_addr_req to ``short`` must name
+    ``eui`` first. Then the latest evidence at ``short`` must be ``eui``, and the whole
+    identification runs under an epoch lease on ``short`` (checked before every attempt, at
+    transmission and before any result is applied); answers must not name another source
+    IEEE. If the lease breaks, the result is discarded: no valve added, nothing ignored
+    ("retry"). ``learned_at`` is when ``short`` was learned (default: now); a Device_annce of
+    ``eui`` learned at or after it wins when the valve is added (it may have rejoined).
     """
+    if not core.is_current(gen):
+        return "stale"
     if learned_at is None:
         learned_at = core.clock.now()
+    if not verified:
+        answer = await ask_ieee(core, gen, eui, short)
+        if not core.is_current(gen):
+            return "stale"
+        if answer != eui:
+            _LOGGER.debug("identify %s: 0x%04X not confirmed (%s)", eui, short, answer)
+            if isinstance(answer, str) and answer.startswith("no answer"):
+                await _no_response(core, gen, eui, short, answer)
+            return "retry"
+    seen = core.short_seen.get(short)
+    if seen is None or seen[0] != eui:
+        _LOGGER.debug("identify %s: 0x%04X evidenced for another device, discarded", eui, short)
+        return "retry"
+    lease = core.owner.short_lease(eui, short)
+
+    def guard() -> None:
+        core.owner.check_short(lease)
+
     req = valves.IDENTIFY
     try:
         statuses = await gen.node.zcl_read(
@@ -183,13 +224,14 @@ async def identify(
             req.attrs,
             profile=valves.PROFILE,
             manufacturer=req.manufacturer,
+            expect_ieee=eui,
+            guard=guard,
         )
+    except ValveAddressUnknownError:
+        _LOGGER.debug("identify %s: 0x%04X evidence changed, discarded", eui, short)
+        return "retry"
     except NO_RESPONSE as exc:
-        count = core.basic_timeouts.get(eui, 0) + 1
-        core.basic_timeouts[eui] = count
-        _LOGGER.debug("identify %s: no response (%s, %d)", eui, type(exc).__name__, count)
-        if count == IDENTIFY_DIAGNOSTIC_AFTER:
-            await _diagnose(gen, eui, short)
+        await _no_response(core, gen, eui, short, type(exc).__name__)
         return "retry"
     except ZclStatusError as exc:
         # An error status is no proof the device is not a valve: retry later.
@@ -199,6 +241,9 @@ async def identify(
         return "stale"
     if not core.is_current(gen):
         return "stale"
+    if not core.owner.holds_short(lease):
+        _LOGGER.debug("identify %s: 0x%04X evidence changed, discarded", eui, short)
+        return "retry"  # the answer may be another device's
     info = valves.parse_basic(statuses)
     if not valves.is_supported_valve(info.manufacturer, info.model):
         if not _mismatch(info):
@@ -208,16 +253,21 @@ async def identify(
         core.ignored.add(str(eui))
         core.changed()
         return "ignored"
-    limits, limits_ok = await _read_limits(gen, short)
+    limits, limits_ok = await _read_limits(gen, short, eui, guard)
     if not core.is_current(gen):
         return "stale"
     if eui in core.valves:  # identified meanwhile (Device_annce)
         return "valve"
+    if not core.owner.holds_short(lease):
+        return "retry"
     announced = core.annce_short.get(eui)
     if announced is not None and announced[1] >= learned_at:
         if announced[0] != short:
             _LOGGER.debug("identify %s: re-announced 0x%04X -> 0x%04X", eui, short, announced[0])
         short, learned_at = announced
+        seen = core.short_seen.get(short)
+        if seen is not None and seen[0] != eui:
+            return "retry"
     valve = valves.Valve(
         eui=eui,
         short=short,
@@ -227,8 +277,7 @@ async def identify(
         sw_build=info.sw_build,
         limits=limits,
     )
-    core.add_valve(valve)
-    core.short_at[eui] = learned_at
+    core.add_valve(valve, learned_at=learned_at)
     core.log_issues(eui, req.cluster, statuses, req.manufacturer)
     if limits_ok:
         core.static_at[eui] = core.clock.now()
@@ -247,7 +296,18 @@ def _mismatch(info: valves.BasicInfo) -> bool:
     )
 
 
-async def _read_limits(gen: Generation, short: int) -> tuple[SetpointLimits, bool]:
+async def _no_response(core: BridgeCore, gen: Generation, eui: Eui64, short: int, why: str) -> None:
+    """Count an unanswered identification; the diagnostic after repeated ones."""
+    count = core.basic_timeouts.get(eui, 0) + 1
+    core.basic_timeouts[eui] = count
+    _LOGGER.debug("identify %s: no response (%s, %d)", eui, why, count)
+    if count == IDENTIFY_DIAGNOSTIC_AFTER:
+        await _diagnose(gen, eui, short)
+
+
+async def _read_limits(
+    gen: Generation, short: int, eui: Eui64, guard: Callable[[], None]
+) -> tuple[SetpointLimits, bool]:
     limits = valves.DEFAULT_LIMITS
     for req in _LIMIT_REQUESTS:
         try:
@@ -258,6 +318,8 @@ async def _read_limits(gen: Generation, short: int) -> tuple[SetpointLimits, boo
                 req.attrs,
                 profile=valves.PROFILE,
                 manufacturer=req.manufacturer,
+                expect_ieee=eui,
+                guard=guard,
             )
         except (*NO_RESPONSE, ZclStatusError, ConnectionLostError):
             return valves.DEFAULT_LIMITS, False
@@ -290,42 +352,71 @@ def on_device_annce(core: BridgeCore, gen: Generation, annce: DeviceAnnce) -> No
     """Known EUI -> update its short; unknown -> identification after the debounce."""
     if not core.is_current(gen):
         return
-    eui, short = annce.ieee, annce.nwk_addr
+    on_address(core, gen, annce.ieee, annce.nwk_addr)
+
+
+def on_sender_ieee(core: BridgeCore, gen: Generation, eui: Eui64, short: int) -> None:
+    """A frame with an explicit source IEEE: handled like a Device_annce of the sender."""
+    if eui not in core.valves and str(eui) not in core.ignored:
+        _LOGGER.debug("frame from unknown %s at 0x%04X", eui, short)
+    on_address(core, gen, eui, short)
+
+
+def on_address(
+    core: BridgeCore, gen: Generation, eui: Eui64, short: int, *, identify: bool = True
+) -> None:
+    """Authoritative ``eui`` at ``short`` (Device_annce, or a frame with a source IEEE).
+
+    Address evidence on its own: any other valve cached at ``short`` loses it at once, whether
+    ``eui`` is a known valve, unknown or ignored. An unknown, not ignored ``eui`` is identified
+    after the debounce if ``identify`` (Device_annce and reports; not every NWK header)."""
+    if not core.is_current(gen):
+        return
     if eui in core.valves:
         if core.set_short(eui, short):
             core.push_avoid_shorts()
             core.changed()
         return
-    if str(eui) in core.ignored:
-        return
-    _schedule_identify(core, gen, eui, short)
-
-
-def on_unknown_sender(core: BridgeCore, gen: Generation, eui: Eui64, short: int) -> None:
-    """A frame with an explicit, unknown source IEEE: handled like its Device_annce."""
-    if not core.is_current(gen) or eui in core.valves or str(eui) in core.ignored:
-        return
-    _LOGGER.debug("frame from unknown %s at 0x%04X: identification scheduled", eui, short)
-    _schedule_identify(core, gen, eui, short)
+    if core.owner.seen_at(eui, short):
+        core.changed()
+    if identify and str(eui) not in core.ignored:
+        _schedule_identify(core, gen, eui, short)
 
 
 def _schedule_identify(core: BridgeCore, gen: Generation, eui: Eui64, short: int) -> None:
-    core.annce_short[eui] = (short, core.clock.now())
+    """At most one identification per sender at a time (``annce_seen``). After a failed one,
+    the next announcement retries, but no earlier than ``ANNCE_IDENTIFY_RETRY`` after the
+    failure, so a flapping device cannot cause a request storm."""
+    now = core.clock.now()
+    core.annce_short[eui] = (short, now)
     if eui in core.annce_seen:
         return
-    core.annce_seen.add(eui)
-    spawn_safely(core, gen, _identify_later(core, gen, eui), "vicare identify")
+    delay = max(ANNCE_IDENTIFY_DEBOUNCE, core.annce_retry_at.get(eui, now) - now)
+    if spawn_safely(core, gen, _identify_later(core, gen, eui, delay), "vicare identify"):
+        core.annce_seen.add(eui)
 
 
-async def _identify_later(core: BridgeCore, gen: Generation, eui: Eui64) -> None:
-    await core.clock.sleep(ANNCE_IDENTIFY_DEBOUNCE)
-    if not core.is_current(gen) or eui in core.valves or str(eui) in core.ignored:
+async def _identify_later(core: BridgeCore, gen: Generation, eui: Eui64, delay: float) -> None:
+    result: _Identified | None = None
+    short: int | None = None
+    moved = False
+    try:
+        await core.clock.sleep(delay)
+        if not core.is_current(gen) or eui in core.valves or str(eui) in core.ignored:
+            return
+        short, learned_at = core.annce_short[eui]  # set before the task is spawned
+        result = await _identify_guarded(core, gen, eui, short, learned_at, verified=True)
+    finally:
+        if core.is_current(gen):
+            core.annce_seen.discard(eui)
+            # Announced elsewhere meanwhile: the discarded result is no failure of the device.
+            moved = short is not None and core.annce_short[eui][0] != short
+            if result != "valve" and not moved:
+                core.annce_retry_at[eui] = core.clock.now() + ANNCE_IDENTIFY_RETRY
+    if moved and result != "valve":
+        _schedule_identify(core, gen, eui, core.annce_short[eui][0])
         return
-    announced = core.annce_short.get(eui)
-    if announced is None:  # pragma: no cover - set before the task is spawned
-        return
-    short, learned_at = announced
-    if await _identify_guarded(core, gen, eui, short, learned_at) == "valve":
+    if result == "valve":
         core.push_avoid_shorts()
         if core.topology is not None:
             core.summarize()
@@ -337,7 +428,8 @@ __all__ = [
     "discovery_run",
     "discovery_task",
     "identify",
+    "on_address",
     "on_device_annce",
-    "on_unknown_sender",
+    "on_sender_ieee",
     "spawn_safely",
 ]

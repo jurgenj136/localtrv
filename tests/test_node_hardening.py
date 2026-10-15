@@ -146,7 +146,9 @@ async def test_close_during_commissioning_send_leaves_nothing_unretrieved(
     try:
         async with rig(join=False) as r:
 
-            async def slow_send(_self: ZigbeeDirectTransport, npdu: bytes, *, secure: bool) -> None:
+            async def slow_send(
+                _self: ZigbeeDirectTransport, npdu: bytes, *, secure: bool, check: object = None
+            ) -> None:
                 await r.clock.sleep(5.0)
                 raise TransportError("gone", reason="closed")
 

@@ -62,6 +62,8 @@ from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType, ZclValue
 from vicare_local_ble.zigbee_direct.codec.zdo import (
     ActiveEpReq,
     ActiveEpRsp,
+    IeeeAddrReq,
+    IeeeAddrRsp,
     SimpleDescReq,
     SimpleDescriptor,
     SimpleDescRsp,
@@ -167,6 +169,17 @@ class SimValve:
     def endpoint(self) -> int:
         return self._endpoint
 
+    @property
+    def latency(self) -> tuple[float, float]:
+        """Reply latency range (low, high) in seconds; settable (tests)."""
+        return self._latency
+
+    @latency.setter
+    def latency(self, value: tuple[float, float]) -> None:
+        if not 0.0 <= value[0] <= value[1]:
+            raise ValueError(f"latency must satisfy 0 <= low <= high: {value!r}")
+        self._latency = value
+
     def bind(self, uplink: ValveUplink) -> None:
         """Set the back-reference (called by ``SimNetwork.add_valve``); rebinding replaces it."""
         self._uplink = uplink
@@ -226,6 +239,13 @@ class SimValve:
                 else:
                     rsp = ActiveEpRsp(seq, ZdoStatus.DEVICE_NOT_FOUND, req.nwk_addr)
                 payload = rsp.encode()
+            elif aps.cluster_id == ZdoCluster.IEEE_ADDR_REQ:
+                ireq = IeeeAddrReq.decode(aps.payload)
+                seq = ireq.seq
+                status = ZdoStatus.SUCCESS
+                if ireq.nwk_addr != self._short:
+                    status = ZdoStatus.DEVICE_NOT_FOUND
+                payload = IeeeAddrRsp(seq, status, self._eui, self._short).encode()
             elif aps.cluster_id == ZdoCluster.SIMPLE_DESC_REQ:
                 sreq = SimpleDescReq.decode(aps.payload)
                 seq = sreq.seq

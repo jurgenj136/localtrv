@@ -8,9 +8,12 @@ Private helper of ``node.py`` (see the ``ZigbeeDirectNode`` docstring "Requests"
 3. register the pending entry BEFORE the first send (a response racing the write still
    matches);
 4. up to ``request_attempts`` attempts, each a new NWK seq (and APS counter for ZCL) with the
-   same ZDO seq / TSN, awaiting the future (never cancelled) or the attempt's signal inside
-   ``clock.timeout``: an attempt timeout never cancels the future, so a late answer to
-   attempt 1 resolves attempt 2;
+   same ZDO seq / TSN. The caller's ``guard`` (if any) runs before each attempt is queued
+   and again when the transport writer dequeues it, right before encryption; if it raises,
+   that attempt is not sent and the request fails with its exception. Each attempt awaits
+   the future (never cancelled) or the attempt's signal inside ``clock.timeout``: an
+   attempt timeout never cancels the future, so a late answer to attempt 1 resolves
+   attempt 2;
 4a. each attempt's signal is armed BEFORE its send (``Pending.arm_attempt``; removed if the
    send raises). A retryable Network Status (``routing.ATTEMPT_FAILURE_STATUSES``: 0x05/0x06,
    the parent of a sleepy destination dropped a frame) goes to the OLDEST outstanding attempt
@@ -62,6 +65,7 @@ if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.errors import RequestKind
     from vicare_local_ble.zigbee_direct.node_core import NodeCore
     from vicare_local_ble.zigbee_direct.requests import PendingResult, ZdoRequest
+    from vicare_local_ble.zigbee_direct.types import Eui64
 
 _LOGGER = logging.getLogger("vicare_local_ble.zigbee_direct.node")
 _ZDO_RESPONSE_BIT: Final = 0x8000
@@ -69,6 +73,8 @@ _FIRST_BROADCAST: Final = 0xFFF8
 
 #: ``build(seq, nwk_seq) -> npdu`` for one attempt.
 type Builder = Callable[[int, int], bytes]
+#: Called before every attempt; raises to fail the request without sending that attempt.
+type Guard = Callable[[], None]
 
 
 def _check_dst(dst: int) -> None:
@@ -83,6 +89,7 @@ async def run_request(
     kind: RequestKind,
     envelope_for: Callable[[int], Envelope],
     build: Builder,
+    guard: Guard | None = None,
 ) -> PendingResult:
     """One request (module docstring); returns the matched result."""
     _check_dst(dst)
@@ -91,7 +98,9 @@ async def run_request(
         core.check_ready()
         async with core.in_flight:
             core.check_ready()
-            return await _attempts(core, dst=dst, kind=kind, envelope_for=envelope_for, build=build)
+            return await _attempts(
+                core, dst=dst, kind=kind, envelope_for=envelope_for, build=build, guard=guard
+            )
 
 
 async def _attempts(
@@ -101,6 +110,7 @@ async def _attempts(
     kind: RequestKind,
     envelope_for: Callable[[int], Envelope],
     build: Builder,
+    guard: Guard | None,
 ) -> PendingResult:
     pending_map, config = core.pending, core.config
     allocator = core.allocators.zdo if kind == "zdo" else core.allocators.tsn
@@ -115,10 +125,12 @@ async def _attempts(
                 return pending.future.result()
             resend_after_drop = dropped is not None
             dropped = None
+            if guard is not None:
+                guard()  # the destination may no longer be the intended device
             # armed before the send: a status racing the write still ends this attempt
             signal = pending.arm_attempt()
             try:
-                await core.send_secure(build(seq, core.allocators.nwk.next()))
+                await core.send_secure(build(seq, core.allocators.nwk.next()), guard)
             except BaseException:
                 pending.disarm(signal)
                 raise
@@ -219,9 +231,12 @@ async def zcl_request(
     command: ZclGlobalCommand,
     response_command: int,
     on_default_success: ZclGlobalCommand | None = None,
+    expect_ieee: Eui64 | None = None,
+    guard: Guard | None = None,
 ) -> ZclGlobalCommand:
     """A ZCL global request. A matched Default Response raises ``ZclStatusError(status)``,
-    except status SUCCESS when ``on_default_success`` is given (returned instead)."""
+    except status SUCCESS when ``on_default_success`` is given (returned instead).
+    ``expect_ieee``: ``Envelope.expect_ieee``; ``guard``: see the module docstring (4)."""
 
     def envelope_for(seq: int) -> Envelope:
         return Envelope(
@@ -235,6 +250,7 @@ async def zcl_request(
             manufacturer_code=manufacturer,
             request_command=command.COMMAND_ID,
             response_commands=frozenset({response_command}),
+            expect_ieee=expect_ieee,
         )
 
     def build(seq: int, nwk_seq: int) -> bytes:
@@ -250,7 +266,9 @@ async def zcl_request(
             aps_counter=core.allocators.aps.next(),
         )
 
-    result = await run_request(core, dst=dst, kind="zcl", envelope_for=envelope_for, build=build)
+    result = await run_request(
+        core, dst=dst, kind="zcl", envelope_for=envelope_for, build=build, guard=guard
+    )
     if not isinstance(result, ZclResponse):  # pragma: no cover - zcl envelopes resolve these
         raise TypeError(f"unexpected {type(result).__name__}")
     if isinstance(result.command, DefaultResponse):
@@ -270,6 +288,8 @@ async def zcl_read(
     attrs: Sequence[int],
     profile: int,
     manufacturer: int | None,
+    expect_ieee: Eui64 | None = None,
+    guard: Guard | None = None,
 ) -> tuple[ReadAttributeStatus, ...]:
     result = await zcl_request(
         core,
@@ -280,6 +300,8 @@ async def zcl_read(
         manufacturer=manufacturer,
         command=ReadAttributes(tuple(attrs)),
         response_command=ZclCommandId.READ_ATTRIBUTES_RESPONSE,
+        expect_ieee=expect_ieee,
+        guard=guard,
     )
     if not isinstance(result, ReadAttributesResponse):  # pragma: no cover - envelope command
         raise TypeError(f"unexpected {type(result).__name__}")
@@ -295,6 +317,8 @@ async def zcl_write(
     records: Sequence[AttributeRecord],
     profile: int,
     manufacturer: int | None,
+    expect_ieee: Eui64 | None = None,
+    guard: Guard | None = None,
 ) -> WriteAttributesResponse:
     result = await zcl_request(
         core,
@@ -306,6 +330,8 @@ async def zcl_write(
         command=WriteAttributes(tuple(records)),
         response_command=ZclCommandId.WRITE_ATTRIBUTES_RESPONSE,
         on_default_success=WriteAttributesResponse((WriteAttributeStatus(ZclStatus.SUCCESS),)),
+        expect_ieee=expect_ieee,
+        guard=guard,
     )
     if not isinstance(result, WriteAttributesResponse):  # pragma: no cover - envelope command
         raise TypeError(f"unexpected {type(result).__name__}")

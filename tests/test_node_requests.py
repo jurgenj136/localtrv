@@ -243,11 +243,8 @@ async def test_report_with_pending_tsn_never_resolves_it() -> None:
         await r.clock.advance(0)
         assert not task.done()
         (event,) = events
-        assert (event.src_short, event.src_ieee, event.cluster) == (
-            valve.short,
-            valve.eui,
-            THERMOSTAT,
-        )
+        # The walk taught the node the valve's EUI, but only a NWK header IEEE is ``src_ieee``.
+        assert (event.src_short, event.src_ieee, event.cluster) == (valve.short, None, THERMOSTAT)
         assert event.records[0].attribute_id == LOCAL_TEMPERATURE
         assert r.node.stats.reports == 1
         await r.clock.run_task(task)

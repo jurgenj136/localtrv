@@ -72,7 +72,14 @@ _THERMOSTAT: Final = 0x0201
 
 
 def data_npdu(
-    *, dst: int, src: int, seq: int, aps: ApsDataFrame, variant: FrameVariant, relay: int
+    *,
+    dst: int,
+    src: int,
+    seq: int,
+    aps: ApsDataFrame,
+    variant: FrameVariant,
+    relay: int,
+    src_ieee: Eui64 | None = None,
 ) -> bytes:
     """A data frame from the mesh in one of the three quirk variants (relay = ZDD short)."""
     payload = aps.encode()
@@ -90,6 +97,7 @@ def data_npdu(
         payload=payload,
         security=True,
         source_route=source_route,
+        src_ieee=src_ieee,
     ).encode()
 
 

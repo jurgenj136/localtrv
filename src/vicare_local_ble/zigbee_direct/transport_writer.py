@@ -4,6 +4,10 @@ One task per session consumes a FIFO of ``(TunnelNpdu, future)``. It owns the ou
 counter: frames reach the GATT layer strictly in counter order and never overlap. Any failure
 (write exception, timeout, ``CounterExhaustedError``, or a cancel while a write is in flight)
 marks the writer ``broken``; the counter is then in doubt and the session must be replaced.
+
+A frame may carry a ``check`` callable, run when the frame is dequeued, right before encryption.
+If it raises, the frame is withdrawn: its sender gets that exception, no counter is spent and
+the writer goes on with the next frame (a check failure never breaks the writer).
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ _LOGGER = logging.getLogger("vicare_local_ble.zigbee_direct.transport")
 class _Outgoing:
     npdu: TunnelNpdu
     future: asyncio.Future[None]
+    check: Callable[[], None] | None = None
 
 
 def _fail_future(future: asyncio.Future[None], error: TransportError) -> None:
@@ -98,10 +103,13 @@ class TunnelWriter:
             self._run(), name="zigbee-direct-tunnel-writer"
         )
 
-    def submit(self, npdu: TunnelNpdu) -> asyncio.Future[None]:
-        """Queue ``npdu``; the caller awaits the returned future (and may abandon it)."""
+    def submit(
+        self, npdu: TunnelNpdu, check: Callable[[], None] | None = None
+    ) -> asyncio.Future[None]:
+        """Queue ``npdu``; the caller awaits the returned future (and may abandon it).
+        ``check`` runs at dequeue (module docstring)."""
         future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        self._queue.put_nowait(_Outgoing(npdu, future))
+        self._queue.put_nowait(_Outgoing(npdu, future, check))
         return future
 
     async def stop(self) -> None:
@@ -119,6 +127,8 @@ class TunnelWriter:
             while True:
                 item = await self._queue.get()
                 if item.future.done():  # abandoned while queued: no counter spent
+                    continue
+                if not self._still_wanted(item):  # withdrawn: no counter spent
                     continue
                 self._current = item
                 error = await self._write(item)
@@ -157,6 +167,18 @@ class TunnelWriter:
                 )
             return gatt_failure(exc, "tunnel write")
         return None
+
+    @staticmethod
+    def _still_wanted(item: _Outgoing) -> bool:
+        if item.check is None:
+            return True
+        try:
+            item.check()
+        except Exception as exc:
+            _LOGGER.debug("tunnel frame withdrawn before its write: %s", type(exc).__name__)
+            item.future.set_exception(exc)
+            return False
+        return True
 
     def _record(self, npdu: TunnelNpdu) -> None:
         if self._recorder is None:

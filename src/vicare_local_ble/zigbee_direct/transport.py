@@ -350,8 +350,14 @@ class ZigbeeDirectTransport:
         self._check_counter_model()
         return CommissioningStatus.decode(plaintext)
 
-    async def send_npdu(self, npdu: bytes, *, secure: bool = True) -> None:
+    async def send_npdu(
+        self, npdu: bytes, *, secure: bool = True, check: Callable[[], None] | None = None
+    ) -> None:
         """Queue one NPDU for the writer and wait until its GATT write completed.
+
+        ``check`` runs when the writer dequeues the frame, right before encryption; if it
+        raises, the frame is not sent and that exception is raised here (the transport and
+        its counters are unaffected).
 
         ``secure`` is the tunnel flag (NWK security requested); only the Commissioning Request
         uses ``secure=False``. Raises ``TransportError(reason="closed")`` if the transport is
@@ -362,7 +368,7 @@ class ZigbeeDirectTransport:
         writer = self._writer
         if writer is None or self._closed or writer.broken:
             raise TransportError("transport is not open", reason="closed")
-        await writer.submit(TunnelNpdu(bytes(npdu), secure))
+        await writer.submit(TunnelNpdu(bytes(npdu), secure), check)
 
     def set_npdu_handler(self, handler: NpduHandler) -> None:
         """Install the single ingress handler (the node's dispatcher); replaces any previous one.

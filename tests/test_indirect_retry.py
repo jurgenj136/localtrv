@@ -365,7 +365,7 @@ async def test_resend_that_fails_to_send_is_not_counted(monkeypatch: pytest.Monk
         await r.clock.advance(1.0)  # status at 0.5, now inside the retry delay
         core = r.node._core
 
-        async def broken(npdu: bytes) -> None:
+        async def broken(npdu: bytes, check: object = None) -> None:
             raise ConnectionLostError("write failed")
 
         monkeypatch.setattr(core, "send_secure", broken)

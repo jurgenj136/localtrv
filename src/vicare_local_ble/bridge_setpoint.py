@@ -18,7 +18,12 @@ from typing import TYPE_CHECKING
 
 from vicare_local_ble import valves
 from vicare_local_ble.bridge_poll import NO_RESPONSE, StaleGenerationError, read
-from vicare_local_ble.bridge_types import SETPOINT_ACK_DEADLINE, SETPOINT_TOTAL_DEADLINE
+from vicare_local_ble.bridge_types import (
+    SETPOINT_ACK_DEADLINE,
+    SETPOINT_TOTAL_DEADLINE,
+    ValveAddressUnknownError,
+)
+from vicare_local_ble.bridge_verify import verify_address
 from vicare_local_ble.zigbee_direct.codec.zcl import ZclStatus
 from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, ZclStatusError
 
@@ -68,14 +73,25 @@ async def set_setpoint(core: BridgeCore, eui: Eui64, celsius: float) -> Setpoint
             gen = core.connection.current  # a reconnect may have happened while waiting
             if gen is None:
                 raise ConnectionLostError("not connected")
-            target = core.valves[eui]  # the short may have changed while waiting
+            # Verified write: the device at the valve's short (which may have changed while
+            # waiting) must name itself in an IEEE_addr response first, inside the ack
+            # deadline. Otherwise ``ValveAddressUnknownError`` (a ``RouteError``), nothing
+            # written. The lease chains from the verification and is checked before queueing
+            # and at transmission of every attempt, and on the acknowledgement.
+            short = core.valves[eui].short
+            lease = None if core.owner.evicted(eui) else await verify_address(core, gen, eui, short)
+            if lease is None:
+                raise ValveAddressUnknownError(short)
             rsp = await gen.node.zcl_write(
-                target.short,
-                target.endpoint,
+                lease.short,
+                core.valves[eui].endpoint,
                 valves.A_SETPOINT.cluster,
                 (record,),
                 manufacturer=valves.A_SETPOINT.manufacturer,
+                expect_ieee=eui,
+                guard=lambda: core.owner.check(lease),
             )
+        core.owner.check(lease)  # an ack from a short that changed owner is not ours
         if not rsp.success:
             bad = next(r for r in rsp.records if r.status)
             raise ZclStatusError(bad.status, attribute_id=bad.attribute_id)

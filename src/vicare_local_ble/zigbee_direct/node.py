@@ -149,12 +149,16 @@ class ZigbeeDirectNode:
         *,
         profile: int = HA_PROFILE_ID,
         manufacturer: int | None = None,
+        expect_ieee: Eui64 | None = None,
+        guard: Callable[[], None] | None = None,
     ) -> tuple[ReadAttributeStatus, ...]:
         """Read Attributes in one frame (no splitting: callers keep requests small).
 
         Returns the response records in wire order, including non-success statuses.
         ``manufacturer`` sets the ZCL MS bit and code (manufacturer-specific attributes need
-        their own request).
+        their own request). ``expect_ieee``: a response whose NWK header names another source
+        IEEE does not resolve the request. ``guard`` runs before every attempt (retransmits
+        too); an exception it raises fails the request without sending that attempt.
         """
         return await node_requests.zcl_read(
             self._core,
@@ -164,6 +168,8 @@ class ZigbeeDirectNode:
             attrs=attrs,
             profile=profile,
             manufacturer=manufacturer,
+            expect_ieee=expect_ieee,
+            guard=guard,
         )
 
     async def zcl_write(
@@ -175,12 +181,14 @@ class ZigbeeDirectNode:
         *,
         profile: int = HA_PROFILE_ID,
         manufacturer: int | None = None,
+        expect_ieee: Eui64 | None = None,
+        guard: Callable[[], None] | None = None,
     ) -> WriteAttributesResponse:
         """Write Attributes; returns the response (per-record failures are not raised;
         callers check ``.success``). A Default Response for the write with status SUCCESS
         (0x00) returns ``WriteAttributesResponse((WriteAttributeStatus(0x00),))``, the value an
         all-success ``04 00`` response decodes to; any other status raises
-        ``ZclStatusError(status)``."""
+        ``ZclStatusError(status)``. ``expect_ieee``/``guard``: as for ``zcl_read``."""
         return await node_requests.zcl_write(
             self._core,
             dst=dst,
@@ -189,6 +197,8 @@ class ZigbeeDirectNode:
             records=records,
             profile=profile,
             manufacturer=manufacturer,
+            expect_ieee=expect_ieee,
+            guard=guard,
         )
 
     async def send_mtorr(self) -> None:
@@ -202,6 +212,11 @@ class ZigbeeDirectNode:
     def on_device_annce(self, cb: Callable[[DeviceAnnce, int], None]) -> Unsubscribe:
         """``cb(annce, nwk_src_short)`` for every Device_annce in the tunnel (ours excluded)."""
         return self._core.on_device_annce(cb)
+
+    def on_sender(self, cb: Callable[[int, Eui64], None]) -> Unsubscribe:
+        """``cb(src_short, src_ieee)`` for every frame whose NWK header names its source IEEE
+        (ours excluded), before the frame is processed: authoritative address evidence."""
+        return self._core.on_sender(cb)
 
     def on_address_conflict(self, cb: Callable[[], None]) -> Unsubscribe:
         """``cb()`` synchronously from ingress for every Network Status 0x0D frame naming our

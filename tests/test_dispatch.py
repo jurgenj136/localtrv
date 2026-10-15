@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -32,6 +33,9 @@ from vicare_local_ble.zigbee_direct.requests import (
     ZclResponse,
 )
 from vicare_local_ble.zigbee_direct.routing import NeighborTable
+
+if TYPE_CHECKING:
+    from vicare_local_ble.zigbee_direct.types import Eui64
 
 LOGGER = "vicare_local_ble.zigbee_direct.node"
 
@@ -62,6 +66,7 @@ class Host:
         self.reports: list[ReportEvent] = []
         self.annces: list[tuple[DeviceAnnce, int]] = []
         self.acks: list[tuple[int, ApsDataFrame]] = []
+        self.senders: list[tuple[int, Eui64]] = []
         self.raise_on_report = False
 
     def emit_report(self, event: ReportEvent) -> None:
@@ -74,6 +79,9 @@ class Host:
 
     def ack_aps(self, src_short: int, aps: ApsDataFrame) -> None:
         self.acks.append((src_short, aps))
+
+    def emit_sender(self, src_short: int, src_ieee: Eui64) -> None:
+        self.senders.append((src_short, src_ieee))
 
 
 def setup(current_short: int | None = g.ZVD_SHORT) -> tuple[Host, Dispatcher]:
@@ -127,13 +135,15 @@ async def test_golden_default_response_and_mgmt_lqi() -> None:
 
 async def test_golden_report_and_unmatched() -> None:
     host, dispatcher = setup()
+    # A neighbor-table entry is not proof of who sent the frame (it may be stale): only an
+    # IEEE in the NWK header becomes ``src_ieee``.
     host.neighbors.note(g.VALVE_SHORT, g.VALVE_EUI)
     pending = host.pending.register(read_envelope(0x2F))  # same TSN as the report
     feed(dispatcher, g.ZCL_REPORT)
     (event,) = host.reports
     assert event == ReportEvent(
         src_short=g.VALVE_SHORT,
-        src_ieee=g.VALVE_EUI,
+        src_ieee=None,
         endpoint=1,
         cluster=0x0201,
         manufacturer_code=None,

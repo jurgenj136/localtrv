@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from vicare_local_ble import valves
 from vicare_local_ble.bridge_cache import BridgeCache, CachedValve
+from vicare_local_ble.bridge_owner import Ownership
 from vicare_local_ble.bridge_types import (
     IDENTIFY_CONCURRENCY,
     MISSES_UNAVAILABLE,
@@ -135,6 +136,11 @@ class BridgeCore:
             valve = entry.to_valve()
             self.valves[valve.eui] = valve
         self.ignored: set[str] = set(cache.ignored)
+        #: Short ownership (``bridge_owner``); restored shorts are trusted. The two
+        #: aliases below are the owner's own containers.
+        self.owner = Ownership(self.valves, clock)
+        self.unaddressed = self.owner.unaddressed
+        self.short_seen = self.owner.short_seen
         self.states: dict[Eui64, ValveState] = {eui: valves.ValveState() for eui in self.valves}
         self.available: dict[Eui64, bool] = dict.fromkeys(self.valves, False)
         self.misses: dict[Eui64, int] = dict.fromkeys(self.valves, 0)
@@ -156,10 +162,13 @@ class BridgeCore:
         self.last_silent_rejoin: float | None = None
         #: Basic-read timeouts per unknown EUI (diagnostic Active_EP/Simple_Desc trigger).
         self.basic_timeouts: dict[Eui64, int] = {}
-        #: Per generation: Device_annce senders scheduled for identification, and the latest
+        #: Per generation: Device_annce senders with an identification scheduled or running
+        #: (removed when it ends, so a later announcement retries), and the latest
         #: short each unknown sender announced with the clock time it was learned.
         self.annce_seen: set[Eui64] = set()
         self.annce_short: dict[Eui64, tuple[int, float]] = {}
+        #: Per generation: earliest time a failed sender may be identified again.
+        self.annce_retry_at: dict[Eui64, float] = {}
         self.identify_sem = asyncio.Semaphore(IDENTIFY_CONCURRENCY)
         self.logged_issues: set[tuple[Eui64, int, int]] = set()
         self.demand_warned: set[Eui64] = set()
@@ -175,6 +184,7 @@ class BridgeCore:
         self.walking = False
         self.annce_seen = set()
         self.annce_short = {}
+        self.annce_retry_at = {}
         self.identify_sem = asyncio.Semaphore(IDENTIFY_CONCURRENCY)
 
     def is_current(self, gen: Generation) -> bool:
@@ -259,7 +269,9 @@ class BridgeCore:
 
     # --- valves ---
 
-    def add_valve(self, valve: Valve) -> None:
+    def add_valve(self, valve: Valve, *, learned_at: float) -> None:
+        """Add an identified valve, its short learned at ``learned_at`` (the caller checked
+        that no other EUI was seen at it since)."""
         eui = valve.eui
         self.valves[eui] = valve
         self.states.setdefault(eui, valves.ValveState())
@@ -268,10 +280,14 @@ class BridgeCore:
         self.setpoints.setdefault(eui, SetpointStatus())
         self.tx.setdefault(eui, ValveTx())
         self.ignored.discard(str(eui))
+        self.short_at[eui] = learned_at
+        self.owner.claim(eui, valve.short, learned_at)
 
     def set_short(self, eui: Eui64, short: int) -> bool:
         """Adopt a short learned now; True if it changed."""
-        self.short_at[eui] = self.clock.now()
+        now = self.clock.now()
+        self.short_at[eui] = now
+        self.owner.claim(eui, short, now)
         valve = self.valves[eui]
         if valve.short == short:
             return False
@@ -282,13 +298,10 @@ class BridgeCore:
     def eui_for_short(self, short: int, ieee: Eui64 | None = None) -> Eui64 | None:
         """The valve a frame came from. An explicit ``ieee`` is authoritative: an unknown one
         yields ``None`` even if a known valve used to have ``short`` (short reuse). The short
-        lookup is the fallback only when no IEEE is present."""
+        lookup is the fallback only when no IEEE is present; unaddressed valves never match."""
         if ieee is not None:
             return ieee if ieee in self.valves else None
-        for eui, valve in self.valves.items():
-            if valve.short == short:
-                return eui
-        return None
+        return self.owner.owner(short)
 
     def apply(
         self,
@@ -359,21 +372,24 @@ class BridgeCore:
             )
         return count == MISSES_UNAVAILABLE
 
-    def set_topology(self, topology: Topology, *, started: float) -> None:
-        """Adopt a walk result: refresh known valve shorts and the summary.
+    def set_topology(self, topology: Topology, *, started: float) -> list[tuple[Eui64, int]]:
+        """Store a walk result and refresh the summary; return its hints.
 
-        A short learned at or after ``started`` (when the walk began, e.g. from a
-        Device_annce) is fresher than the walk's and is kept."""
+        A walk is hearsay (router tables may be stale): it never moves or evicts ownership.
+        A hint ``(valve, short)`` is returned for a known valve listed at another short than
+        cached (unless its short was learned after the walk ``started``) and for an
+        unaddressed valve; ``bridge_verify.adopt_walk`` confirms each with IEEE_addr_req."""
         self.topology = topology
         self.walked_at = self.clock.now()
+        hints: list[tuple[Eui64, int]] = []
         for eui, neighbor in topology.neighbors.items():
             if eui not in self.valves:
                 continue
-            learned = self.short_at.get(eui)
-            if learned is not None and learned >= started:
-                continue
-            self.set_short(eui, neighbor.nwk_addr)
+            moved = neighbor.nwk_addr != self.valves[eui].short
+            if eui in self.unaddressed or (moved and not self._fresh_since(eui, started)):
+                hints.append((eui, neighbor.nwk_addr))
         self.summarize()
+        return hints
 
     def summarize(self) -> None:
         """Rebuild ``discovery.topology`` (``parent_of`` covers the valves known now)."""
@@ -389,6 +405,10 @@ class BridgeCore:
             walked_at=self.walked_at,
         )
         self.discovery = dataclasses.replace(self.discovery, topology=summary)
+
+    def _fresh_since(self, eui: Eui64, started: float) -> bool:
+        learned = self.short_at.get(eui)
+        return learned is not None and learned >= started
 
 
 __all__ = ["BridgeCore", "TxLock", "ValveTx"]

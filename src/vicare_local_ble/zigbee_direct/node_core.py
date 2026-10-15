@@ -79,6 +79,7 @@ class NodeCore:
         self._report_listeners: list[Callable[[ReportEvent], None]] = []
         self._annce_listeners: list[Callable[[DeviceAnnce, int], None]] = []
         self._conflict_listeners: list[Callable[[], None]] = []
+        self._sender_listeners: list[Callable[[int, Eui64], None]] = []
         self._dst_locks: dict[int, asyncio.Lock] = {}
         self.in_flight = asyncio.Semaphore(config.max_in_flight)
         self._closed = False
@@ -145,15 +146,18 @@ class NodeCore:
     def closed(self) -> bool:
         return self._closed
 
-    async def send_secure(self, npdu: bytes) -> None:
-        await self.send(npdu, secure=True)
+    async def send_secure(self, npdu: bytes, check: Callable[[], None] | None = None) -> None:
+        await self.send(npdu, secure=True, check=check)
 
-    async def send(self, npdu: bytes, *, secure: bool) -> None:
+    async def send(
+        self, npdu: bytes, *, secure: bool, check: Callable[[], None] | None = None
+    ) -> None:
         """``transport.send_npdu``; ``ConnectionLostError`` (``TransportError`` chained) if the
-        node is closed or the write failed."""
+        node is closed or the write failed. A raising ``check`` (run at transmission) withdraws
+        the frame and its exception propagates."""
         self.check_open()
         try:
-            await self.transport.send_npdu(npdu, secure=secure)
+            await self.transport.send_npdu(npdu, secure=secure, check=check)
         except TransportError as exc:
             raise ConnectionLostError(f"transport failed ({exc.reason})") from exc
 
@@ -195,6 +199,13 @@ class NodeCore:
             except Exception:
                 _LOGGER.exception("report listener raised")
 
+    def emit_sender(self, src_short: int, src_ieee: Eui64) -> None:
+        for cb in tuple(self._sender_listeners):
+            try:
+                cb(src_short, src_ieee)
+            except Exception:
+                _LOGGER.exception("sender listener raised")
+
     def emit_device_annce(self, annce: DeviceAnnce, src_short: int) -> None:
         for cb in tuple(self._annce_listeners):
             try:
@@ -225,6 +236,9 @@ class NodeCore:
 
     def on_address_conflict(self, cb: Callable[[], None]) -> Callable[[], None]:
         return self._subscribe(self._conflict_listeners, cb)
+
+    def on_sender(self, cb: Callable[[int, Eui64], None]) -> Callable[[], None]:
+        return self._subscribe(self._sender_listeners, cb)
 
     def _subscribe[T](self, listeners: list[T], cb: T) -> Callable[[], None]:
         self.check_open()
@@ -268,6 +282,7 @@ class NodeCore:
         self._report_listeners.clear()
         self._annce_listeners.clear()
         self._conflict_listeners.clear()
+        self._sender_listeners.clear()
         _LOGGER.debug("node closed (%d pending failed)", len(self._pending))
 
     @property

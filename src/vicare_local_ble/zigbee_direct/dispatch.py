@@ -8,7 +8,9 @@ never raises (every exception is caught, counted in ``decode_errors`` and logged
 Per NPDU (spec §1.3 "Ingress dispatch"):
 
 1. ``NwkFrame.decode`` (strips multicast and source-route data); error -> ``decode_errors``.
-   A ``src_ieee`` in the header is noted in ``host.neighbors``.
+   A ``src_ieee`` in the header is noted in ``host.neighbors`` and, unless the frame is
+   our own, emitted (``host.emit_sender``) before the frame is processed. A response whose
+   ``src_ieee`` differs from its envelope's ``expect_ieee`` resolves nothing (unmatched).
 2. Command frames (``decode_nwk_command``). First the address filter: a command frame whose NWK
    dst is not ``host.current_short``, not the active join token's placeholder
    (``host.join_slot.active``) and not a broadcast (>= 0xFFF8) is dropped (DEBUG). Then:
@@ -159,6 +161,10 @@ class DispatchHost(Protocol):
         """Call every ``on_device_annce`` listener with the annce and its NWK src short."""
         ...
 
+    def emit_sender(self, src_short: int, src_ieee: Eui64) -> None:
+        """Call every ``on_sender`` listener (a NWK header named its source IEEE)."""
+        ...
+
     def ack_aps(self, src_short: int, aps: ApsDataFrame) -> None:
         """Schedule the APS ack of ``aps`` to ``src_short`` (``node_acks.ApsAcker``); never
         awaits, never raises."""
@@ -193,6 +199,8 @@ class Dispatcher:
             return
         if frame.src_ieee is not None:
             host.neighbors.note(frame.src, frame.src_ieee)
+            if frame.src != host.current_short:
+                host.emit_sender(frame.src, frame.src_ieee)
         if frame.frame_type is NwkFrameType.COMMAND:
             self._command(frame)
         elif frame.frame_type is NwkFrameType.DATA:
@@ -300,7 +308,11 @@ class Dispatcher:
             return
         key: PendingKey = (frame.src, "zdo", response.seq)
         pending = host.pending.get(key)
-        if pending is not None and pending.envelope.match_zdo(frame.src, aps, response):
+        if (
+            pending is not None
+            and pending.envelope.sender_ok(frame.src_ieee)
+            and pending.envelope.match_zdo(frame.src, aps, response)
+        ):
             host.pending.resolve(key, response)
             _LOGGER.debug("ZDO 0x%04X seq %d from 0x%04X resolved", cluster, key[2], frame.src)
             return
@@ -328,7 +340,7 @@ class Dispatcher:
             return
         key: PendingKey = (frame.src, "zcl", header.tsn)
         pending = host.pending.get(key)
-        if pending is not None:
+        if pending is not None and pending.envelope.sender_ok(frame.src_ieee):
             verdict = pending.envelope.match_zcl(frame.src, aps, zcl)
             if verdict is not EnvelopeMatch.NO_MATCH:
                 if verdict is EnvelopeMatch.MATCH_MFR_HEADER_MISSING:
@@ -342,10 +354,9 @@ class Dispatcher:
         self, frame: NwkFrame, aps: ApsDataFrame, zcl: ZclFrame, command: ReportAttributes
     ) -> None:
         host = self._host
-        src_ieee = frame.src_ieee or host.neighbors.ieee_for(frame.src)
         event = ReportEvent(
             src_short=frame.src,
-            src_ieee=src_ieee,
+            src_ieee=frame.src_ieee,
             endpoint=aps.src_endpoint,
             cluster=aps.cluster_id,
             manufacturer_code=zcl.header.manufacturer_code,
@@ -381,7 +392,7 @@ class Dispatcher:
     def _fallback(self, frame: NwkFrame) -> None:
         host = self._host
         for pending in host.pending.for_src(frame.src):
-            if self._scan(frame, pending):
+            if pending.envelope.sender_ok(frame.src_ieee) and self._scan(frame, pending):
                 return
         host.stats.decode_errors += 1
         _LOGGER.debug(

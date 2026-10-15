@@ -14,6 +14,7 @@ import pytest
 from test_bridge import (
     BRig,
     discovered,
+    hardware_latency,
     make_rig,
     poll,
     ready_again,
@@ -110,7 +111,7 @@ async def test_walking_flag_resets_after_a_cancelled_walk() -> None:
 
 @pytest.mark.parametrize("seed", range(10))
 async def test_setpoint_during_slow_static_poll_succeeds(seed: int) -> None:
-    r = make_rig(n_valves=1, behind_router=0, seed=seed)
+    r = make_rig(n_valves=1, behind_router=0, seed=seed, setup=hardware_latency)
     await discovered(r)
     eui = r.euis()[0]
     r.core.polls = valves.SLOW_EVERY_N_POLLS  # this poll is a SLOW one ...
@@ -165,10 +166,12 @@ async def test_walk_keeps_a_fresher_annce_short() -> None:
     r.inst.network.valve_rejoin(sim, 0x4321)
     await r.clock.advance(0)
     assert r.snap().valves[sim.eui].short == 0x4321
-    r.core.set_topology(old, started=started)  # a walk that began before the annce
+    assert r.core.set_topology(old, started=started) == []  # began before the annce: no hint
     assert r.core.valves[sim.eui].short == 0x4321
-    r.core.set_topology(old, started=r.clock.now() + 1)  # a walk that began after it
-    assert r.core.valves[sim.eui].short == old.neighbors[sim.eui].nwk_addr
+    # A walk that began after it is a hint only (round 5): verified before adoption.
+    stale = old.neighbors[sim.eui].nwk_addr
+    assert r.core.set_topology(old, started=r.clock.now() + 1) == [(sim.eui, stale)]
+    assert r.core.valves[sim.eui].short == 0x4321
     await stop(r)
 
 
@@ -244,12 +247,13 @@ async def test_incomplete_identification_is_retried_not_ignored() -> None:
 
 
 async def test_older_ack_survives_newer_failure() -> None:
-    r = make_rig(n_valves=1, behind_router=0)
+    r = make_rig(n_valves=1, behind_router=0, setup=hardware_latency)
     await discovered(r)
     eui = r.euis()[0]
     sim = r.inst.valves[0]
     a = asyncio.ensure_future(r.bridge.set_setpoint(eui, 20.0))
-    await r.clock.advance(1)  # A's write reached the valve
+    await run_until(r.clock, lambda: any(isinstance(q, tuple) for _, q in zcl_requests(r)))
+    await r.clock.advance(0)  # A's write reached the valve (after its verification)
     sim.queue_default_response(0x02, 0x87)  # the next request (B's write) fails
     b = asyncio.ensure_future(r.bridge.set_setpoint(eui, 23.0))
     await run_until(r.clock, lambda: a.done() and b.done())

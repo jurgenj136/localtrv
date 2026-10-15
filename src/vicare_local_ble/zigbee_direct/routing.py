@@ -100,7 +100,7 @@ _LOGGER = logging.getLogger("vicare_local_ble.zigbee_direct.node")
 
 
 class NeighborTable:
-    """Short <-> EUI knowledge of the node, for RREP originator EUIs and ``ReportEvent.src_ieee``.
+    """Short <-> EUI knowledge of the node, for RREP originator EUIs.
 
     Fed by ``note_neighbors`` (Mgmt_Lqi records via ``walk_topology``), Device_annce and NWK
     headers carrying a src IEEE (``note``). The latest observation wins in both directions.

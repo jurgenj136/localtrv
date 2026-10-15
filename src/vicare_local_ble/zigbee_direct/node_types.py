@@ -170,7 +170,9 @@ class JoinInfo:
 class ReportEvent:
     """One ZCL Report Attributes frame received from a device.
 
-    ``src_ieee`` comes from the NWK header or the node's neighbor table, else ``None``.
+    ``src_ieee`` is the NWK header's source IEEE, else ``None``. Never taken from the neighbor
+    table: an entry there can be stale (a walk result), and consumers treat ``src_ieee`` as
+    proof that the device is at ``src_short``.
     ``manufacturer_code`` is the ZCL header's code (``None`` for a standard frame).
     """
 
