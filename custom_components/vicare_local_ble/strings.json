@@ -127,7 +127,10 @@
       "message": "The ubisys R0 is not reachable over Bluetooth. {diagnostics}"
     },
     "write_failed": {
-      "message": "Could not set the temperature on {valve}. The valve did not acknowledge the write."
+      "message": "Could not set the temperature on {valve}. The valve did not confirm the change."
+    },
+    "address_unverified": {
+      "message": "Could not set the temperature on {valve}. The valve could not be reached to confirm its address, so nothing was sent. Try again."
     },
     "invalid_temperature": {
       "message": "{temperature} is not a valid target temperature. Use a value between {min} and {max} °C."

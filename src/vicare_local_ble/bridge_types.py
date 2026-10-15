@@ -60,6 +60,15 @@ class ValveAddressUnknownError(RouteError):
         self.args = (f"valve address unknown: 0x{dst:04X} belongs to another valve",)
 
 
+class ValveAddressUnverifiedError(ValveAddressUnknownError):
+    """A setpoint's address check before the write failed (no IEEE_addr answer, or another
+    device answered): nothing was written. Only ``set_setpoint`` raises it, before the write."""
+
+    def __init__(self, dst: int) -> None:
+        super().__init__(dst)
+        self.args = (f"valve address not verified at 0x{dst:04X}; nothing written",)
+
+
 @dataclass(frozen=True, slots=True)
 class SetpointStatus:
     """Setpoint transaction state of one valve (spec §1.6 #7).
@@ -139,4 +148,5 @@ __all__ = [
     "SetpointStatus",
     "TopologySummary",
     "ValveAddressUnknownError",
+    "ValveAddressUnverifiedError",
 ]

@@ -115,6 +115,7 @@ from vicare_local_ble.bridge_types import (
     SetpointStatus,
     TopologySummary,
     ValveAddressUnknownError,
+    ValveAddressUnverifiedError,
 )
 
 if TYPE_CHECKING:
@@ -287,5 +288,6 @@ __all__ = [
     "SetpointStatus",
     "TopologySummary",
     "ValveAddressUnknownError",
+    "ValveAddressUnverifiedError",
     "ViCareBridge",
 ]

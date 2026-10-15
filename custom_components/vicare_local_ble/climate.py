@@ -25,6 +25,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from vicare_local_ble import valves
+from vicare_local_ble.bridge import ValveAddressUnverifiedError
 from vicare_local_ble.zigbee_direct.errors import (
     ConnectionLostError,
     RouteError,
@@ -173,6 +174,15 @@ class VicareClimate(VicareValveEntity, ClimateEntity):
             )
         try:
             await self.coordinator.bridge.set_setpoint(self.eui, float(temperature))
+        except ValveAddressUnverifiedError as err:
+            # The address check before the write failed (no answer, or another device):
+            # nothing was written. An ownership change after the write was sent is a plain
+            # RouteError below: the valve may have applied it.
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="address_unverified",
+                translation_placeholders={"valve": self.entity_id},
+            ) from err
         except (
             ZclStatusError,
             TimeoutError,

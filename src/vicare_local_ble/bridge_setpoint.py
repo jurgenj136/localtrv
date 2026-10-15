@@ -21,7 +21,7 @@ from vicare_local_ble.bridge_poll import NO_RESPONSE, StaleGenerationError, read
 from vicare_local_ble.bridge_types import (
     SETPOINT_ACK_DEADLINE,
     SETPOINT_TOTAL_DEADLINE,
-    ValveAddressUnknownError,
+    ValveAddressUnverifiedError,
 )
 from vicare_local_ble.bridge_verify import verify_address
 from vicare_local_ble.zigbee_direct.codec.zcl import ZclStatus
@@ -75,13 +75,13 @@ async def set_setpoint(core: BridgeCore, eui: Eui64, celsius: float) -> Setpoint
                 raise ConnectionLostError("not connected")
             # Verified write: the device at the valve's short (which may have changed while
             # waiting) must name itself in an IEEE_addr response first, inside the ack
-            # deadline. Otherwise ``ValveAddressUnknownError`` (a ``RouteError``), nothing
+            # deadline. Otherwise ``ValveAddressUnverifiedError`` (a ``RouteError``), nothing
             # written. The lease chains from the verification and is checked before queueing
             # and at transmission of every attempt, and on the acknowledgement.
             short = core.valves[eui].short
             lease = None if core.owner.evicted(eui) else await verify_address(core, gen, eui, short)
             if lease is None:
-                raise ValveAddressUnknownError(short)
+                raise ValveAddressUnverifiedError(short)
             rsp = await gen.node.zcl_write(
                 lease.short,
                 core.valves[eui].endpoint,

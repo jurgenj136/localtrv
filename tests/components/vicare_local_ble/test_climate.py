@@ -26,7 +26,7 @@ from homeassistant.helpers.event import EventStateChangedData, async_track_state
 
 from conftest import our_tasks
 from vicare_local_ble import valves
-from vicare_local_ble.bridge import ViCareBridge
+from vicare_local_ble.bridge import ValveAddressUnverifiedError, ViCareBridge
 from vicare_local_ble.testing import valve_table as vt
 from vicare_local_ble.zigbee_direct.codec.zcl import ZclCommandId, ZclStatus
 from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
@@ -197,6 +197,27 @@ async def test_timeout_reverts_and_raises(hass: HomeAssistant, sim: Sim) -> None
     assert status(coordinator, valve.eui).requested_c is None
 
 
+async def test_unverified_address_raises_its_own_error(hass: HomeAssistant, sim: Sim) -> None:
+    """Hardware 2026-10-15: the parent dropped both IEEE_addr_req attempts. Nothing was written,
+    so the message must not claim an unacknowledged write."""
+    coordinator = await loaded(sim)
+    valve = sim.inst.valves[0]
+    entity = entity_id(hass, "climate", valve.eui, "thermostat")
+    with (
+        patch.object(
+            ViCareBridge,
+            "set_setpoint",
+            AsyncMock(side_effect=ValveAddressUnverifiedError(valve.short)),
+        ),
+        pytest.raises(HomeAssistantError) as info,
+    ):
+        await sim.drive(_set(hass, entity, 24.0))
+    assert not isinstance(info.value, ServiceValidationError)
+    assert info.value.translation_key == "address_unverified"
+    assert _state(hass, entity).attributes[ATTR_TEMPERATURE] == 22.0
+    assert not status(coordinator, valve.eui).pending
+
+
 @pytest.mark.parametrize("failure", [RouteError(0x1234, 0x01), SequenceExhaustedError("full")])
 async def test_route_and_sequence_failures_revert_and_raise(
     hass: HomeAssistant, sim: Sim, failure: Exception
@@ -218,7 +239,9 @@ async def test_route_and_sequence_failures_revert_and_raise(
 async def test_real_route_failure_shows_optimistic_then_reverts(
     hass: HomeAssistant, sim: Sim
 ) -> None:
-    """Through the real bridge: a Network Status route error fails the in-flight write."""
+    """Through the real bridge: a Network Status route error fails the in-flight setpoint.
+
+    It lands on the address check that precedes every write, so nothing was written."""
     coordinator = await loaded(sim)
     valve = sim.inst.valves[0]
     entity = entity_id(hass, "climate", valve.eui, "thermostat")
@@ -241,7 +264,7 @@ async def test_real_route_failure_shows_optimistic_then_reverts(
         await sim.drive(call)
     unsub()
     assert not isinstance(info.value, ServiceValidationError)
-    assert info.value.translation_key == "write_failed"
+    assert info.value.translation_key == "address_unverified"
     assert isinstance(info.value.__cause__, RouteError)
     assert 25.0 in seen
     state = _state(hass, entity)

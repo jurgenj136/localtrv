@@ -139,10 +139,15 @@ The R0 device has:
 ### Setting a temperature
 
 - The thermostat shows your new target right away, while the valve is still asleep.
-- The call finishes when the valve acknowledges the write, usually within seconds and at most after
-  about 60 seconds.
-- If the valve does not acknowledge, the target goes back to the old value and you get the error
-  "Could not set the temperature on … The valve did not acknowledge the write."
+- Before writing, the integration checks that the device at the valve's network address really
+  is that valve. Only then does it send the new target.
+- The call finishes when the valve acknowledges the write: usually a few seconds. On a weak link
+  a dropped and resent request makes it longer (about 18 seconds in our tests); after 60 seconds
+  the call gives up.
+- If that fails, the target goes back to the old value and you get one of two errors:
+  - "… The valve could not be reached to confirm its address, so nothing was sent. Try again."
+  - "… The valve did not confirm the change." The valve may still have applied it; the
+    thermostat shows the right value after the next poll.
 - After the acknowledgement, the integration reads the target back in the background to confirm
   it. The call does not wait for that.
 - A change from Home Assistant acts like turning the valve by hand. In an earlier test (with a
