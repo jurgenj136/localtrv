@@ -412,3 +412,26 @@ async def test_resend_that_fails_to_send_is_not_counted(monkeypatch: pytest.Monk
             await task
         assert (r.node.stats.indirect_retries, r.node.stats.retransmits) == (0, 0)
         assert len(zcl_tsns(r)) == 1
+
+
+async def test_resends_are_logged_with_their_cause(caplog: pytest.LogCaptureFixture) -> None:
+    # Hardware 2026-10-15: a drop was followed by an answer with no visible resend line.
+    async with rig() as r:
+        valve = r.inst.valves[0]
+        r.inst.network.drop_indirect(valve.short)
+        tsn = r.core.allocators.tsn.peek()
+        with caplog.at_level("DEBUG", logger="vicare_local_ble.zigbee_direct.node"):
+            await r.clock.run_task(read(r))
+        assert f"zcl seq {tsn} to 0x{valve.short:04X}: attempt 1 sent (after a drop)" in (
+            caplog.text
+        )
+
+        valve.drop_rate = 1.0
+        caplog.clear()
+        with (
+            caplog.at_level("DEBUG", logger="vicare_local_ble.zigbee_direct.node"),
+            pytest.raises(RequestTimeoutError),
+        ):
+            await r.clock.run_task(read(r))
+        assert "attempt 1 sent (after a timeout)" in caplog.text
+        assert "attempt 0 sent" not in caplog.text

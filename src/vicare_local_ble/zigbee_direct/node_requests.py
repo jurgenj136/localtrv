@@ -142,6 +142,14 @@ async def _attempts(
                 core.stats.retransmits += 1
                 if resend_after_drop:
                     core.stats.indirect_retries += 1
+                _LOGGER.debug(
+                    "%s seq %d to 0x%04X: attempt %d sent (after a %s)",
+                    kind,
+                    seq,
+                    dst,
+                    attempt,
+                    "drop" if resend_after_drop else "timeout",
+                )
             with contextlib.suppress(TimeoutError):
                 async with core.clock.timeout(config.request_timeout):
                     await asyncio.wait(
