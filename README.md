@@ -5,12 +5,13 @@
 [![License: MIT](https://img.shields.io/github/license/jurgenj136/vicare-local-ble)](https://github.com/jurgenj136/vicare-local-ble/blob/main/LICENSE)
 [![CI](https://github.com/jurgenj136/vicare-local-ble/actions/workflows/ci.yml/badge.svg)](https://github.com/jurgenj136/vicare-local-ble/actions/workflows/ci.yml)
 
-Control your Viessmann ViCare radiator valves from Home Assistant, locally, through a ubisys R0.
+Control your Viessmann ViCare radiator valves from Home Assistant, locally, through a ubisys
+R0 **Series 2**. The Series 1 has no Bluetooth and cannot be used.
 
 <!-- screenshot: docs/images/climate-card.png (to be added) -->
 
 > [!WARNING]
-> **Alpha software.** It runs stable on one installation, but setting a temperature, a wrong
+> **Alpha software.** It runs stable on one installation, including setting a temperature. A wrong
 > network key and recovery after a restart of the R0 or proxy are not yet tested on real hardware.
 > Expect rough edges.
 
@@ -19,16 +20,16 @@ your own risk; no warranty.
 
 ## How it works
 
-The ubisys R0 is a Zigbee router that also speaks **Zigbee Direct**: a way to reach a Zigbee
-network over Bluetooth. Home Assistant connects to the R0 over Bluetooth and talks to your ViCare
-valves through it. Your ViCare gateway, app and schedules keep working as before.
+The ubisys R0 Series 2 is a Zigbee router that also speaks **Zigbee Direct**: a way to reach a
+Zigbee network over Bluetooth. Home Assistant connects to the R0 over Bluetooth and talks to your
+ViCare valves through it. Your ViCare gateway, app and schedules keep working as before.
 
 ## What you need
 
 | Component | Required | Tested with |
 |---|---|---|
 | Radiator valves | Viessmann ViCare ZK03840 | 8 valves, firmware `01.18.0008 02.06`, model id `7637434` |
-| Zigbee router | ubisys Router R0 Series 2, on the same Zigbee network as the valves | ubisys R0 Series 2 |
+| Zigbee router | ubisys Router R0 **Series 2** (Series 1 has no Bluetooth), on the same Zigbee network as the valves | ubisys R0 Series 2 |
 | ViCare gateway | the gateway that runs your ViCare Zigbee network | Vitoconnect OPTO2 |
 | Home Assistant | 2026.10.0 or newer | 2026.10.1 on Home Assistant OS |
 | Bluetooth | a local adapter or an ESPHome Bluetooth proxy in range of the R0 | ESP32-C3 ESPHome proxy |
@@ -207,8 +208,8 @@ the integration also puts the old value back.
 No. The R0 requires it. See [The network key](#the-network-key).
 
 **Does it work with other Zigbee routers?**
-Only the ubisys R0 Series 2 with Zigbee Direct is tested. Routers without Zigbee Direct cannot work.
-Other R0 versions are untested.
+Only the ubisys R0 Series 2 with Zigbee Direct is tested. The R0 Series 1 has no Bluetooth and
+cannot work, nor can other routers without Zigbee Direct.
 
 **Does it need the internet?**
 Only to install or update it (HACS and the Python package). After that everything stays local.
