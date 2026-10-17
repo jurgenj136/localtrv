@@ -76,9 +76,7 @@ Or by hand:
 1. In HACS, open the menu (three dots, top right) and choose **Custom repositories**.
 2. Add `https://github.com/jurgenj136/vicare-local-ble` with type **Integration**.
 3. Open **ViCare Local (Bluetooth via ubisys R0)**.
-4. If only a pre-release is available, enable pre-releases for this repository or pick the
-   version in the download dialog.
-5. Download it and restart Home Assistant.
+4. Download it and restart Home Assistant.
 
 ### Manual
 

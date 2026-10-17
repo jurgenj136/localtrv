@@ -16,6 +16,6 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/jurgenj136/vicare-local-ble/issues",
   "loggers": ["vicare_local_ble"],
-  "requirements": ["vicare-local-ble==0.1.0a2.dev2"],
-  "version": "0.1.0a2.dev2"
+  "requirements": ["vicare-local-ble==0.1.0"],
+  "version": "0.1.0"
 }
