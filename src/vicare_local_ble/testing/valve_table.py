@@ -1,7 +1,7 @@
 """Raw ZK03840 simulator fixture data (PN §4, §1.5), written independently of ``valves``.
 
 Values are raw wire values: centi-degrees, 0.5 % battery units, raw enums, quarter-seconds.
-Nothing here is imported from ``vicare_local_ble.valves`` (AGENTS.md layering exception), so
+Nothing here is imported from ``vicare_local_ble.valves`` (CONTRIBUTING.md layering), so
 a scaling or id bug there cannot pass tautologically against the simulator.
 """
 

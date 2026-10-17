@@ -4,9 +4,8 @@ String constants are full 128-bit lowercase UUIDs (usable with BLE stacks such a
 bleak); ``uuid_bytes`` gives the canonical 16-byte form used in the session-frame
 CCM AAD (handover section 3.3).
 
-Sources: research ``tools/zvd_client.py:45-50`` (Security, Tunnel, Commissioning
-Status) and ``docs/zigbee-direct-route.md:141`` (roles of commissioning
-characteristics 0001-0008).
+Sources: the research client (Security, Tunnel, Commissioning Status) and the research
+notes (roles of commissioning characteristics 0001-0008).
 """
 
 from __future__ import annotations
@@ -62,7 +61,7 @@ COMMISSIONING_PERMIT_JOINING: Final = "7072377d-0003-421c-b163-491c27333a61"
 COMMISSIONING_LEAVE_NETWORK: Final = "7072377d-0004-421c-b163-491c27333a61"
 #: Commissioning Status (read + notify).
 COMMISSIONING_STATUS: Final = "7072377d-0005-421c-b163-491c27333a61"
-# Roles of 0006-0008 come from research docs/zigbee-direct-route.md:141 (inferred, unused).
+# Roles of 0006-0008 come from the research notes (inferred, unused).
 COMMISSIONING_MANAGE_JOINERS: Final = "7072377d-0006-421c-b163-491c27333a61"
 COMMISSIONING_IDENTIFY: Final = "7072377d-0007-421c-b163-491c27333a61"
 COMMISSIONING_FINDING_BINDING: Final = "7072377d-0008-421c-b163-491c27333a61"

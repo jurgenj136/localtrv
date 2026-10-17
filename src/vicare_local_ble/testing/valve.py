@@ -1,7 +1,7 @@
 """Simulated ZK03840 valve: raw attribute table, ZCL semantics, sleepy timing (T9).
 
 Frozen interface (T2); implemented by T9. The attribute table here is simulator fixture data
-written independently of ``vicare_local_ble.valves`` (AGENTS.md layering exception), so a
+written independently of ``vicare_local_ble.valves`` (CONTRIBUTING.md layering), so a
 scaling or id bug in ``valves.py`` cannot pass tautologically. Values follow PN §4 (raw wire
 values: centi-degrees, 0.5 % battery units, raw enums).
 

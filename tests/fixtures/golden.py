@@ -1,4 +1,4 @@
-"""Golden wire fixtures, hand-written from docs/phase2-protocol-notes.md (PN) §1.1-1.6.
+"""Golden wire fixtures, hand-written from the phase-2 protocol notes (PN) §1.1-1.6.
 
 Rules (spec §1.7):
 - Written by hand from the PN byte layouts; NEVER produced by calling production encoders.

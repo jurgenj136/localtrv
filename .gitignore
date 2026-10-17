@@ -33,3 +33,9 @@ captures/
 .vscode/
 # Home Assistant dev config (spec 2.7)
 .ha-config/
+# Local-only notes and agent instructions (not published)
+AGENTS.md
+CLAUDE.md
+.claude/
+docs/*
+!docs/protocol.md

@@ -19,8 +19,6 @@ the code layout. User documentation lives in the [README](README.md).
   `asyncio.sleep`, `asyncio.timeout` or `loop.call_later` directly. Tests use `VirtualClock`.
 - Add a regression test with every bug fix when it fits.
 
-More detail for contributors and coding agents: [AGENTS.md](AGENTS.md).
-
 ## Development setup
 
 Python 3.14.2+ and [uv](https://docs.astral.sh/uv/). Integration tests use
@@ -113,18 +111,14 @@ src/vicare_local_ble/                  library (PyPI: vicare-local-ble)
 custom_components/vicare_local_ble/    Home Assistant integration (HACS)
 scripts/                 check_secrets.py, extract_npdu_fixtures.py
 tests/                   unit, simulator and HA tests
-docs/                    protocol, specs, hardware validation, release
+docs/protocol.md         protocol notes
 ```
 
 ## Docs
 
 - [docs/protocol.md](docs/protocol.md): protocol notes
-- [docs/spec-phase2-ha.md](docs/spec-phase2-ha.md): runtime and integration spec
-- [docs/hardware-validation.md](docs/hardware-validation.md): hardware checklist and status
-- [docs/release.md](docs/release.md): versioning and release process
 
 ## Releases
 
-Maintainer only. See [docs/release.md](docs/release.md). In short: `pyproject.toml`,
-`manifest.json` `version` and the manifest pin `vicare-local-ble==X.Y.Z` move in lockstep, and a
-`vX.Y.Z` tag runs `release.yml` (gate, build, PyPI trusted publishing, GitHub release).
+Maintainer only. `pyproject.toml`, `manifest.json` `version` and the manifest pin
+`vicare-local-ble==X.Y.Z` move in lockstep, and a `vX.Y.Z` tag runs `release.yml` (gate, build, PyPI trusted publishing, GitHub release).

@@ -11,7 +11,7 @@ R0 **Series 2**. The Series 1 has no Bluetooth and cannot be used.
 <!-- screenshot: docs/images/climate-card.png (to be added) -->
 
 > [!WARNING]
-> **Early release.** It runs stable on one installation. Expect rough edges.
+> **Early release.**
 
 Not affiliated with or endorsed by Viessmann or ubisys. ViCare is a trademark of Viessmann. Use at
 your own risk; no warranty.
@@ -187,7 +187,6 @@ The thermostat also has the attributes `setpoint_pending`, `setpoint_acknowledge
 - Window open is experimental and disabled by default.
 - The R0 accepts one Bluetooth client. While this integration runs, nothing else can connect to it.
 - Polling only. Changes made in ViCare or on the valve show up at the next poll.
-- Only tested with one installation (see [What you need](#what-you-need)).
 
 ## FAQ
 
@@ -285,7 +284,7 @@ The integration is built on the Python package
 [`vicare-local-ble`](https://pypi.org/project/vicare-local-ble/). It handles the Bluetooth
 connection, the Zigbee Direct session and the valve mapping, and includes a small CLI
 (`vicare-local-ble scan`, `vicare-local-ble status`). The API is not stable yet. Start with
-[CONTRIBUTING.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/CONTRIBUTING.md) for the layout and [docs/](https://github.com/jurgenj136/vicare-local-ble/tree/main/docs) for the details.
+[CONTRIBUTING.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/CONTRIBUTING.md) for the layout.
 
 ## Protocol documentation
 
