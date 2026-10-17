@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vicare-local-ble"
+name = "localtrv"
 version = "0.1.0"
-description = "Local Zigbee Direct (BLE) client for Viessmann ZK03840 radiator valves."
+description = "Local Bluetooth control for Viessmann ViCare radiator valves through a ubisys R0."
 readme = "README.md"
 requires-python = ">=3.14.2"
 license = "MIT"
@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.scripts]
-vicare-local-ble = "vicare_local_ble.cli:main"
+localtrv = "localtrv.cli:main"
 
 [dependency-groups]
 dev = [
@@ -46,12 +46,12 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vicare_local_ble"]
+packages = ["src/localtrv"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py314"
-src = ["src", "tests", "tests/components/vicare_local_ble"]
+src = ["src", "tests", "tests/components/localtrv"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "S", "C4", "PIE", "PT", "RET", "TC"]
@@ -74,7 +74,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=vicare_local_ble --cov-report=term-missing --cov-fail-under=90"
+addopts = "--cov=localtrv --cov-report=term-missing --cov-fail-under=90"
 
 [tool.coverage.run]
 branch = true

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from localtrv.testing import FakeGattError, FakeZdd
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.tlv import TunnelNpdu
+from localtrv.zigbee_direct.errors import AuthenticationError, ReplayError
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.zigbee_direct.uuids import TUNNEL_NPDU, TUNNEL_SERVICE
 from test_sim_gatt import RecordingPeer, Zvd, counter, make_r0
-from vicare_local_ble.testing import FakeGattError, FakeZdd
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
-from vicare_local_ble.zigbee_direct.errors import AuthenticationError, ReplayError
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
-from vicare_local_ble.zigbee_direct.uuids import TUNNEL_NPDU, TUNNEL_SERVICE
 
 
 async def test_tunnel_writes_reach_the_peer() -> None:

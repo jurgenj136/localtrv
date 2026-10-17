@@ -9,11 +9,11 @@ from __future__ import annotations
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
-from vicare_local_ble.zigbee_direct import crypto as zc
-from vicare_local_ble.zigbee_direct.errors import AuthenticationError, DecodeError, HandshakeError
-from vicare_local_ble.zigbee_direct.mmo import hmac_aes_mmo, mmo_hash
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
-from vicare_local_ble.zigbee_direct.uuids import COMMISSIONING_STATUS, TUNNEL_NPDU, uuid_bytes
+from localtrv.zigbee_direct import crypto as zc
+from localtrv.zigbee_direct.errors import AuthenticationError, DecodeError, HandshakeError
+from localtrv.zigbee_direct.mmo import hmac_aes_mmo, mmo_hash
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.zigbee_direct.uuids import COMMISSIONING_STATUS, TUNNEL_NPDU, uuid_bytes
 
 
 def unhex(s: str) -> bytes:

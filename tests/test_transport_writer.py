@@ -6,12 +6,12 @@ import asyncio
 
 import pytest
 
+from localtrv.testing import WriteFaultSpec
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.crypto import MAX_COUNTER
+from localtrv.zigbee_direct.errors import TransportError
+from localtrv.zigbee_direct.uuids import TUNNEL_NPDU
 from test_transport import opened
-from vicare_local_ble.testing import WriteFaultSpec
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.crypto import MAX_COUNTER
-from vicare_local_ble.zigbee_direct.errors import TransportError
-from vicare_local_ble.zigbee_direct.uuids import TUNNEL_NPDU
 
 
 class FatalSpy:

@@ -9,24 +9,24 @@ from typing import TYPE_CHECKING
 import pytest
 from bleak.exc import BleakCharacteristicNotFoundError
 
+from localtrv.testing.gatt_client import FakeBleakClient
+from localtrv.testing.scenario import default_installation
+from localtrv.zigbee_direct.connection import BACKOFF_JITTER, validate_connection
+from localtrv.zigbee_direct.connection_session import run_protected
+from localtrv.zigbee_direct.connection_supervisor import ConnectionCore
+from localtrv.zigbee_direct.errors import HandshakeRejectedError, TransportError
+from localtrv.zigbee_direct.uuids import COMMISSIONING_STATUS
 from test_connection import S, assert_no_tasks, make_rig, ready_again, run_until, start, stop
 from test_connection_faults import WRONG_KEY
 from test_connection_teardown import capture_fatal_handlers
-from vicare_local_ble.testing.gatt_client import FakeBleakClient
-from vicare_local_ble.testing.scenario import default_installation
-from vicare_local_ble.zigbee_direct.connection import BACKOFF_JITTER, validate_connection
-from vicare_local_ble.zigbee_direct.connection_session import run_protected
-from vicare_local_ble.zigbee_direct.connection_supervisor import ConnectionCore
-from vicare_local_ble.zigbee_direct.errors import HandshakeRejectedError, TransportError
-from vicare_local_ble.zigbee_direct.uuids import COMMISSIONING_STATUS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from localtrv.zigbee_direct.connection import ConnectionState
+    from localtrv.zigbee_direct.connection_session import Session
+    from localtrv.zigbee_direct.node_types import JoinInfo
     from test_connection import Rig
-    from vicare_local_ble.zigbee_direct.connection import ConnectionState
-    from vicare_local_ble.zigbee_direct.connection_session import Session
-    from vicare_local_ble.zigbee_direct.node_types import JoinInfo
 
 
 async def test_rejection_wins_over_disconnect_during_cleanup(

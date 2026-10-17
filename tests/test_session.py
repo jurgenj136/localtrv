@@ -10,17 +10,17 @@ from __future__ import annotations
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
-from vicare_local_ble.testing import FakeGattError, FakeZdd
-from vicare_local_ble.zigbee_direct import crypto as zc
-from vicare_local_ble.zigbee_direct.errors import (
+from localtrv.testing import FakeGattError, FakeZdd
+from localtrv.zigbee_direct import crypto as zc
+from localtrv.zigbee_direct.errors import (
     AuthenticationError,
     CounterExhaustedError,
     DecodeError,
     HandshakeError,
     ReplayError,
 )
-from vicare_local_ble.zigbee_direct.mmo import hmac_aes_mmo
-from vicare_local_ble.zigbee_direct.session import (
+from localtrv.zigbee_direct.mmo import hmac_aes_mmo
+from localtrv.zigbee_direct.session import (
     Established,
     HandshakeInitiator,
     HandshakeState,
@@ -28,8 +28,8 @@ from vicare_local_ble.zigbee_direct.session import (
     SessionCipher,
     encode_handshake_tlv,
 )
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
-from vicare_local_ble.zigbee_direct.uuids import (
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.zigbee_direct.uuids import (
     COMMISSIONING_SERVICE,
     COMMISSIONING_STATUS,
     TUNNEL_NPDU,
@@ -388,7 +388,7 @@ def test_counters_are_read_only() -> None:
 
 
 def test_unexpected_error_wrapped_and_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vicare_local_ble.zigbee_direct import session as session_mod
+    from localtrv.zigbee_direct import session as session_mod
 
     def boom(*_args: object) -> SecretBytes:
         raise ValueError("boom")

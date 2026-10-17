@@ -9,18 +9,18 @@ import logging
 
 import pytest
 
-from test_connection import make_rig, start, stop
-from vicare_local_ble.testing.gatt_services import status_value
-from vicare_local_ble.zigbee_direct.codec.commissioning import (
+from localtrv.testing.gatt_services import status_value
+from localtrv.zigbee_direct.codec.commissioning import (
     ChannelMask,
     CommissioningStatus,
     JoinedStatus,
     safe_status_layout,
 )
-from vicare_local_ble.zigbee_direct.codec.tlv import Tlv
-from vicare_local_ble.zigbee_direct.errors import CommissioningDecodeError
-from vicare_local_ble.zigbee_direct.node_types import NetworkSummary
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.zigbee_direct.codec.tlv import Tlv
+from localtrv.zigbee_direct.errors import CommissioningDecodeError
+from localtrv.zigbee_direct.node_types import NetworkSummary
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
+from test_connection import make_rig, start, stop
 
 ZDD_EUI = Eui64.from_str("02:00:00:00:00:00:00:02")
 EXT_PAN = Eui64.from_str("DD:DD:DD:DD:DD:DD:DD:01")

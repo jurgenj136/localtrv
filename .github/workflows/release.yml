@@ -24,13 +24,13 @@ jobs:
 
           tag = os.environ["TAG"].removeprefix("v")
           py = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
-          manifest = json.load(open("custom_components/vicare_local_ble/manifest.json"))
+          manifest = json.load(open("custom_components/localtrv/manifest.json"))
           problems = []
           if py != tag:
               problems.append(f"pyproject version {py} != tag {tag}")
           if manifest["version"] != tag:
               problems.append(f"manifest version {manifest['version']} != tag {tag}")
-          if manifest["requirements"] != [f"vicare-local-ble=={tag}"]:
+          if manifest["requirements"] != [f"localtrv=={tag}"]:
               problems.append(f"manifest requirements {manifest['requirements']} != pin {tag}")
           if problems:
               sys.exit("; ".join(problems))

@@ -18,32 +18,32 @@ from bleak.exc import (
     BleakGATTProtocolError,
 )
 
-from test_sim_gatt import AUTH, LINK_KEY, NETWORK_KEY, ZDD, ZVD, RecordingPeer, make_r0
-from vicare_local_ble.testing import FakeGattError, SimulatedR0
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.crypto import derive_basic_authorization_key
-from vicare_local_ble.zigbee_direct.errors import (
+from localtrv.testing import FakeGattError, SimulatedR0
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.crypto import derive_basic_authorization_key
+from localtrv.zigbee_direct.errors import (
     HandshakeRejectedError,
     TransportError,
 )
-from vicare_local_ble.zigbee_direct.transport import (
+from localtrv.zigbee_direct.transport import (
     MIN_RECOMMENDED_MTU,
     SessionInfo,
     ZigbeeDirectTransport,
     _att_error_code,
 )
-from vicare_local_ble.zigbee_direct.uuids import TUNNEL_NPDU
+from localtrv.zigbee_direct.uuids import TUNNEL_NPDU
+from test_sim_gatt import AUTH, LINK_KEY, NETWORK_KEY, ZDD, ZVD, RecordingPeer, make_r0
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from vicare_local_ble.testing import FakeBleakClient
-    from vicare_local_ble.zigbee_direct.debug import NpduRecorder
-    from vicare_local_ble.zigbee_direct.transport import GattServices, NotifyCallback
-    from vicare_local_ble.zigbee_direct.types import SecretBytes
+    from localtrv.testing import FakeBleakClient
+    from localtrv.zigbee_direct.debug import NpduRecorder
+    from localtrv.zigbee_direct.transport import GattServices, NotifyCallback
+    from localtrv.zigbee_direct.types import SecretBytes
 
 BAK = derive_basic_authorization_key(ZVD, NETWORK_KEY)
-LOGGER = "vicare_local_ble.zigbee_direct.transport"
+LOGGER = "localtrv.zigbee_direct.transport"
 
 
 class SpyClient:

@@ -9,14 +9,14 @@ import pytest
 from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bleak_retry_connector import BleakClientWithServiceCache
 
-from test_sim_gatt import AUTH, OTHER, RecordingPeer, Zvd, make_r0
-from vicare_local_ble.testing import FakeGattError, WriteFaultSpec, fake_connector
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.uuids import (
+from localtrv.testing import FakeGattError, WriteFaultSpec, fake_connector
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.uuids import (
     COMMISSIONING_FORM_NETWORK,
     COMMISSIONING_STATUS,
     TUNNEL_NPDU,
 )
+from test_sim_gatt import AUTH, OTHER, RecordingPeer, Zvd, make_r0
 
 # --- write faults ------------------------------------------------------------------------------
 

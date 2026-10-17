@@ -15,27 +15,27 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from vicare_local_ble.testing.scenario import default_installation
-from vicare_local_ble.zigbee_direct.connection import (
+from localtrv.testing.scenario import default_installation
+from localtrv.zigbee_direct.connection import (
     BACKOFF_JITTER,
     BACKOFF_SCHEDULE,
     ConnectionState,
     Generation,
     ZdConnection,
 )
-from vicare_local_ble.zigbee_direct.errors import ConnectionLostError
-from vicare_local_ble.zigbee_direct.types import SecretBytes
+from localtrv.zigbee_direct.errors import ConnectionLostError
+from localtrv.zigbee_direct.types import SecretBytes
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from bleak.backends.device import BLEDevice
 
-    from vicare_local_ble.testing.scenario import Installation
-    from vicare_local_ble.zigbee_direct.clock import VirtualClock
-    from vicare_local_ble.zigbee_direct.connection import DeviceResolver
+    from localtrv.testing.scenario import Installation
+    from localtrv.zigbee_direct.clock import VirtualClock
+    from localtrv.zigbee_direct.connection import DeviceResolver
 
-LOGGER = "vicare_local_ble.zigbee_direct.connection"
+LOGGER = "localtrv.zigbee_direct.connection"
 S = ConnectionState
 
 

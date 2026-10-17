@@ -10,13 +10,13 @@ from __future__ import annotations
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import RouteReply, decode_nwk_command
-from vicare_local_ble.zigbee_direct.codec.zcl import ZclFrame
-from vicare_local_ble.zigbee_direct.debug import EuiPseudonymizer, RedactedNpdu, redact_npdu
-from vicare_local_ble.zigbee_direct.redact import inspect_npdu
-from vicare_local_ble.zigbee_direct.types import Eui64
+from localtrv.zigbee_direct.codec.aps import ApsDataFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.nwk_commands import RouteReply, decode_nwk_command
+from localtrv.zigbee_direct.codec.zcl import ZclFrame
+from localtrv.zigbee_direct.debug import EuiPseudonymizer, RedactedNpdu, redact_npdu
+from localtrv.zigbee_direct.redact import inspect_npdu
+from localtrv.zigbee_direct.types import Eui64
 
 h = g.h
 

@@ -10,16 +10,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from localtrv.testing.network_aps import SIM_APS_ACK_WAIT, SIM_APS_MAX_FRAME_RETRIES
+from localtrv.zigbee_direct.node_core import NodeCore
 from test_bridge import poll, stop
 from test_e2e_sim import begin, e2e_rig
-from vicare_local_ble.testing.network_aps import SIM_APS_ACK_WAIT, SIM_APS_MAX_FRAME_RETRIES
-from vicare_local_ble.zigbee_direct.node_core import NodeCore
 
 if TYPE_CHECKING:
     import pytest
 
+    from localtrv.zigbee_direct.node_types import NodeStats
     from test_bridge import BRig
-    from vicare_local_ble.zigbee_direct.node_types import NodeStats
 
 #: Long enough for every retransmission of the last response to have happened.
 RETRY_WINDOW = SIM_APS_ACK_WAIT * (SIM_APS_MAX_FRAME_RETRIES + 1)

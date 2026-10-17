@@ -6,7 +6,7 @@ HA-level rows go through the integration harness. Keys and EUIs are the dummies 
 ``default_installation``.
 
 Edge-case row -> test (``sim`` = this file, ``net`` = ``test_e2e_sim_network.py``,
-``ha`` = ``tests/components/vicare_local_ble/test_e2e_ha.py``)
+``ha`` = ``tests/components/localtrv/test_e2e_ha.py``)
 
 Row                                         File  Test
 ------------------------------------------  ----  ------------------------------------------
@@ -63,6 +63,19 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from localtrv.bridge import ViCareBridge
+from localtrv.testing.errors import GATT_ERROR_UNLIKELY
+from localtrv.testing.gatt import WriteFaultSpec
+from localtrv.testing.scenario import default_installation
+from localtrv.zigbee_direct.connection import (
+    ConnectionIssue,
+    ConnectionState,
+    ZdConnection,
+)
+from localtrv.zigbee_direct.crypto import MAX_COUNTER
+from localtrv.zigbee_direct.errors import HandshakeRejectedError
+from localtrv.zigbee_direct.types import SecretBytes
+from localtrv.zigbee_direct.uuids import TUNNEL_NPDU
 from test_bridge import (
     BRig,
     poll,
@@ -71,33 +84,20 @@ from test_bridge import (
     settled,
     stop,
 )
-from vicare_local_ble.bridge import ViCareBridge
-from vicare_local_ble.testing.errors import GATT_ERROR_UNLIKELY
-from vicare_local_ble.testing.gatt import WriteFaultSpec
-from vicare_local_ble.testing.scenario import default_installation
-from vicare_local_ble.zigbee_direct.connection import (
-    ConnectionIssue,
-    ConnectionState,
-    ZdConnection,
-)
-from vicare_local_ble.zigbee_direct.crypto import MAX_COUNTER
-from vicare_local_ble.zigbee_direct.errors import HandshakeRejectedError
-from vicare_local_ble.zigbee_direct.types import SecretBytes
-from vicare_local_ble.zigbee_direct.uuids import TUNNEL_NPDU
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from bleak.backends.device import BLEDevice
 
-    from vicare_local_ble.bridge import BridgeCache, BridgeSnapshot
-    from vicare_local_ble.testing.scenario import Installation
-    from vicare_local_ble.valves import Valve
-    from vicare_local_ble.zigbee_direct.connection import DeviceResolver, Generation
+    from localtrv.bridge import BridgeCache, BridgeSnapshot
+    from localtrv.testing.scenario import Installation
+    from localtrv.valves import Valve
+    from localtrv.zigbee_direct.connection import DeviceResolver, Generation
 
 S = ConnectionState
-CONN_LOGGER = "vicare_local_ble.zigbee_direct.connection"
-TRANSPORT_LOGGER = "vicare_local_ble.zigbee_direct.transport"
+CONN_LOGGER = "localtrv.zigbee_direct.connection"
+TRANSPORT_LOGGER = "localtrv.zigbee_direct.transport"
 WRONG_KEY = SecretBytes(b"\x99" * 16)  # dummy
 
 

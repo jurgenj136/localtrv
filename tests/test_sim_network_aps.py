@@ -9,15 +9,15 @@ from __future__ import annotations
 import pytest
 
 from fixtures import golden as g
-from test_sim_network import SEQ, aps_of, make_rig
-from vicare_local_ble.testing.network_aps import (
+from localtrv.testing.network_aps import (
     SIM_APS_ACK_WAIT,
     SIM_APS_MAX_FRAME_RETRIES,
     ApsRetransmitter,
 )
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.aps import ApsAckFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.aps import ApsAckFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from test_sim_network import SEQ, aps_of, make_rig
 
 h = g.h
 

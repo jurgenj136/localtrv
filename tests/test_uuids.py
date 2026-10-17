@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_local_ble.zigbee_direct import uuids
+from localtrv.zigbee_direct import uuids
 
 
 def test_uuid16_expansion() -> None:

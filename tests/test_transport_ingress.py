@@ -6,21 +6,21 @@ import logging
 
 import pytest
 
-from test_sim_gatt import ADMIN_KEY, LINK_KEY, NETWORK_KEY, ZDD_SHORT, RecordingPeer, make_r0
-from test_transport import LOGGER, SpyClient, make_transport, opened
-from vicare_local_ble.testing import ZddCounterModel
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.tlv import Tlv, TunnelNpdu
-from vicare_local_ble.zigbee_direct.debug import NpduRecorder
-from vicare_local_ble.zigbee_direct.errors import TransportError
-from vicare_local_ble.zigbee_direct.session import CounterModel
-from vicare_local_ble.zigbee_direct.transport import MIC_WARNING_STREAK
-from vicare_local_ble.zigbee_direct.uuids import (
+from localtrv.testing import ZddCounterModel
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.tlv import Tlv, TunnelNpdu
+from localtrv.zigbee_direct.debug import NpduRecorder
+from localtrv.zigbee_direct.errors import TransportError
+from localtrv.zigbee_direct.session import CounterModel
+from localtrv.zigbee_direct.transport import MIC_WARNING_STREAK
+from localtrv.zigbee_direct.uuids import (
     COMMISSIONING_SERVICE,
     COMMISSIONING_STATUS,
     TUNNEL_NPDU,
     TUNNEL_SERVICE,
 )
+from test_sim_gatt import ADMIN_KEY, LINK_KEY, NETWORK_KEY, ZDD_SHORT, RecordingPeer, make_r0
+from test_transport import LOGGER, SpyClient, make_transport, opened
 
 SECRETS = [k.reveal().hex() for k in (NETWORK_KEY, LINK_KEY, ADMIN_KEY)]
 

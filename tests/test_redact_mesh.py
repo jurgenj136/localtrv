@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.debug import EuiPseudonymizer, redact_npdu
-from vicare_local_ble.zigbee_direct.redact import inspect_npdu
-from vicare_local_ble.zigbee_direct.types import Eui64
+from localtrv.zigbee_direct.debug import EuiPseudonymizer, redact_npdu
+from localtrv.zigbee_direct.redact import inspect_npdu
+from localtrv.zigbee_direct.types import Eui64
 
 h = g.h
 EUI_A = Eui64.from_str("AC:DE:48:00:00:00:00:0A")

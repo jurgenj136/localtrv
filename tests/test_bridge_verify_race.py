@@ -13,10 +13,10 @@ import random
 
 import pytest
 
+from localtrv import bridge_discovery
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.errors import RouteError
 from test_bridge import NEW_EUI, discovered, make_rig, stop, zcl_requests
-from vicare_local_ble import bridge_discovery
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.errors import RouteError
 
 MOVED_TO = 0x5A5A
 
@@ -58,7 +58,7 @@ async def test_reply_overtaken_by_an_announcement_does_not_restore_the_old_owner
 async def test_verification_cut_short_by_the_ack_deadline_is_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, "vicare_local_ble.bridge")
+    caplog.set_level(logging.DEBUG, "localtrv.bridge")
     r = make_rig(n_valves=1, behind_router=0)
     await discovered(r)
     sim = r.inst.valves[0]

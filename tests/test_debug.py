@@ -11,12 +11,12 @@ import logging
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct import debug, redact
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
-from vicare_local_ble.zigbee_direct.codec.zcl import AttributeRecord, ReadAttributeStatus
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.debug import (
+from localtrv.zigbee_direct import debug, redact
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.tlv import TunnelNpdu
+from localtrv.zigbee_direct.codec.zcl import AttributeRecord, ReadAttributeStatus
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.debug import (
     NPDU_LOGGER,
     SECURITY_TYPES,
     EuiPseudonymizer,
@@ -28,7 +28,7 @@ from vicare_local_ble.zigbee_direct.debug import (
     redact_npdu,
     sanitize_records,
 )
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
 
 h = g.h
 

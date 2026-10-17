@@ -6,8 +6,8 @@ import math
 
 import pytest
 
-from vicare_local_ble.zigbee_direct.codec._cursor import Cursor
-from vicare_local_ble.zigbee_direct.codec.zcl import (
+from localtrv.zigbee_direct.codec._cursor import Cursor
+from localtrv.zigbee_direct.codec.zcl import (
     AttributeRecord,
     DefaultResponse,
     ReadAttributes,
@@ -25,15 +25,15 @@ from vicare_local_ble.zigbee_direct.codec.zcl import (
     ZclStatus,
     decode_global_command,
 )
-from vicare_local_ble.zigbee_direct.codec.zcl_types import (
+from localtrv.zigbee_direct.codec.zcl_types import (
     ZclDataType,
     ZclValue,
     decode_value,
     encode_value,
     read_value,
 )
-from vicare_local_ble.zigbee_direct.errors import EncodeError, UnsupportedFrameError, ZclDecodeError
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.zigbee_direct.errors import EncodeError, UnsupportedFrameError, ZclDecodeError
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
 
 T = ZclDataType
 

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import fields
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.codec.commissioning import ChannelMask, CommissioningStatus
-from vicare_local_ble.zigbee_direct.node_types import NetworkSummary
-from vicare_local_ble.zigbee_direct.types import SecretBytes
+from localtrv.zigbee_direct.codec.commissioning import ChannelMask, CommissioningStatus
+from localtrv.zigbee_direct.node_types import NetworkSummary
+from localtrv.zigbee_direct.types import SecretBytes
 
 KEY = SecretBytes(bytes(range(16)))  # dummy
 

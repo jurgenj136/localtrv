@@ -1,6 +1,6 @@
-import vicare_local_ble
+import localtrv
 
 
 def test_version_string() -> None:
-    assert isinstance(vicare_local_ble.__version__, str)
-    assert vicare_local_ble.__version__
+    assert isinstance(localtrv.__version__, str)
+    assert localtrv.__version__

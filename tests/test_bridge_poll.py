@@ -9,6 +9,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv import valves
+from localtrv.bridge import MISSES_UNAVAILABLE
+from localtrv.testing import valve_table as vt
+from localtrv.zigbee_direct.codec.zcl import ZclCommandId, ZclStatus
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.codec.zdo import ZdoCluster
+from localtrv.zigbee_direct.connection import ConnectionState
 from test_bridge import (
     LOGGER,
     BRig,
@@ -21,16 +28,9 @@ from test_bridge import (
     zcl_requests,
     zdo_requests,
 )
-from vicare_local_ble import valves
-from vicare_local_ble.bridge import MISSES_UNAVAILABLE
-from vicare_local_ble.testing import valve_table as vt
-from vicare_local_ble.zigbee_direct.codec.zcl import ZclCommandId, ZclStatus
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.codec.zdo import ZdoCluster
-from vicare_local_ble.zigbee_direct.connection import ConnectionState
 
 if TYPE_CHECKING:
-    from vicare_local_ble.testing.scenario import Installation
+    from localtrv.testing.scenario import Installation
 
 
 def plans(r: BRig, mark: int) -> dict[int, list[valves.ReadRequest]]:

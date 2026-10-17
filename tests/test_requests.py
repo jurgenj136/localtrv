@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.fallback import ExpectedZcl, ExpectedZdo
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import CommissioningResponse
-from vicare_local_ble.zigbee_direct.codec.zcl import (
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame
+from localtrv.zigbee_direct.codec.fallback import ExpectedZcl, ExpectedZdo
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.nwk_commands import CommissioningResponse
+from localtrv.zigbee_direct.codec.zcl import (
     DefaultResponse,
     ReadAttributesResponse,
     ZclCommandId,
@@ -22,11 +22,11 @@ from vicare_local_ble.zigbee_direct.codec.zcl import (
     ZclFrameType,
     ZclHeader,
 )
-from vicare_local_ble.zigbee_direct.codec.zdo import ActiveEpRsp
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiRsp
-from vicare_local_ble.zigbee_direct.errors import RouteError, SequenceExhaustedError
-from vicare_local_ble.zigbee_direct.node_match import aps_header_matches
-from vicare_local_ble.zigbee_direct.requests import (
+from localtrv.zigbee_direct.codec.zdo import ActiveEpRsp
+from localtrv.zigbee_direct.codec.zdo_mgmt import MgmtLqiRsp
+from localtrv.zigbee_direct.errors import RouteError, SequenceExhaustedError
+from localtrv.zigbee_direct.node_match import aps_header_matches
+from localtrv.zigbee_direct.requests import (
     MAX_RETIRED,
     Allocators,
     Envelope,
@@ -40,7 +40,7 @@ from vicare_local_ble.zigbee_direct.requests import (
 )
 
 if TYPE_CHECKING:
-    from vicare_local_ble.zigbee_direct.types import Eui64
+    from localtrv.zigbee_direct.types import Eui64
 
 VALVE = g.VALVE_SHORT
 TSN = 0x2B

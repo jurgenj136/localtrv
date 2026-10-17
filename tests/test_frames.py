@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import many_to_one_route_request_npdu
-from vicare_local_ble.zigbee_direct.codec.zcl import (
+from localtrv.zigbee_direct.codec.aps import HA_PROFILE_ID
+from localtrv.zigbee_direct.codec.nwk_commands import many_to_one_route_request_npdu
+from localtrv.zigbee_direct.codec.zcl import (
     AttributeRecord,
     ReadAttributes,
     WriteAttributes,
     ZclFrame,
 )
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiReq
-from vicare_local_ble.zigbee_direct.frames import (
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.codec.zdo_mgmt import MgmtLqiReq
+from localtrv.zigbee_direct.frames import (
     DEFAULT_RADIUS,
     LOCAL_ENDPOINT,
     device_annce_npdu,

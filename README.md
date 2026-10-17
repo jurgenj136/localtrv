@@ -1,12 +1,13 @@
-# ViCare Local (Bluetooth via ubisys R0)
+# LocalTRV
 
-[![GitHub release](https://img.shields.io/github/v/release/jurgenj136/vicare-local-ble?include_prereleases)](https://github.com/jurgenj136/vicare-local-ble/releases)
+[![GitHub release](https://img.shields.io/github/v/release/jurgenj136/localtrv?include_prereleases)](https://github.com/jurgenj136/localtrv/releases)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
-[![License: MIT](https://img.shields.io/github/license/jurgenj136/vicare-local-ble)](https://github.com/jurgenj136/vicare-local-ble/blob/main/LICENSE)
-[![CI](https://github.com/jurgenj136/vicare-local-ble/actions/workflows/ci.yml/badge.svg)](https://github.com/jurgenj136/vicare-local-ble/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/jurgenj136/localtrv)](https://github.com/jurgenj136/localtrv/blob/main/LICENSE)
+[![CI](https://github.com/jurgenj136/localtrv/actions/workflows/ci.yml/badge.svg)](https://github.com/jurgenj136/localtrv/actions/workflows/ci.yml)
 
-Control your Viessmann ViCare radiator valves from Home Assistant, locally, through a ubisys
-R0 **Series 2**. The Series 1 has no Bluetooth and cannot be used.
+Local Bluetooth control for Viessmann ViCare radiator valves through a ubisys R0. LocalTRV is a
+Home Assistant integration that needs a ubisys R0 **Series 2**; the Series 1 has no Bluetooth and
+cannot be used.
 
 <!-- screenshot: docs/images/climate-card.png (to be added) -->
 
@@ -69,24 +70,34 @@ characters). Without it the R0 does not let anyone in. There is no way around th
 
 ### HACS (recommended)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jurgenj136&repository=vicare-local-ble&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jurgenj136&repository=localtrv&category=integration)
 
 Or by hand:
 
 1. In HACS, open the menu (three dots, top right) and choose **Custom repositories**.
-2. Add `https://github.com/jurgenj136/vicare-local-ble` with type **Integration**.
-3. Open **ViCare Local (Bluetooth via ubisys R0)**.
+2. Add `https://github.com/jurgenj136/localtrv` with type **Integration**.
+3. Open **LocalTRV**.
 4. Download it and restart Home Assistant.
 
 ### Manual
 
-1. Download a [release](https://github.com/jurgenj136/vicare-local-ble/releases).
-2. Copy `custom_components/vicare_local_ble/` into the `custom_components/` folder of your Home
+1. Download a [release](https://github.com/jurgenj136/localtrv/releases).
+2. Copy `custom_components/localtrv/` into the `custom_components/` folder of your Home
    Assistant config.
 3. Restart Home Assistant.
 
-On first start, Home Assistant downloads the matching `vicare-local-ble` Python package from PyPI.
+On first start, Home Assistant downloads the matching `localtrv` Python package from PyPI.
 After that, the integration needs no internet.
+
+### Upgrading from vicare-local-ble 0.1.0
+
+The project was renamed from `vicare-local-ble` to LocalTRV in 0.2.0. Home Assistant sees it as a
+new integration, so the old entry does not carry over:
+
+1. Delete the old **ViCare Local** entry (**Settings > Devices & services**), then remove it from
+   HACS (or delete `custom_components/vicare_local_ble/`) and restart.
+2. Install LocalTRV as described above and restart.
+3. Add it again ([Setup](#setup)). You need to enter the network key again.
 
 ## Setup
 
@@ -95,7 +106,7 @@ After that, the integration needs no internet.
 2. Add the R0:
    - **Discovered:** go to **Settings > Devices & services**. Under Discovered you see
      **ubisys R0 found**. Click **Add** and confirm.
-   - **Not discovered:** click **Add integration**, search for **ViCare Local**, and choose your R0
+   - **Not discovered:** click **Add integration**, search for **LocalTRV**, and choose your R0
      in **Select the ubisys R0**.
 3. In **Zigbee network key**, enter the key (32 hexadecimal characters).
 4. Leave **Test the connection** on and submit.
@@ -171,7 +182,7 @@ The thermostat also has the attributes `setpoint_pending`, `setpoint_acknowledge
 
 ## Options
 
-**Settings > Devices & services > ViCare Local > Configure.** Saving reloads the integration.
+**Settings > Devices & services > LocalTRV > Configure.** Saving reloads the integration.
 
 | Option | Range | Default | Notes |
 |---|---|---|---|
@@ -229,7 +240,7 @@ Add this to `configuration.yaml` and restart:
 ```yaml
 logger:
   logs:
-    vicare_local_ble: debug
+    localtrv: debug
 ```
 
 Or use **Enable debug logging** on the integration page. The line `connected, mtu=…` shows the
@@ -238,7 +249,7 @@ Zigbee network addresses.
 
 ### Diagnostics
 
-**Settings > Devices & services > ViCare Local**, menu, **Download diagnostics**.
+**Settings > Devices & services > LocalTRV**, menu, **Download diagnostics**.
 
 - Never included: the network key or anything derived from it, the R0's Bluetooth address.
 - Pseudonymised: device IDs (EUI-64) and the extended network ID.
@@ -248,7 +259,7 @@ Zigbee network addresses.
 
 ### Reporting a bug
 
-Open an [issue](https://github.com/jurgenj136/vicare-local-ble/issues/new/choose) and attach:
+Open an [issue](https://github.com/jurgenj136/localtrv/issues/new/choose) and attach:
 
 - Home Assistant and integration versions
 - your Bluetooth adapter or proxy, and the `mtu=` log line
@@ -259,9 +270,9 @@ Read your log before you post it. Never include the network key.
 
 ## Removing the integration
 
-1. **Settings > Devices & services > ViCare Local**, menu, **Delete**.
+1. **Settings > Devices & services > LocalTRV**, menu, **Delete**.
 2. To remove the files too, uninstall it in HACS (or delete
-   `custom_components/vicare_local_ble/`) and restart.
+   `custom_components/localtrv/`) and restart.
 
 Deleting stops the Bluetooth connection, so the R0 is free again. It also deletes the stored valve
 list and any repair issues of this integration. Older Home Assistant backups still contain the
@@ -269,25 +280,25 @@ network key.
 
 ## Contributing
 
-See [CONTRIBUTING.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/jurgenj136/localtrv/blob/main/CONTRIBUTING.md).
 
 ## Security
 
-Please report vulnerabilities privately. See [SECURITY.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/SECURITY.md).
+Please report vulnerabilities privately. See [SECURITY.md](https://github.com/jurgenj136/localtrv/blob/main/SECURITY.md).
 
 ## Python library
 
 The integration is built on the Python package
-[`vicare-local-ble`](https://pypi.org/project/vicare-local-ble/). It handles the Bluetooth
+[`localtrv`](https://pypi.org/project/localtrv/). It handles the Bluetooth
 connection, the Zigbee Direct session and the valve mapping, and includes a small CLI
-(`vicare-local-ble scan`, `vicare-local-ble status`). The API is not stable yet. See
-[CONTRIBUTING.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/CONTRIBUTING.md) for the
+(`localtrv scan`, `localtrv status`). The API is not stable yet. See
+[CONTRIBUTING.md](https://github.com/jurgenj136/localtrv/blob/main/CONTRIBUTING.md) for the
 code layout.
 
 ## Protocol documentation
 
-How the R0, the Zigbee Direct session and the valves work: [docs/protocol.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/docs/protocol.md).
+How the R0, the Zigbee Direct session and the valves work: [docs/protocol.md](https://github.com/jurgenj136/localtrv/blob/main/docs/protocol.md).
 
 ## License
 
-MIT. See [LICENSE](https://github.com/jurgenj136/vicare-local-ble/blob/main/LICENSE).
+MIT. See [LICENSE](https://github.com/jurgenj136/localtrv/blob/main/LICENSE).

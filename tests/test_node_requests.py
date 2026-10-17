@@ -6,12 +6,11 @@ import asyncio
 
 import pytest
 
-from test_node import LOCAL_TEMPERATURE, MFR, SETPOINT, THERMOSTAT, Rig, rig
-from vicare_local_ble.testing import network_frames as nf
-from vicare_local_ble.testing.network_aps import is_aps_ack
-from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID, ZDO_PROFILE_ID, ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-from vicare_local_ble.zigbee_direct.codec.zcl import (
+from localtrv.testing import network_frames as nf
+from localtrv.testing.network_aps import is_aps_ack
+from localtrv.zigbee_direct.codec.aps import HA_PROFILE_ID, ZDO_PROFILE_ID, ApsDataFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrame
+from localtrv.zigbee_direct.codec.zcl import (
     AttributeRecord,
     ReadAttributesResponse,
     ReadAttributeStatus,
@@ -22,12 +21,13 @@ from vicare_local_ble.zigbee_direct.codec.zcl import (
     ZclFrame,
     ZclHeader,
 )
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.codec.zdo import ActiveEpReq, ActiveEpRsp, SimpleDescRsp
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiReq, MgmtLqiRsp
-from vicare_local_ble.zigbee_direct.errors import RequestTimeoutError, ZclStatusError
-from vicare_local_ble.zigbee_direct.node import NodeConfig, ReportEvent
-from vicare_local_ble.zigbee_direct.types import COORDINATOR
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.codec.zdo import ActiveEpReq, ActiveEpRsp, SimpleDescRsp
+from localtrv.zigbee_direct.codec.zdo_mgmt import MgmtLqiReq, MgmtLqiRsp
+from localtrv.zigbee_direct.errors import RequestTimeoutError, ZclStatusError
+from localtrv.zigbee_direct.node import NodeConfig, ReportEvent
+from localtrv.zigbee_direct.types import COORDINATOR
+from test_node import LOCAL_TEMPERATURE, MFR, SETPOINT, THERMOSTAT, Rig, rig
 
 FAKE_VALUE = 1234  # never in the valve table: tells an injected frame from the real reply
 

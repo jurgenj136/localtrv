@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_local_ble.testing import GATT_ERROR_REJECTED, FakeGattError, FakeZdd
-from vicare_local_ble.zigbee_direct import crypto as zc
-from vicare_local_ble.zigbee_direct.mmo import hmac_aes_mmo
-from vicare_local_ble.zigbee_direct.session import HandshakeInitiator, SendSe3
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.testing import GATT_ERROR_REJECTED, FakeGattError, FakeZdd
+from localtrv.zigbee_direct import crypto as zc
+from localtrv.zigbee_direct.mmo import hmac_aes_mmo
+from localtrv.zigbee_direct.session import HandshakeInitiator, SendSe3
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
 
 ZVD = Eui64.from_wire(bytes(range(1, 9)))
 ZDD = Eui64.from_wire(bytes(range(0x11, 0x19)))

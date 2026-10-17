@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from vicare_local_ble.zigbee_direct.types import Eui64
+from localtrv.zigbee_direct.types import Eui64
 
 
 def h(*parts: str) -> bytes:

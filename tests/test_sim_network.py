@@ -12,21 +12,21 @@ from dataclasses import dataclass
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.testing.network import SimNetwork, SimRouter
-from vicare_local_ble.testing.network_recorder import Indication, RecordingTunnelHost
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
+from localtrv.testing.network import SimNetwork, SimRouter
+from localtrv.testing.network_recorder import Indication, RecordingTunnelHost
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.aps import ApsDataFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrameType
+from localtrv.zigbee_direct.codec.nwk_commands import (
     CommissioningResponse,
     NetworkStatus,
     RouteRequest,
     decode_nwk_command,
 )
-from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import DeviceType, MgmtLqiRsp, Neighbor
-from vicare_local_ble.zigbee_direct.types import Eui64
+from localtrv.zigbee_direct.codec.zdo import DeviceAnnce
+from localtrv.zigbee_direct.codec.zdo_mgmt import DeviceType, MgmtLqiRsp, Neighbor
+from localtrv.zigbee_direct.types import Eui64
 
 h = g.h
 SEQ = 7  # NWK seq offset in every header without IEEEs

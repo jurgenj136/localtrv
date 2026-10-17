@@ -11,6 +11,18 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv import bridge_poll, valves
+from localtrv.bridge import (
+    SETPOINT_ACK_DEADLINE,
+    SILENT_REJOIN_BACKOFF,
+    BridgeCache,
+    SetpointStatus,
+    ViCareBridge,
+)
+from localtrv.testing import valve_table as vt
+from localtrv.testing.scenario import default_installation
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.connection import ZdConnection
 from test_bridge import (
     BRig,
     discovered,
@@ -22,23 +34,11 @@ from test_bridge import (
     stop,
     zcl_requests,
 )
-from vicare_local_ble import bridge_poll, valves
-from vicare_local_ble.bridge import (
-    SETPOINT_ACK_DEADLINE,
-    SILENT_REJOIN_BACKOFF,
-    BridgeCache,
-    SetpointStatus,
-    ViCareBridge,
-)
-from vicare_local_ble.testing import valve_table as vt
-from vicare_local_ble.testing.scenario import default_installation
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.connection import ZdConnection
 
 if TYPE_CHECKING:
-    from vicare_local_ble.bridge import BridgeSnapshot
-    from vicare_local_ble.testing.scenario import Installation
-    from vicare_local_ble.zigbee_direct.types import Eui64
+    from localtrv.bridge import BridgeSnapshot
+    from localtrv.testing.scenario import Installation
+    from localtrv.zigbee_direct.types import Eui64
 
 
 def status(r: BRig, eui: Eui64) -> SetpointStatus:

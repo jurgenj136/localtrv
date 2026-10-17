@@ -18,7 +18,7 @@ body:
     id: integration_version
     attributes:
       label: Integration version
-      placeholder: "0.1.0a1"
+      placeholder: "0.1.0"
     validations:
       required: true
   - type: input
@@ -55,7 +55,7 @@ body:
     attributes:
       label: Diagnostics
       description: |
-        Settings > Devices & services > ViCare Local, menu, Download diagnostics.
+        Settings > Devices & services > LocalTRV, menu, Download diagnostics.
         Drag the file here. It contains no keys, but does contain temperatures and network metadata.
   - type: checkboxes
     id: no_key

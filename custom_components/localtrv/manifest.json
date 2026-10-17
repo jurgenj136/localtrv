@@ -1,0 +1,21 @@
+{
+  "domain": "localtrv",
+  "name": "LocalTRV",
+  "bluetooth": [
+    {
+      "connectable": true,
+      "local_name": "ubisys*",
+      "service_uuid": "0000fff7-0000-1000-8000-00805f9b34fb"
+    }
+  ],
+  "codeowners": ["@jurgenj136"],
+  "config_flow": true,
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/jurgenj136/localtrv",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/jurgenj136/localtrv/issues",
+  "loggers": ["localtrv"],
+  "requirements": ["localtrv==0.1.0"],
+  "version": "0.1.0"
+}

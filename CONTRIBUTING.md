@@ -8,7 +8,7 @@ the code layout. User documentation lives in the [README](README.md).
 - **Never post a network key**, a Commissioning Status dump, or a raw capture in an issue, PR,
   commit or log. If you shared one by accident, tell us at once so we can delete it.
 - **No hardware, BLE or network in tests.** The library ships a simulator
-  (`vicare_local_ble.testing`: fake R0, fake network and valves) that the tests drive.
+  (`localtrv.testing`: fake R0, fake network and valves) that the tests drive.
 - **Dummy keys and EUIs only.** Public spec test vectors are fine; put `# secret-scan: allow` on
   the same line. `scripts/check_secrets.py` fails on anything else that looks like key material.
 - Key material is wrapped in `SecretBytes` (`repr` and `str` print `<redacted>`). Never log it.
@@ -51,8 +51,8 @@ Runs HA against the working tree. `.ha-config/` is gitignored.
 
 ```bash
 mkdir -p .ha-config/custom_components
-ln -s "$PWD/custom_components/vicare_local_ble" .ha-config/custom_components/vicare_local_ble
-uv run hass -c .ha-config --skip-pip-packages vicare-local-ble
+ln -s "$PWD/custom_components/localtrv" .ha-config/custom_components/localtrv
+uv run hass -c .ha-config --skip-pip-packages localtrv
 ```
 
 ## Test fixtures from logs
@@ -78,7 +78,7 @@ uv run python scripts/extract_npdu_fixtures.py capture.txt \
 ```text
  Home Assistant / CLI               ubisys R0 (ZDD)            Zigbee network
 +--------------------+  BLE GATT   +----------------+   NWK   +------------------+
-| vicare-local-ble   | ----------> | Zigbee Direct  | ------> | coordinator (TC) |
+| LocalTRV           | ----------> | Zigbee Direct  | ------> | coordinator (TC) |
 | (ZVD)              | <---------- | router         | <------ | ZK03840 valves   |
 +--------------------+  AES-CCM    +----------------+         +------------------+
    plaintext NPDUs inside the session; the R0 applies NWK security
@@ -95,7 +95,7 @@ hold simulator fixture data written independently of `valves`. Codec frames are
 ## Package layout
 
 ```text
-src/vicare_local_ble/                  library (PyPI: vicare-local-ble)
+src/localtrv/            library (PyPI: localtrv)
   valves/                Viessmann ZK03840 mapping (the only vendor-specific package)
   bridge*.py             ViCareBridge: discovery, polling, setpoint transactions, cache
   testing/               simulator: fake R0 (GATT + session crypto), fake network and valves
@@ -108,7 +108,7 @@ src/vicare_local_ble/                  library (PyPI: vicare-local-ble)
     node*.py routing.py  virtual Zigbee node: join, requests, route replies
     debug.py redact.py   NPDU debug logging with redaction
     codec/               tlv, nwk, aps, zdo, zcl, commissioning, fallback
-custom_components/vicare_local_ble/    Home Assistant integration (HACS)
+custom_components/localtrv/  Home Assistant integration (HACS)
 scripts/                 check_secrets.py, extract_npdu_fixtures.py
 tests/                   unit, simulator and HA tests
 docs/protocol.md         protocol notes
@@ -121,4 +121,4 @@ docs/protocol.md         protocol notes
 ## Releases
 
 Maintainer only. `pyproject.toml`, `manifest.json` `version` and the manifest pin
-`vicare-local-ble==X.Y.Z` move in lockstep, and a `vX.Y.Z` tag runs `release.yml` (gate, build, PyPI trusted publishing, GitHub release).
+`localtrv==X.Y.Z` move in lockstep, and a `vX.Y.Z` tag runs `release.yml` (gate, build, PyPI trusted publishing, GitHub release).

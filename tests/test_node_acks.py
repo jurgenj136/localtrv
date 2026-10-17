@@ -6,14 +6,14 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from fixtures import golden as g
+from localtrv.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrame
+from localtrv.zigbee_direct.errors import ConnectionLostError
+from localtrv.zigbee_direct.frames import aps_ack_npdu
+from localtrv.zigbee_direct.node_acks import MAX_ACKS_IN_FLIGHT, ApsAcker
+from localtrv.zigbee_direct.node_types import NodeStats
+from localtrv.zigbee_direct.requests import Allocators
 from test_node import rig
-from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-from vicare_local_ble.zigbee_direct.errors import ConnectionLostError
-from vicare_local_ble.zigbee_direct.frames import aps_ack_npdu
-from vicare_local_ble.zigbee_direct.node_acks import MAX_ACKS_IN_FLIGHT, ApsAcker
-from vicare_local_ble.zigbee_direct.node_types import NodeStats
-from vicare_local_ble.zigbee_direct.requests import Allocators
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine

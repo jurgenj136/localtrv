@@ -1,0 +1,152 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Select the ubisys R0",
+        "description": "Choose your ubisys Router R0 (Series 2). It must already be on the Zigbee network of your ViCare valves.",
+        "data": {
+          "address": "Device"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "ubisys R0 found",
+        "description": "Set up the ubisys R0 {name}? The R0 accepts only one Bluetooth client, so make sure no other device is connected to it."
+      },
+      "network_key": {
+        "title": "Zigbee network key",
+        "description": "Enter the 128-bit network key of your ViCare Zigbee network as 32 hexadecimal characters. The R0 accepts only one Bluetooth client, so make sure no other device is connected to it.",
+        "data": {
+          "network_key": "Network key",
+          "validate": "Test the connection"
+        },
+        "data_description": {
+          "network_key": "32 hexadecimal characters.",
+          "validate": "Connect to the R0 and verify the key before saving."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-enter the network key",
+        "description": "The R0 rejected the stored network key. Enter the current key.",
+        "data": {
+          "network_key": "Network key"
+        },
+        "data_description": {
+          "network_key": "32 hexadecimal characters."
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The R0 rejected the network key.",
+      "cannot_connect": "Could not connect to the R0. The R0 accepts only one Bluetooth client, so make sure no other device (another adapter, proxy, Home Assistant instance or phone app) is connected to it, and move the Bluetooth adapter or proxy closer.",
+      "invalid_key": "The key must be exactly 32 hexadecimal characters.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "already_in_progress": "A setup flow for this device is already in progress.",
+      "no_devices_found": "No ubisys R0 found over Bluetooth.",
+      "not_supported": "This device is not a ubisys R0 with Zigbee Direct.",
+      "reauth_successful": "The network key was updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "LocalTRV options",
+        "data": {
+          "scan_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often the valves are polled, 60 to 3600 seconds. Valves are battery powered and answer slowly."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced",
+            "data": {
+              "route_reply_mode": "Route reply mode"
+            },
+            "data_description": {
+              "route_reply_mode": "How the integration answers Zigbee route requests. Leave on Live unless asked to change it."
+            }
+          }
+        }
+      }
+    }
+  },
+  "selector": {
+    "route_reply_mode": {
+      "options": {
+        "live": "Live (observed behaviour)",
+        "spec": "Specification",
+        "off": "Off"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "heating_demand": {
+        "name": "Heating demand"
+      },
+      "lqi": {
+        "name": "Link quality"
+      },
+      "rssi": {
+        "name": "Signal strength"
+      },
+      "connection_state": {
+        "name": "Connection state",
+        "state": {
+          "idle": "Idle",
+          "connecting": "Connecting",
+          "joining": "Joining",
+          "ready": "Ready",
+          "backoff": "Waiting to retry",
+          "auth_failed": "Authentication failed",
+          "stopped": "Stopped"
+        }
+      }
+    },
+    "binary_sensor": {
+      "window_open": {
+        "name": "Window open (experimental)"
+      },
+      "connection": {
+        "name": "Connection"
+      }
+    }
+  },
+  "exceptions": {
+    "auth_failed": {
+      "message": "The ubisys R0 rejected the network key."
+    },
+    "device_not_found": {
+      "message": "The ubisys R0 is not reachable over Bluetooth. {diagnostics}"
+    },
+    "write_failed": {
+      "message": "Could not set the temperature on {valve}. The valve did not confirm the change."
+    },
+    "address_unverified": {
+      "message": "Could not set the temperature on {valve}. The valve could not be reached to confirm its address, so nothing was sent. Try again."
+    },
+    "invalid_temperature": {
+      "message": "{temperature} is not a valid target temperature. Use a value between {min} and {max} °C."
+    },
+    "invalid_hvac_mode": {
+      "message": "The valve only supports the heat mode, not {mode}."
+    }
+  },
+  "issues": {
+    "mtu_too_small": {
+      "title": "Bluetooth MTU too small",
+      "description": "The Bluetooth adapter or proxy negotiated an MTU that is too small for Zigbee Direct. Some replies may be lost. Use a different adapter or ESPHome proxy."
+    },
+    "long_write_unsupported": {
+      "title": "Bluetooth long writes unsupported",
+      "description": "The Bluetooth adapter or proxy does not support long GATT writes, which Zigbee Direct needs for large frames. Use a different adapter or ESPHome proxy."
+    }
+  }
+}

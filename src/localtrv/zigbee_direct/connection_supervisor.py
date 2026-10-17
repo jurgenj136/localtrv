@@ -1,0 +1,473 @@
+"""Supervisor loop, generations, triggers and teardown of ``ZdConnection``.
+
+Private helper of ``connection.py`` (whose module docstring is the contract). ``ConnectionCore``
+holds all state; ``ZdConnection`` adds the public API on top.
+
+Supervisor (``_run``): one cycle per attempt. A cycle builds a ``Session``, runs the attempt
+(resolve, connect, ``transport.open``, ``node.join``) as a child task raced against the
+session's ``lost`` future (a disconnect, transport fatal or address conflict during the attempt
+aborts it), and on success becomes READY and waits for ``lost``. A handshake rejection recorded
+by the transport (``transport.rejection``) is authoritative even if a disconnect won that race.
+The cycle always ends with the ordered teardown, run through ``run_protected`` so neither
+``stop()`` (which always cancels the supervisor) nor a repeated cancel can cut it short. An
+unexpected exception in a cycle is logged, fails a pending ``start()`` and is retried after the
+backoff; ``stop()`` waits for the supervisor task itself (its done callback).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import dataclasses
+import logging
+from enum import Enum
+from typing import TYPE_CHECKING, Final
+
+from bleak_retry_connector import BleakClientWithServiceCache
+
+from localtrv.zigbee_direct.connection_backoff import Backoff, BackoffWait
+from localtrv.zigbee_direct.connection_failure import (
+    AttemptFailedError,
+    CacheClearedError,
+    describe_failure,
+    transport_error,
+)
+from localtrv.zigbee_direct.connection_session import Session, run_protected
+from localtrv.zigbee_direct.connection_types import (
+    AUTH_FAILURES_TO_STOP,
+    BACKOFF_JITTER,
+    BACKOFF_RESET_AFTER,
+    BACKOFF_SCHEDULE,
+    CONNECT_FAILURE_WARNING,
+    CONNECT_MAX_ATTEMPTS,
+    DISCONNECT_TIMEOUT,
+    SEEN_SHORTEN_THRESHOLD,
+    SEEN_SHORTENED_WAIT,
+    SPAWNED_TASKS_TIMEOUT,
+    ConnectionIssue,
+    ConnectionState,
+    ConnectionStats,
+    Generation,
+)
+from localtrv.zigbee_direct.errors import HandshakeRejectedError, TransportError
+from localtrv.zigbee_direct.node import ZigbeeDirectNode
+from localtrv.zigbee_direct.transport import ZigbeeDirectTransport
+
+if TYPE_CHECKING:
+    import random
+    from collections.abc import Callable
+
+    from localtrv.zigbee_direct.clock import Clock
+    from localtrv.zigbee_direct.connection_types import Connector, DeviceResolver
+    from localtrv.zigbee_direct.debug import NpduRecorder
+    from localtrv.zigbee_direct.node_types import JoinInfo, NodeConfig, NodeStats
+    from localtrv.zigbee_direct.transport import GattClient, SessionInfo, TransportStats
+    from localtrv.zigbee_direct.types import Eui64, SecretBytes
+
+_LOGGER = logging.getLogger("localtrv.zigbee_direct.connection")
+_MISSING: Final = "missing_characteristic"
+
+
+class ConnectionCore:
+    """State and supervisor of a ``ZdConnection`` (see module docstring)."""
+
+    def __init__(
+        self,
+        resolve_device: DeviceResolver,
+        *,
+        own_eui: Eui64,
+        bak: SecretBytes,
+        clock: Clock,
+        node_config: NodeConfig,
+        name: str,
+        connector: Connector,
+        recorder: NpduRecorder | None,
+        rng: random.Random,
+    ) -> None:
+        self._resolve_device = resolve_device
+        self._own_eui = own_eui
+        self._bak = bak
+        self._clock = clock
+        self._config = node_config
+        self._name = name
+        self._connector = connector
+        self._recorder = recorder
+        self._rng = rng
+        self._state = ConnectionState.IDLE
+        self._state_listeners: list[Callable[[ConnectionState], None]] = []
+        self._ready_listeners: list[Callable[[Generation], None]] = []
+        self._issue_listeners: list[Callable[[ConnectionIssue, bool], None]] = []
+        self._stats = ConnectionStats()
+        self._conflicts: set[int] = set()
+        self._issues: set[ConnectionIssue] = set()
+        self._long_write_mtu: int | None = None
+        self._session: Session | None = None
+        self._current: Generation | None = None
+        self._supervisor: asyncio.Task[None] | None = None
+        self._first_ready: asyncio.Future[Generation] | None = None
+        self._finished: asyncio.Future[None] | None = None
+        self._stopping = False
+        self._backoff = Backoff(BACKOFF_SCHEDULE, BACKOFF_JITTER)
+        self._wait = BackoffWait(
+            clock, threshold=SEEN_SHORTEN_THRESHOLD, shortened=SEEN_SHORTENED_WAIT
+        )
+        self._auth_streak = 0
+        self._auth_error: HandshakeRejectedError | None = None
+        self._connect_streak = 0
+        self._cache_cleared = False
+        self._last_join: JoinInfo | None = None
+        self._last_node_stats: NodeStats | None = None
+        self._transport_stats: TransportStats | None = None
+
+    @property
+    def node_config(self) -> NodeConfig:
+        """Config the next join will use."""
+        stored = self._config
+        return dataclasses.replace(stored, avoid_shorts=stored.avoid_shorts | self._conflicts)
+
+    # --- supervisor ---
+
+    def _start_supervisor(self) -> None:
+        loop = asyncio.get_running_loop()
+        self._finished = loop.create_future()
+        task = loop.create_task(self._run(), name=f"{self._name} connection")
+        task.add_done_callback(self._supervisor_done)
+        self._supervisor = task
+
+    def _supervisor_done(self, task: asyncio.Task[None]) -> None:
+        """Runs however the supervisor ended (even cancelled before its first step)."""
+        if not task.cancelled() and task.exception() is not None:  # pragma: no cover - bug
+            exc = task.exception()
+            _LOGGER.error("%s: connection supervisor died", self._name, exc_info=exc)
+            self._resolve_first(exc if exc is not None else RuntimeError("supervisor died"))
+            self._stopping = True
+        if self._stopping:
+            self._set_state(ConnectionState.STOPPED)
+        if self._finished is not None and not self._finished.done():
+            self._finished.set_result(None)
+
+    async def _run(self) -> None:
+        while True:
+            try:
+                outcome = await self._cycle()
+            except Exception as exc:
+                _LOGGER.exception("%s: connection cycle failed unexpectedly", self._name)
+                self._stats.last_failure = "error"
+                self._stats.last_failure_detail = describe_failure(exc)
+                self._resolve_first(exc)
+                outcome = _Outcome.BACKOFF
+            if self._stopping:  # pragma: no cover - stop() cancels the cycle instead
+                return
+            if outcome is _Outcome.AUTH_FAILED:
+                _LOGGER.warning("%s rejected the network key twice: giving up", self._name)
+                self._set_state(ConnectionState.AUTH_FAILED)
+                self._resolve_first(self._auth_error or HandshakeRejectedError("rejected"))
+                return
+            if outcome is _Outcome.BACKOFF:
+                base, delay = self._backoff.next_delay(self._rng)
+                self._stats.backoff = delay
+                self._set_state(ConnectionState.BACKOFF)
+                _LOGGER.info("%s: next attempt in %.1f s", self._name, delay)
+                await self._wait.wait(delay, base=base)
+
+    async def _cycle(self) -> _Outcome:
+        """One attempt and, once READY, the generation until a trigger; then the teardown.
+
+        Any wait here may be cancelled by ``stop()``; the teardown in ``finally`` runs
+        protected (``run_protected``), so it always completes in order.
+        """
+        session = Session()
+        self._session = session
+        attempt = asyncio.get_running_loop().create_task(
+            self._establish(session), name=f"{self._name} attempt"
+        )
+        try:
+            await asyncio.wait((attempt, session.lost), return_when=asyncio.FIRST_COMPLETED)
+            if not attempt.done():  # a trigger won: abort the attempt
+                attempt.cancel()
+                await asyncio.wait((attempt,))
+            error = None if attempt.cancelled() else attempt.exception()
+            rejection = session.transport.rejection if session.transport is not None else None
+            if rejection is not None:  # authoritative, even if a disconnect raced it
+                return self._attempt_error(rejection)
+            if session.lost.done():
+                return await self._lost(session, session.lost.result())
+            if error is None:
+                self._become_ready(session, attempt.result())
+                return await self._lost(session, await session.lost)
+            return self._attempt_error(error)
+        finally:
+            await run_protected(self._finish(session, attempt))
+
+    async def _lost(self, session: Session, reason: str) -> _Outcome:
+        if reason == f"transport:{_MISSING}" and self._clear_cache_due(session):
+            self._auth_streak = 0
+            return _Outcome.IMMEDIATE
+        return self._failed(reason)
+
+    def _clear_cache_due(self, session: Session) -> bool:
+        """Start the once-only stale-cache recovery for this session's client if allowed."""
+        if self._cache_cleared or session.client is None:
+            return False
+        session.clear_cache = True
+        self._cache_cleared = True
+        return True
+
+    async def _finish(self, session: Session, attempt: asyncio.Task[JoinInfo]) -> None:
+        if not attempt.done():
+            attempt.cancel()
+        await asyncio.wait((attempt,))
+        if not attempt.cancelled():
+            attempt.exception()  # retrieved
+        if session.clear_cache and session.client is not None:
+            await self._clear_cache(session.client)
+        await self._end_session(session)
+
+    async def _establish(self, session: Session) -> JoinInfo:
+        self._stats.attempts += 1
+        self._set_state(ConnectionState.CONNECTING)
+        try:
+            device = self._resolve_device()
+        except Exception as exc:
+            _LOGGER.debug("device resolver raised: %s", type(exc).__name__)
+            device = None
+        if device is None:
+            raise AttemptFailedError("not_found")
+        try:
+            client = await self._connector(
+                BleakClientWithServiceCache,
+                device,
+                self._name,
+                self._on_disconnect,
+                use_services_cache=True,
+                max_attempts=CONNECT_MAX_ATTEMPTS,
+            )
+        except Exception as exc:
+            self._note_connect_failure(exc)
+            raise AttemptFailedError("connect", detail=describe_failure(exc)) from exc
+        self._connect_streak = 0
+        self._stats.connects += 1
+        session.client = client
+        transport = ZigbeeDirectTransport(
+            client, own_eui=self._own_eui, psk=self._bak, clock=self._clock, recorder=self._recorder
+        )
+        session.transport = transport
+        self._transport_stats = transport.stats
+        transport.set_fatal_handler(lambda error: self._on_fatal(session, error))
+        try:
+            info = await transport.open()
+        except HandshakeRejectedError:
+            raise
+        except TransportError as exc:
+            self._stats.last_transport_error = exc.reason
+            if exc.reason == _MISSING and self._clear_cache_due(session):
+                raise CacheClearedError from exc
+            raise AttemptFailedError(
+                f"transport:{exc.reason}", detail=describe_failure(exc)
+            ) from exc
+        except Exception as exc:
+            raise AttemptFailedError("handshake", detail=describe_failure(exc)) from exc
+        self._note_session(info)
+        self._set_state(ConnectionState.JOINING)
+        node = ZigbeeDirectNode(
+            transport, clock=self._clock, config=self.node_config, rng=self._rng
+        )
+        session.node = node
+        self._last_node_stats = node.stats
+        node.on_address_conflict(lambda: self._on_conflict(session, node))
+        try:
+            return await node.join()
+        except Exception as exc:
+            cause = transport_error(exc)
+            if cause is not None and cause.reason == _MISSING and self._clear_cache_due(session):
+                raise CacheClearedError from exc
+            raise AttemptFailedError("join", detail=describe_failure(exc)) from exc
+
+    def _become_ready(self, session: Session, join: JoinInfo) -> None:
+        node = session.node
+        if node is None:  # pragma: no cover - a join result implies a node
+            raise RuntimeError("READY without a node")
+        self._stats.generation += 1
+        gen = Generation(self._stats.generation, node, join)
+        session.generation = gen
+        self._current = gen
+        self._last_join = join
+        self._stats.ready_since = self._clock.now()
+        self._stats.backoff = None
+        self._auth_streak = 0
+        self._cache_cleared = False
+        self._set_state(ConnectionState.READY)
+        _LOGGER.info("generation %d ready (own short 0x%04X)", gen.number, join.own_short)
+        emit(self._ready_listeners, gen)
+        self._resolve_first(gen)
+
+    async def _end_session(self, session: Session) -> None:
+        gen = session.generation
+        if gen is not None and self._current is gen:
+            self._current = None
+            since = self._stats.ready_since
+            if since is not None and self._clock.now() - since >= BACKOFF_RESET_AFTER:
+                self._backoff.reset()
+            self._stats.ready_since = None
+            self._set_state(ConnectionState.STOPPED if self._stopping else ConnectionState.BACKOFF)
+            _LOGGER.info("generation %d ended", gen.number)
+        snapshot = await session.teardown(
+            self._clock, disconnect_timeout=DISCONNECT_TIMEOUT, tasks_timeout=SPAWNED_TASKS_TIMEOUT
+        )
+        if snapshot is not None:
+            self._last_node_stats = snapshot
+        self._session = None
+
+    def _failed(self, reason: str, detail: str | None = None) -> _Outcome:
+        self._stats.last_failure = reason
+        self._stats.last_failure_detail = detail
+        self._auth_streak = 0
+        if detail is None:
+            _LOGGER.info("%s: connection failed (%s)", self._name, reason)
+        else:
+            _LOGGER.info("%s: connection failed (%s: %s)", self._name, reason, detail)
+        return _Outcome.BACKOFF
+
+    def _attempt_error(self, error: BaseException) -> _Outcome:
+        if isinstance(error, HandshakeRejectedError):
+            self._auth_streak += 1
+            self._stats.auth_failures += 1
+            self._stats.last_failure = "auth"
+            self._stats.last_failure_detail = describe_failure(error)
+            self._auth_error = error
+            _LOGGER.info("%s rejected the handshake (%d in a row)", self._name, self._auth_streak)
+            if self._auth_streak >= AUTH_FAILURES_TO_STOP:
+                return _Outcome.AUTH_FAILED
+            return _Outcome.BACKOFF
+        if isinstance(error, CacheClearedError):
+            self._auth_streak = 0
+            return _Outcome.IMMEDIATE
+        if isinstance(error, AttemptFailedError):
+            return self._failed(error.reason, error.detail)
+        _LOGGER.error("unexpected attempt failure", exc_info=error)  # pragma: no cover
+        return self._failed("error", describe_failure(error))  # pragma: no cover
+
+    # --- triggers (synchronous, loop thread) ---
+
+    def _live_session(self, gen: Generation) -> Session | None:
+        session = self._session
+        if session is None or session.ended or session.generation is not gen:
+            return None
+        return session if self._current is gen else None
+
+    def _on_disconnect(self, client: GattClient) -> None:
+        session = self._session
+        if session is None or session.client is not client:
+            _LOGGER.debug("ignored disconnect callback of a stale client")
+            return
+        if session.fail("disconnect"):
+            self._stats.disconnects += 1
+            _LOGGER.info("%s disconnected", self._name)
+
+    def _on_fatal(self, session: Session, error: TransportError) -> None:
+        if session is not self._session:
+            _LOGGER.debug("ignored fatal transport error of a stale session")
+            return
+        self._stats.last_transport_error = error.reason
+        if error.reason == "long_write_unsupported" and not session.ended:
+            transport = session.transport
+            info = transport.session if transport is not None else None
+            self._long_write_mtu = info.mtu if info is not None else 0
+            self._set_issue(ConnectionIssue.LONG_WRITE_UNSUPPORTED, active=True)
+        session.fail(f"transport:{error.reason}")
+
+    def _on_conflict(self, session: Session, node: ZigbeeDirectNode) -> None:
+        if session is not self._session or session.conflicted or session.ended:
+            return
+        session.conflicted = True
+        with contextlib.suppress(RuntimeError):  # no own short yet: nothing to avoid
+            self._conflicts.add(node.own_short)
+        if self._config.preferred_short is not None:
+            self._config = dataclasses.replace(self._config, preferred_short=None)
+        self._stats.address_conflicts += 1
+        _LOGGER.warning("address conflict on our short: rejoining with a new one")
+        session.fail("address_conflict")
+
+    # --- helpers ---
+
+    def _note_connect_failure(self, exc: BaseException) -> None:
+        self._stats.connect_failures += 1
+        self._connect_streak += 1
+        _LOGGER.debug("connect failed: %s", type(exc).__name__)
+        if self._connect_streak == CONNECT_FAILURE_WARNING:
+            _LOGGER.warning(
+                "%d connection attempts to %s failed in a row; it accepts only one Bluetooth "
+                "client, so make sure no other device (another Bluetooth adapter or proxy, Home "
+                "Assistant instance, phone app or ubisys tool) is connected to it",
+                CONNECT_FAILURE_WARNING,
+                self._name,
+            )
+
+    def _note_session(self, info: SessionInfo) -> None:
+        self._stats.mtu = info.mtu
+        self._stats.mtu_low = info.mtu_low
+        self._set_issue(ConnectionIssue.MTU_TOO_SMALL, active=info.mtu_low)
+        if self._long_write_mtu is not None and info.mtu >= self._long_write_mtu:
+            self._long_write_mtu = None
+            self._set_issue(ConnectionIssue.LONG_WRITE_UNSUPPORTED, active=False)
+
+    async def _clear_cache(self, client: GattClient) -> None:
+        self._stats.cache_clears += 1
+        _LOGGER.info("%s: GATT characteristic missing; clearing the service cache", self._name)
+        try:
+            async with self._clock.timeout(DISCONNECT_TIMEOUT):
+                await client.clear_cache()
+        except Exception as exc:
+            _LOGGER.debug("clear_cache failed: %s", type(exc).__name__)
+
+    def _set_state(self, state: ConnectionState) -> None:
+        if state is self._state:
+            return
+        self._state = state
+        _LOGGER.info("%s: state %s", self._name, state.value)
+        emit(self._state_listeners, state)
+
+    def _set_issue(self, issue: ConnectionIssue, *, active: bool) -> None:
+        if active == (issue in self._issues):
+            return
+        if active:
+            self._issues.add(issue)
+        else:
+            self._issues.discard(issue)
+        emit(self._issue_listeners, issue, active)
+
+    def _resolve_first(self, result: Generation | BaseException) -> None:
+        first = self._first_ready
+        if first is None or first.done():
+            return
+        if isinstance(result, BaseException):
+            first.set_exception(result)
+        else:
+            first.set_result(result)
+
+
+class _Outcome(Enum):
+    BACKOFF = "backoff"
+    IMMEDIATE = "immediate"
+    AUTH_FAILED = "auth_failed"
+
+
+def subscribe[C](listeners: list[C], cb: C) -> Callable[[], None]:
+    listeners.append(cb)
+
+    def unsubscribe() -> None:
+        with contextlib.suppress(ValueError):
+            listeners.remove(cb)
+
+    return unsubscribe
+
+
+def emit(listeners: list[Callable[..., None]], *args: object) -> None:
+    for cb in list(listeners):
+        try:
+            cb(*args)
+        except Exception:
+            _LOGGER.exception("connection listener raised")
+
+
+__all__ = ["ConnectionCore", "emit", "subscribe"]

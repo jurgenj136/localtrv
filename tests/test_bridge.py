@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from vicare_local_ble import bridge_discovery, valves
-from vicare_local_ble.bridge import (
+from localtrv import bridge_discovery, valves
+from localtrv.bridge import (
     ANNCE_IDENTIFY_RETRY,
     DISCOVERY_RETRY_DELAYS,
     TOPOLOGY_REFRESH,
@@ -25,26 +25,26 @@ from vicare_local_ble.bridge import (
     BridgeSnapshot,
     ViCareBridge,
 )
-from vicare_local_ble.testing.scenario import default_installation
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID, ZDO_PROFILE_ID, ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.zcl import ReadAttributes, WriteAttributes, ZclFrame
-from vicare_local_ble.zigbee_direct.codec.zdo import ZdoCluster
-from vicare_local_ble.zigbee_direct.connection import ConnectionState, ZdConnection
-from vicare_local_ble.zigbee_direct.errors import DecodeError
-from vicare_local_ble.zigbee_direct.types import COORDINATOR, Eui64
+from localtrv.testing.scenario import default_installation
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.codec.aps import HA_PROFILE_ID, ZDO_PROFILE_ID, ApsDataFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrameType
+from localtrv.zigbee_direct.codec.zcl import ReadAttributes, WriteAttributes, ZclFrame
+from localtrv.zigbee_direct.codec.zdo import ZdoCluster
+from localtrv.zigbee_direct.connection import ConnectionState, ZdConnection
+from localtrv.zigbee_direct.errors import DecodeError
+from localtrv.zigbee_direct.types import COORDINATOR, Eui64
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from vicare_local_ble.bridge_state import BridgeCore
-    from vicare_local_ble.testing.scenario import Installation
-    from vicare_local_ble.valves import Valve
-    from vicare_local_ble.zigbee_direct.clock import VirtualClock
-    from vicare_local_ble.zigbee_direct.connection import Generation
+    from localtrv.bridge_state import BridgeCore
+    from localtrv.testing.scenario import Installation
+    from localtrv.valves import Valve
+    from localtrv.zigbee_direct.clock import VirtualClock
+    from localtrv.zigbee_direct.connection import Generation
 
-LOGGER = "vicare_local_ble.bridge"
+LOGGER = "localtrv.bridge"
 ACME_EUI = Eui64.from_str("02:00:00:00:00:02:00:01")
 DEAD_EUI = Eui64.from_str("02:00:00:00:00:03:00:01")
 NEW_EUI = Eui64.from_str("02:00:00:00:00:01:00:20")

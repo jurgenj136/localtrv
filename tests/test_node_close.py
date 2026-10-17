@@ -9,14 +9,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv.testing import WriteFaultSpec
+from localtrv.zigbee_direct.codec.zcl import AttributeRecord
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.codec.zdo import ActiveEpReq, ActiveEpRsp
+from localtrv.zigbee_direct.errors import ConnectionLostError, TransportError
+from localtrv.zigbee_direct.node import NodeConfig, ZigbeeDirectNode
+from localtrv.zigbee_direct.uuids import TUNNEL_NPDU
 from test_node import LOCAL_TEMPERATURE, THERMOSTAT, rig
-from vicare_local_ble.testing import WriteFaultSpec
-from vicare_local_ble.zigbee_direct.codec.zcl import AttributeRecord
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.codec.zdo import ActiveEpReq, ActiveEpRsp
-from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, TransportError
-from vicare_local_ble.zigbee_direct.node import NodeConfig, ZigbeeDirectNode
-from vicare_local_ble.zigbee_direct.uuids import TUNNEL_NPDU
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

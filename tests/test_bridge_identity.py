@@ -10,17 +10,17 @@ import logging
 import random
 from typing import TYPE_CHECKING
 
+from localtrv import valves
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.codec.zcl import AttributeRecord
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.node_types import ReportEvent
 from test_bridge import NEW_EUI, discovered, make_rig, run_until, stop, zcl_requests
-from vicare_local_ble import valves
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.codec.zcl import AttributeRecord
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.node_types import ReportEvent
 
 if TYPE_CHECKING:
     import pytest
 
-    from vicare_local_ble.zigbee_direct.types import Eui64
+    from localtrv.zigbee_direct.types import Eui64
 
 THERMOSTAT = 0x0201
 LOCAL_TEMPERATURE = 0x0000
@@ -81,7 +81,7 @@ async def test_every_report_logs_one_debug_line_without_values(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Hardware checklist item 16: per-report DEBUG line (short, cluster, attribute ids)."""
-    caplog.set_level(logging.DEBUG, "vicare_local_ble.bridge")
+    caplog.set_level(logging.DEBUG, "localtrv.bridge")
     r = make_rig(n_valves=1, behind_router=0)
     gen = await discovered(r)
     valve = r.inst.valves[0]

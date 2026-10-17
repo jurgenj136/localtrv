@@ -6,9 +6,9 @@ from __future__ import annotations
 import dataclasses
 
 from fixtures import golden as g
+from localtrv.zigbee_direct.codec.nwk import NwkFrame
+from localtrv.zigbee_direct.types import Eui64
 from test_dispatch import feed, read_envelope, setup
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-from vicare_local_ble.zigbee_direct.types import Eui64
 
 OTHER = Eui64.from_str("02:00:00:00:00:09:00:01")
 

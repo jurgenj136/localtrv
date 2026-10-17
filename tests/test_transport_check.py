@@ -10,8 +10,8 @@ import asyncio
 
 import pytest
 
+from localtrv.zigbee_direct.clock import VirtualClock
 from test_transport import opened
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
 
 
 class WithdrawnError(Exception):

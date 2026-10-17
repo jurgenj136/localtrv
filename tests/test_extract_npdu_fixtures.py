@@ -12,15 +12,15 @@ from typing import TYPE_CHECKING
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
-from vicare_local_ble.zigbee_direct.debug import NPDU_LOGGER, NpduRecorder
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.nwk import NwkFrame
+from localtrv.zigbee_direct.codec.tlv import TunnelNpdu
+from localtrv.zigbee_direct.debug import NPDU_LOGGER, NpduRecorder
 
 if TYPE_CHECKING:
     from types import ModuleType
 
-    from vicare_local_ble.zigbee_direct.debug import NpduRecord
+    from localtrv.zigbee_direct.debug import NpduRecord
 
 
 def _load() -> ModuleType:
@@ -134,7 +134,7 @@ def test_stdin() -> None:
 
 # --- --from-ha-log: the NPDU recorder's output ----------------------------------------------
 
-HA_PREFIX = "2026-10-12 10:00:00.123 DEBUG (MainThread) [vicare_local_ble.npdu] "
+HA_PREFIX = "2026-10-12 10:00:00.123 DEBUG (MainThread) [localtrv.npdu] "
 
 
 def _recorder_log(caplog: pytest.LogCaptureFixture) -> tuple[list[str], list[NpduRecord]]:

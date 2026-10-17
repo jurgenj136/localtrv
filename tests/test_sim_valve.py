@@ -1,7 +1,7 @@
 """SimValve: ZCL semantics and sleepy timing, driven by golden bytes through SimNetwork.
 
 The expected values are the hand-written golden fixtures and raw wire numbers (docs/protocol.md §9),
-never ``vicare_local_ble.valves`` (no tautological scaling checks).
+never ``localtrv.valves`` (no tautological scaling checks).
 """
 
 from __future__ import annotations
@@ -13,13 +13,13 @@ from dataclasses import dataclass
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.testing.network import SimNetwork
-from vicare_local_ble.testing.network_recorder import Indication, RecordingTunnelHost
-from vicare_local_ble.testing.valve import SimValve, zk03840_attributes
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.testing.network import SimNetwork
+from localtrv.testing.network_recorder import Indication, RecordingTunnelHost
+from localtrv.testing.valve import SimValve, zk03840_attributes
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.aps import ApsDataFrame
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
 
 h = g.h
 SEQ = 7

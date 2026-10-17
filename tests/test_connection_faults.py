@@ -7,22 +7,22 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv.testing import network_frames as nf
+from localtrv.testing.errors import GATT_ERROR_REJECTED
+from localtrv.testing.gatt_client import FakeBleakClient
+from localtrv.zigbee_direct.connection import ConnectionIssue
+from localtrv.zigbee_direct.errors import HandshakeRejectedError
+from localtrv.zigbee_direct.node import NodeConfig
+from localtrv.zigbee_direct.transport import ZigbeeDirectTransport
+from localtrv.zigbee_direct.types import BROADCAST_RX_ON, SecretBytes
 from test_connection import S, assert_no_tasks, make_rig, ready_again, run_until, start, stop
-from vicare_local_ble.testing import network_frames as nf
-from vicare_local_ble.testing.errors import GATT_ERROR_REJECTED
-from vicare_local_ble.testing.gatt_client import FakeBleakClient
-from vicare_local_ble.zigbee_direct.connection import ConnectionIssue
-from vicare_local_ble.zigbee_direct.errors import HandshakeRejectedError
-from vicare_local_ble.zigbee_direct.node import NodeConfig
-from vicare_local_ble.zigbee_direct.transport import ZigbeeDirectTransport
-from vicare_local_ble.zigbee_direct.types import BROADCAST_RX_ON, SecretBytes
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from localtrv.zigbee_direct.connection import ConnectionState, Generation
+    from localtrv.zigbee_direct.transport import SessionInfo
     from test_connection import Rig
-    from vicare_local_ble.zigbee_direct.connection import ConnectionState, Generation
-    from vicare_local_ble.zigbee_direct.transport import SessionInfo
 
 WRONG_KEY = SecretBytes(b"\x99" * 16)  # dummy
 

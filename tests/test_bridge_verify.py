@@ -15,6 +15,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv import bridge_discovery, valves
+from localtrv.bridge_verify import adopt_walk
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.codec.zdo import ZdoCluster
+from localtrv.zigbee_direct.errors import RouteError
 from test_bridge import (
     ACME_EUI,
     NEW_EUI,
@@ -28,15 +33,10 @@ from test_bridge import (
     zcl_requests,
     zdo_requests,
 )
-from vicare_local_ble import bridge_discovery, valves
-from vicare_local_ble.bridge_verify import adopt_walk
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.codec.zdo import ZdoCluster
-from vicare_local_ble.zigbee_direct.errors import RouteError
 
 if TYPE_CHECKING:
-    from vicare_local_ble.testing.scenario import Installation
-    from vicare_local_ble.zigbee_direct.types import Eui64
+    from localtrv.testing.scenario import Installation
+    from localtrv.zigbee_direct.types import Eui64
 
 MOVED_TO = 0x5A5A
 

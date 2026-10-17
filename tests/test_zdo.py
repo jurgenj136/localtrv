@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_local_ble.zigbee_direct.codec.zdo import (
+from localtrv.zigbee_direct.codec.zdo import (
     ActiveEpReq,
     ActiveEpRsp,
     DeviceAnnce,
@@ -20,15 +20,15 @@ from vicare_local_ble.zigbee_direct.codec.zdo import (
     ZdoCluster,
     ZdoStatus,
 )
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import (
+from localtrv.zigbee_direct.codec.zdo_mgmt import (
     DeviceType,
     MgmtLqiReq,
     MgmtLqiRsp,
     Neighbor,
     Relationship,
 )
-from vicare_local_ble.zigbee_direct.errors import EncodeError, UnsupportedFrameError, ZdoDecodeError
-from vicare_local_ble.zigbee_direct.types import Eui64
+from localtrv.zigbee_direct.errors import EncodeError, UnsupportedFrameError, ZdoDecodeError
+from localtrv.zigbee_direct.types import Eui64
 
 EUI_A = Eui64.from_str("02:00:00:00:00:00:00:0A")
 EUI_B = Eui64.from_str("02:00:00:00:00:00:00:0B")

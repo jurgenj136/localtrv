@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_local_ble.zigbee_direct.codec.nwk import (
+from localtrv.zigbee_direct.codec.nwk import (
     DISCOVER_ROUTE_ENABLE,
     NwkFrame,
     NwkFrameControl,
     NwkFrameType,
     SourceRoute,
 )
-from vicare_local_ble.zigbee_direct.errors import EncodeError, NwkDecodeError
-from vicare_local_ble.zigbee_direct.types import Eui64
+from localtrv.zigbee_direct.errors import EncodeError, NwkDecodeError
+from localtrv.zigbee_direct.types import Eui64
 
 EUI_A = Eui64.from_str("02:00:00:00:00:00:00:01")
 EUI_B = Eui64.from_str("02:00:00:00:00:00:00:02")

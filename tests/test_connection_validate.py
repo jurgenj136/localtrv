@@ -8,16 +8,16 @@ from typing import TYPE_CHECKING
 import pytest
 from bleak.exc import BleakError
 
-from vicare_local_ble.testing.gatt_client import FakeBleakClient
-from vicare_local_ble.testing.scenario import default_installation
-from vicare_local_ble.zigbee_direct.connection import validate_connection
-from vicare_local_ble.zigbee_direct.errors import HandshakeRejectedError, TransportError
-from vicare_local_ble.zigbee_direct.types import SecretBytes
+from localtrv.testing.gatt_client import FakeBleakClient
+from localtrv.testing.scenario import default_installation
+from localtrv.zigbee_direct.connection import validate_connection
+from localtrv.zigbee_direct.errors import HandshakeRejectedError, TransportError
+from localtrv.zigbee_direct.types import SecretBytes
 
 if TYPE_CHECKING:
-    from vicare_local_ble.testing.scenario import Installation
-    from vicare_local_ble.zigbee_direct.connection import DeviceResolver
-    from vicare_local_ble.zigbee_direct.types import Eui64
+    from localtrv.testing.scenario import Installation
+    from localtrv.zigbee_direct.connection import DeviceResolver
+    from localtrv.zigbee_direct.types import Eui64
 
 
 def _validate(

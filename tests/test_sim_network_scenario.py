@@ -5,11 +5,11 @@ from __future__ import annotations
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.testing.scenario import default_installation
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import DeviceType
-from vicare_local_ble.zigbee_direct.types import COORDINATOR
+from localtrv.testing.scenario import default_installation
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.tlv import TunnelNpdu
+from localtrv.zigbee_direct.codec.zdo_mgmt import DeviceType
+from localtrv.zigbee_direct.types import COORDINATOR
 
 
 def test_research_layout() -> None:

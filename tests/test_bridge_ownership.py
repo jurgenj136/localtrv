@@ -16,14 +16,14 @@ import random
 
 import pytest
 
+from localtrv import bridge_poll, valves
+from localtrv.bridge_types import ANNCE_IDENTIFY_DEBOUNCE, MISSES_UNAVAILABLE
+from localtrv.testing import valve_table as vt
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.errors import RouteError
+from localtrv.zigbee_direct.types import Eui64
 from test_bridge import NEW_EUI, BRig, discovered, make_rig, poll, run_until, stop, zcl_requests
-from vicare_local_ble import bridge_poll, valves
-from vicare_local_ble.bridge_types import ANNCE_IDENTIFY_DEBOUNCE, MISSES_UNAVAILABLE
-from vicare_local_ble.testing import valve_table as vt
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.errors import RouteError
-from vicare_local_ble.zigbee_direct.types import Eui64
 
 MOVED_TO = 0x5A5A
 ANNCE_RETRY_EUI = Eui64.from_str("02:00:00:00:00:01:00:40")

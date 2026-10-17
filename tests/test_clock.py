@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from vicare_local_ble.zigbee_direct.clock import Clock, LoopClock, VirtualClock
+from localtrv.zigbee_direct.clock import Clock, LoopClock, VirtualClock
 
 
 def test_clocks_satisfy_protocol() -> None:

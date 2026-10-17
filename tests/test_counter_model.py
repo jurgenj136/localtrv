@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_local_ble.zigbee_direct.errors import AuthenticationError, ReplayError
-from vicare_local_ble.zigbee_direct.session import CounterModel, SessionCipher
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
-from vicare_local_ble.zigbee_direct.uuids import (
+from localtrv.zigbee_direct.errors import AuthenticationError, ReplayError
+from localtrv.zigbee_direct.session import CounterModel, SessionCipher
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.zigbee_direct.uuids import (
     COMMISSIONING_SERVICE,
     COMMISSIONING_STATUS,
     TUNNEL_NPDU,

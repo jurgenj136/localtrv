@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_local_ble.zigbee_direct.codec.tlv import (
+from localtrv.zigbee_direct.codec.tlv import (
     MAX_NPDU_LEN,
     Tlv,
     TunnelNpdu,
@@ -12,7 +12,7 @@ from vicare_local_ble.zigbee_direct.codec.tlv import (
     encode_tlvs,
     parse_tunnel_tlvs,
 )
-from vicare_local_ble.zigbee_direct.errors import EncodeError, TlvDecodeError
+from localtrv.zigbee_direct.errors import EncodeError, TlvDecodeError
 
 
 def test_tlv_length_is_value_len_minus_one() -> None:

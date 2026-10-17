@@ -11,34 +11,34 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from test_node import LOCAL_TEMPERATURE, THERMOSTAT, Rig, rig
-from test_node_requests import read, zcl_aps, zcl_tsns
-from vicare_local_ble.testing import network_frames as nf
-from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID
-from vicare_local_ble.zigbee_direct.codec.commissioning import CommissioningStatus
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
+from localtrv.testing import network_frames as nf
+from localtrv.zigbee_direct.codec.aps import HA_PROFILE_ID
+from localtrv.zigbee_direct.codec.commissioning import CommissioningStatus
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.nwk_commands import (
     CommissioningRequest,
     decode_nwk_command,
 )
-from vicare_local_ble.zigbee_direct.errors import (
+from localtrv.zigbee_direct.errors import (
     CommissioningDecodeError,
     ConnectionLostError,
     JoinError,
     SequenceExhaustedError,
     TransportError,
 )
-from vicare_local_ble.zigbee_direct.node import NetworkSummary, NodeConfig
-from vicare_local_ble.zigbee_direct.node_types import MIN_MTORR_INTERVAL
-from vicare_local_ble.zigbee_direct.requests import Envelope
-from vicare_local_ble.zigbee_direct.transport import ZigbeeDirectTransport
-from vicare_local_ble.zigbee_direct.types import SecretBytes
+from localtrv.zigbee_direct.node import NetworkSummary, NodeConfig
+from localtrv.zigbee_direct.node_types import MIN_MTORR_INTERVAL
+from localtrv.zigbee_direct.requests import Envelope
+from localtrv.zigbee_direct.transport import ZigbeeDirectTransport
+from localtrv.zigbee_direct.types import SecretBytes
+from test_node import LOCAL_TEMPERATURE, THERMOSTAT, Rig, rig
+from test_node_requests import read, zcl_aps, zcl_tsns
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
     from types import TracebackType
 
-    from vicare_local_ble.zigbee_direct.clock import VirtualClock
+    from localtrv.zigbee_direct.clock import VirtualClock
 
 DUMMY_KEY = bytes(range(0xA0, 0xB0))  # stands in for decrypted key material
 

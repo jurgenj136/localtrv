@@ -15,6 +15,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv import bridge_discovery, bridge_poll, valves
+from localtrv.testing import valve_table as vt
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.discovery import walk_topology
+from localtrv.zigbee_direct.errors import RouteError
 from test_bridge import (
     ACME_EUI,
     NEW_EUI,
@@ -28,15 +34,9 @@ from test_bridge import (
     stop,
     zcl_requests,
 )
-from vicare_local_ble import bridge_discovery, bridge_poll, valves
-from vicare_local_ble.testing import valve_table as vt
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.discovery import walk_topology
-from vicare_local_ble.zigbee_direct.errors import RouteError
 
 if TYPE_CHECKING:
-    from vicare_local_ble.testing.scenario import Installation
+    from localtrv.testing.scenario import Installation
 
 MOVED_TO = 0x5A5A
 

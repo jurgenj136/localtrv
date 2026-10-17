@@ -8,13 +8,13 @@ import re
 import pytest
 from bleak.exc import BleakError, BleakGATTProtocolError
 
-from vicare_local_ble.zigbee_direct.codec.commissioning import (
+from localtrv.zigbee_direct.codec.commissioning import (
     CommissioningStatus,
     safe_status_layout,
 )
-from vicare_local_ble.zigbee_direct.codec.tlv import Tlv
-from vicare_local_ble.zigbee_direct.errors import CommissioningDecodeError
-from vicare_local_ble.zigbee_direct.transport_handshake import gatt_failure
+from localtrv.zigbee_direct.codec.tlv import Tlv
+from localtrv.zigbee_direct.errors import CommissioningDecodeError
+from localtrv.zigbee_direct.transport_handshake import gatt_failure
 
 DUMMY_KEY = bytes(range(0xA0, 0xB0))  # stands in for decrypted key material
 #: The live R0 tag order (60 B) with its 4-byte DEVICE_TYPE: schema-matching, so fully shown.

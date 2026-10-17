@@ -14,21 +14,21 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from vicare_local_ble.testing import FakeGattError, SimulatedR0, ZddCounterModel
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.commissioning import CommissioningStatus
-from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu, parse_tunnel_tlvs
-from vicare_local_ble.zigbee_direct.crypto import SecretType, derive_basic_authorization_key
-from vicare_local_ble.zigbee_direct.errors import HandshakeError
-from vicare_local_ble.zigbee_direct.session import (
+from localtrv.testing import FakeGattError, SimulatedR0, ZddCounterModel
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.commissioning import CommissioningStatus
+from localtrv.zigbee_direct.codec.tlv import TunnelNpdu, parse_tunnel_tlvs
+from localtrv.zigbee_direct.crypto import SecretType, derive_basic_authorization_key
+from localtrv.zigbee_direct.errors import HandshakeError
+from localtrv.zigbee_direct.session import (
     CounterModel,
     Established,
     HandshakeInitiator,
     SendSe3,
     SessionCipher,
 )
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
-from vicare_local_ble.zigbee_direct.uuids import (
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.zigbee_direct.uuids import (
     COMMISSIONING_IDENTIFY,
     COMMISSIONING_SERVICE,
     COMMISSIONING_STATUS,
@@ -38,8 +38,8 @@ from vicare_local_ble.zigbee_direct.uuids import (
 )
 
 if TYPE_CHECKING:
-    from vicare_local_ble.testing.network import TunnelHost
-    from vicare_local_ble.zigbee_direct.transport import GattClient
+    from localtrv.testing.network import TunnelHost
+    from localtrv.zigbee_direct.transport import GattClient
 
 
 AUTH = SECURITY_AUTHENTICATE_C25519

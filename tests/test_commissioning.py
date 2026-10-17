@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from vicare_local_ble.zigbee_direct.codec.commissioning import (
+from localtrv.zigbee_direct.codec.commissioning import (
     ChannelMask,
     CommissioningStatus,
     DeviceType,
     JoinedStatus,
     JoiningMethod,
 )
-from vicare_local_ble.zigbee_direct.codec.tlv import Tlv
-from vicare_local_ble.zigbee_direct.errors import CommissioningDecodeError
-from vicare_local_ble.zigbee_direct.types import Eui64
+from localtrv.zigbee_direct.codec.tlv import Tlv
+from localtrv.zigbee_direct.errors import CommissioningDecodeError
+from localtrv.zigbee_direct.types import Eui64
 
 EXT_PAN = Eui64.from_str("DD:DD:DD:DD:DD:DD:DD:01")
 ZDD_EUI = Eui64.from_str("02:00:00:00:00:00:00:02")

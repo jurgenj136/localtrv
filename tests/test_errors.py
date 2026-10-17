@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from vicare_local_ble.zigbee_direct.errors import (
+from localtrv.zigbee_direct.errors import (
     ConnectionLostError,
     HandshakeError,
     HandshakeRejectedError,

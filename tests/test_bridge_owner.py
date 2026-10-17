@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv import bridge_verify, valves
+from localtrv.bridge_owner import Ownership
+from localtrv.bridge_types import ValveAddressUnknownError
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.types import Eui64
 from test_bridge import ACME_EUI, add_acme, discovered, make_rig, stop
-from vicare_local_ble import bridge_verify, valves
-from vicare_local_ble.bridge_owner import Ownership
-from vicare_local_ble.bridge_types import ValveAddressUnknownError
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.types import Eui64
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -80,7 +80,7 @@ async def test_older_evidence_is_ignored() -> None:
 async def test_verification_logs_and_learns_who_answers(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, "vicare_local_ble.bridge")
+    caplog.set_level(logging.DEBUG, "localtrv.bridge")
     r = make_rig(n_valves=1, behind_router=0, setup=add_acme)
     gen = await discovered(r)
     sim = r.inst.valves[0]

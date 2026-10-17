@@ -8,17 +8,17 @@ from __future__ import annotations
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import NwkCommandId, decode_nwk_command
-from vicare_local_ble.zigbee_direct.codec.nwk_mesh import (
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.nwk_commands import NwkCommandId, decode_nwk_command
+from localtrv.zigbee_direct.codec.nwk_mesh import (
     LINK_STATUS_ID,
     ROUTE_RECORD_ID,
     LinkStatus,
     LinkStatusEntry,
     RouteRecord,
 )
-from vicare_local_ble.zigbee_direct.errors import EncodeError, NwkDecodeError
-from vicare_local_ble.zigbee_direct.types import BROADCAST_ROUTERS, Eui64
+from localtrv.zigbee_direct.errors import EncodeError, NwkDecodeError
+from localtrv.zigbee_direct.types import BROADCAST_ROUTERS, Eui64
 
 h = g.h
 OWN = 0xCB93  # wire 93 CB

@@ -12,11 +12,11 @@ import logging
 import pytest
 
 from fixtures import golden as g
+from localtrv.zigbee_direct.codec.aps import ApsDataFrame, ApsDeliveryMode
+from localtrv.zigbee_direct.codec.nwk import NwkFrame
+from localtrv.zigbee_direct.types import Eui64
 from test_dispatch import LOGGER, feed, read_envelope, setup
 from test_nwk_mesh import R0_LINK_STATUS, VALVE_ROUTE_RECORD
-from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame, ApsDeliveryMode
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-from vicare_local_ble.zigbee_direct.types import Eui64
 
 h = g.h
 ACK_REQUEST = 0x40

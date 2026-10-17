@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from vicare_local_ble import cli
-from vicare_local_ble.zigbee_direct.errors import HandshakeRejectedError, TransportError
-from vicare_local_ble.zigbee_direct.types import Eui64
-from vicare_local_ble.zigbee_direct.uuids import COMMISSIONING_SERVICE
+from localtrv import cli
+from localtrv.zigbee_direct.errors import HandshakeRejectedError, TransportError
+from localtrv.zigbee_direct.types import Eui64
+from localtrv.zigbee_direct.uuids import COMMISSIONING_SERVICE
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -270,7 +270,7 @@ def test_scan_empty(scanner: type[_Scanner], capsys: pytest.CaptureFixture[str])
 
 
 def test_python_dash_m(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("sys.argv", ["vicare_local_ble", "scan", "--timeout", "0"])
+    monkeypatch.setattr("sys.argv", ["localtrv", "scan", "--timeout", "0"])
     with pytest.raises(SystemExit) as exc:
-        runpy.run_module("vicare_local_ble", run_name="__main__")
+        runpy.run_module("localtrv", run_name="__main__")
     assert exc.value.code == 0

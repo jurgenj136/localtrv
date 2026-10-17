@@ -12,33 +12,33 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from test_node import Rig, rig
-from vicare_local_ble.testing.network import SimRouter
-from vicare_local_ble.testing.network_aps import is_aps_ack
-from vicare_local_ble.testing.scenario import ROUTER_EUI
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.zdo import ZdoCluster, ZdoStatus
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import (
+from localtrv.testing.network import SimRouter
+from localtrv.testing.network_aps import is_aps_ack
+from localtrv.testing.scenario import ROUTER_EUI
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.codec.aps import ApsDataFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.zdo import ZdoCluster, ZdoStatus
+from localtrv.zigbee_direct.codec.zdo_mgmt import (
     DeviceType,
     MgmtLqiReq,
     MgmtLqiRsp,
     Neighbor,
     Relationship,
 )
-from vicare_local_ble.zigbee_direct.discovery import Topology, walk_topology
-from vicare_local_ble.zigbee_direct.errors import (
+from localtrv.zigbee_direct.discovery import Topology, walk_topology
+from localtrv.zigbee_direct.errors import (
     ConnectionLostError,
     RequestTimeoutError,
     RouteError,
 )
-from vicare_local_ble.zigbee_direct.types import COORDINATOR, Eui64
+from localtrv.zigbee_direct.types import COORDINATOR, Eui64
+from test_node import Rig, rig
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from vicare_local_ble.zigbee_direct.node import ZigbeeDirectNode
+    from localtrv.zigbee_direct.node import ZigbeeDirectNode
 
 EXTRA_ROUTER = 0x0B0B
 EXTRA_VALVE = 0x0C0C

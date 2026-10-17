@@ -9,6 +9,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv import valves
+from localtrv.bridge import CACHE_VERSION, BridgeCache, CachedValve
+from localtrv.testing import valve_table as vt
+from localtrv.testing.scenario import valve_eui
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
 from test_bridge import (
     ACME_EUI,
     LOGGER,
@@ -21,14 +26,9 @@ from test_bridge import (
     stop,
     zcl_requests,
 )
-from vicare_local_ble import valves
-from vicare_local_ble.bridge import CACHE_VERSION, BridgeCache, CachedValve
-from vicare_local_ble.testing import valve_table as vt
-from vicare_local_ble.testing.scenario import valve_eui
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
 
 if TYPE_CHECKING:
-    from vicare_local_ble.testing.scenario import Installation
+    from localtrv.testing.scenario import Installation
 
 GOOD_EUI = "02:00:00:00:00:01:00:01"
 
@@ -188,9 +188,9 @@ async def test_detach_removes_listeners() -> None:
 
 
 async def test_callback_errors_are_logged_and_swallowed(caplog: pytest.LogCaptureFixture) -> None:
-    from vicare_local_ble.bridge import ViCareBridge
-    from vicare_local_ble.testing.scenario import default_installation
-    from vicare_local_ble.zigbee_direct.connection import ZdConnection
+    from localtrv.bridge import ViCareBridge
+    from localtrv.testing.scenario import default_installation
+    from localtrv.zigbee_direct.connection import ZdConnection
 
     inst = default_installation(n_valves=1, behind_router=0)
     conn = ZdConnection(

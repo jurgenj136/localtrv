@@ -13,6 +13,10 @@ import random
 
 import pytest
 
+from localtrv import valves
+from localtrv.bridge_types import ANNCE_IDENTIFY_DEBOUNCE
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.errors import RouteError
 from test_bridge import (
     ACME_EUI,
     NEW_EUI,
@@ -25,10 +29,6 @@ from test_bridge import (
     zcl_requests,
 )
 from test_bridge_identity import temperature_report
-from vicare_local_ble import valves
-from vicare_local_ble.bridge_types import ANNCE_IDENTIFY_DEBOUNCE
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.errors import RouteError
 
 MOVED_TO = 0x5A5A
 

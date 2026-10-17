@@ -8,18 +8,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from test_node import LOCAL_TEMPERATURE, LOGGER, THERMOSTAT, Rig, rig
-from vicare_local_ble.testing import network_frames as nf
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
+from localtrv.testing import network_frames as nf
+from localtrv.zigbee_direct.codec.nwk import NwkFrame
+from localtrv.zigbee_direct.codec.nwk_commands import (
     NetworkStatus,
     RouteRequest,
     decode_nwk_command,
 )
-from vicare_local_ble.zigbee_direct.errors import RouteError
-from vicare_local_ble.zigbee_direct.node import NodeConfig, RouteReplyMode
-from vicare_local_ble.zigbee_direct.requests import PendingMap
-from vicare_local_ble.zigbee_direct.routing import (
+from localtrv.zigbee_direct.errors import RouteError
+from localtrv.zigbee_direct.node import NodeConfig, RouteReplyMode
+from localtrv.zigbee_direct.requests import PendingMap
+from localtrv.zigbee_direct.routing import (
     MTORR_ON_ROUTE_FAILURE_INTERVAL,
     NWK_STATUS_ADDRESS_CONFLICT,
     NWK_STATUS_MANY_TO_ONE_ROUTE_FAILURE,
@@ -28,10 +27,11 @@ from vicare_local_ble.zigbee_direct.routing import (
     NeighborTable,
     Router,
 )
-from vicare_local_ble.zigbee_direct.types import BROADCAST_RX_ON, COORDINATOR, Eui64
+from localtrv.zigbee_direct.types import BROADCAST_RX_ON, COORDINATOR, Eui64
+from test_node import LOCAL_TEMPERATURE, LOGGER, THERMOSTAT, Rig, rig
 
 if TYPE_CHECKING:
-    from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce
+    from localtrv.zigbee_direct.codec.zdo import DeviceAnnce
 
 
 def boom(*_args: object) -> None:

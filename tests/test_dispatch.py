@@ -9,35 +9,35 @@ from typing import TYPE_CHECKING
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame, ApsDeliveryMode
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame, ApsDeliveryMode
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.nwk_commands import (
     CommissioningResponse,
     NetworkStatus,
     RouteReply,
     RouteRequest,
 )
-from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
-from vicare_local_ble.zigbee_direct.codec.zcl import ReadAttributesResponse, ZclCommandId
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.codec.zdo import DeviceAnnce
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import MgmtLqiRsp
-from vicare_local_ble.zigbee_direct.dispatch import Dispatcher
-from vicare_local_ble.zigbee_direct.node_types import NodeStats, ReportEvent
-from vicare_local_ble.zigbee_direct.requests import (
+from localtrv.zigbee_direct.codec.tlv import TunnelNpdu
+from localtrv.zigbee_direct.codec.zcl import ReadAttributesResponse, ZclCommandId
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.codec.zdo import DeviceAnnce
+from localtrv.zigbee_direct.codec.zdo_mgmt import MgmtLqiRsp
+from localtrv.zigbee_direct.dispatch import Dispatcher
+from localtrv.zigbee_direct.node_types import NodeStats, ReportEvent
+from localtrv.zigbee_direct.requests import (
     Envelope,
     JoinSlot,
     JoinToken,
     PendingMap,
     ZclResponse,
 )
-from vicare_local_ble.zigbee_direct.routing import NeighborTable
+from localtrv.zigbee_direct.routing import NeighborTable
 
 if TYPE_CHECKING:
-    from vicare_local_ble.zigbee_direct.types import Eui64
+    from localtrv.zigbee_direct.types import Eui64
 
-LOGGER = "vicare_local_ble.zigbee_direct.node"
+LOGGER = "localtrv.zigbee_direct.node"
 
 
 @dataclass

@@ -6,23 +6,23 @@ from types import MappingProxyType
 
 import pytest
 
-from vicare_local_ble.zigbee_direct.codec import fallback
-from vicare_local_ble.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.fallback import (
+from localtrv.zigbee_direct.codec import fallback
+from localtrv.zigbee_direct.codec.aps import HA_PROFILE_ID, ApsDataFrame
+from localtrv.zigbee_direct.codec.fallback import (
     ExpectedZcl,
     ExpectedZdo,
     ScanFailure,
     ScanMatch,
     scan_for_response,
 )
-from vicare_local_ble.zigbee_direct.codec.zcl import (
+from localtrv.zigbee_direct.codec.zcl import (
     ReadAttributesResponse,
     ReadAttributeStatus,
     WriteAttributesResponse,
     WriteAttributeStatus,
 )
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.codec.zdo import (
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.codec.zdo import (
     ActiveEpRsp,
     SimpleDescriptor,
     SimpleDescRsp,

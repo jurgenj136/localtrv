@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from localtrv.testing.gatt import WriteFaultSpec
+from localtrv.testing.gatt_client import FakeBleakClient
+from localtrv.zigbee_direct.debug import NpduRecorder
+from localtrv.zigbee_direct.errors import ConnectionLostError, TransportError
+from localtrv.zigbee_direct.transport import ZigbeeDirectTransport
+from localtrv.zigbee_direct.uuids import TUNNEL_NPDU
 from test_connection import S, assert_no_tasks, make_rig, ready_again, run_until, start, stop
-from vicare_local_ble.testing.gatt import WriteFaultSpec
-from vicare_local_ble.testing.gatt_client import FakeBleakClient
-from vicare_local_ble.zigbee_direct.debug import NpduRecorder
-from vicare_local_ble.zigbee_direct.errors import ConnectionLostError, TransportError
-from vicare_local_ble.zigbee_direct.transport import ZigbeeDirectTransport
-from vicare_local_ble.zigbee_direct.uuids import TUNNEL_NPDU
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,8 +23,8 @@ if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
     from bleak_retry_connector import BleakClientWithServiceCache
 
-    from vicare_local_ble.zigbee_direct.connection import Generation
-    from vicare_local_ble.zigbee_direct.transport import FatalHandler, GattClient
+    from localtrv.zigbee_direct.connection import Generation
+    from localtrv.zigbee_direct.transport import FatalHandler, GattClient
 
 
 def capture_fatal_handlers(

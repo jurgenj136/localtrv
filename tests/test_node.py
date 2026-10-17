@@ -16,33 +16,33 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.testing import network_frames as nf
-from vicare_local_ble.testing.network_aps import is_aps_ack
-from vicare_local_ble.testing.scenario import default_installation
-from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
+from localtrv.testing import network_frames as nf
+from localtrv.testing.network_aps import is_aps_ack
+from localtrv.testing.scenario import default_installation
+from localtrv.zigbee_direct.codec.aps import ApsDataFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.nwk_commands import (
     CommissioningRequest,
     RouteRequest,
     decode_nwk_command,
 )
-from vicare_local_ble.zigbee_direct.crypto import derive_basic_authorization_key
-from vicare_local_ble.zigbee_direct.errors import (
+from localtrv.zigbee_direct.crypto import derive_basic_authorization_key
+from localtrv.zigbee_direct.errors import (
     CommissioningDecodeError,
     JoinError,
     JoinRejectedError,
 )
-from vicare_local_ble.zigbee_direct.node import NetworkSummary, NodeConfig, ZigbeeDirectNode
-from vicare_local_ble.zigbee_direct.transport import ZigbeeDirectTransport
+from localtrv.zigbee_direct.node import NetworkSummary, NodeConfig, ZigbeeDirectNode
+from localtrv.zigbee_direct.transport import ZigbeeDirectTransport
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from vicare_local_ble.testing.scenario import Installation
-    from vicare_local_ble.zigbee_direct.clock import VirtualClock
-    from vicare_local_ble.zigbee_direct.node_core import NodeCore
+    from localtrv.testing.scenario import Installation
+    from localtrv.zigbee_direct.clock import VirtualClock
+    from localtrv.zigbee_direct.node_core import NodeCore
 
-LOGGER = "vicare_local_ble.zigbee_direct.node"
+LOGGER = "localtrv.zigbee_direct.node"
 THERMOSTAT = 0x0201
 LOCAL_TEMPERATURE = 0x0000
 SETPOINT = 0x0012

@@ -8,56 +8,56 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from vicare_local_ble.bridge import ViCareBridge
-from vicare_local_ble.zigbee_direct import codec
-from vicare_local_ble.zigbee_direct.codec import commissioning, zdo_mgmt
-from vicare_local_ble.zigbee_direct.connection import Connector, ZdConnection
-from vicare_local_ble.zigbee_direct.requests import Envelope
-from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
+from localtrv.bridge import ViCareBridge
+from localtrv.zigbee_direct import codec
+from localtrv.zigbee_direct.codec import commissioning, zdo_mgmt
+from localtrv.zigbee_direct.connection import Connector, ZdConnection
+from localtrv.zigbee_direct.requests import Envelope
+from localtrv.zigbee_direct.types import Eui64, SecretBytes
 
 if TYPE_CHECKING:
     from bleak_retry_connector import BleakClientWithServiceCache
 
-    from vicare_local_ble.testing import FakeBleakClient, FakeConnector
-    from vicare_local_ble.zigbee_direct.transport import GattClient
+    from localtrv.testing import FakeBleakClient, FakeConnector
+    from localtrv.zigbee_direct.transport import GattClient
 
 PACKAGES = [
-    "vicare_local_ble.zigbee_direct",
-    "vicare_local_ble.zigbee_direct.codec",
-    "vicare_local_ble.testing",
+    "localtrv.zigbee_direct",
+    "localtrv.zigbee_direct.codec",
+    "localtrv.testing",
 ]
 MODULES = [
-    "vicare_local_ble.bridge",
-    "vicare_local_ble.bridge_cache",
-    "vicare_local_ble.valves",
-    "vicare_local_ble.valves.constants",
-    "vicare_local_ble.valves.decode",
-    "vicare_local_ble.valves.models",
-    "vicare_local_ble.testing.errors",
-    "vicare_local_ble.testing.gatt",
-    "vicare_local_ble.testing.network",
-    "vicare_local_ble.testing.scenario",
-    "vicare_local_ble.testing.valve",
-    "vicare_local_ble.testing.zdd",
-    "vicare_local_ble.zigbee_direct.clock",
-    "vicare_local_ble.zigbee_direct.connection",
-    "vicare_local_ble.zigbee_direct.debug",
-    "vicare_local_ble.zigbee_direct.discovery",
-    "vicare_local_ble.zigbee_direct.dispatch",
-    "vicare_local_ble.zigbee_direct.errors",
-    "vicare_local_ble.zigbee_direct.frames",
-    "vicare_local_ble.zigbee_direct.node",
-    "vicare_local_ble.zigbee_direct.node_types",
-    "vicare_local_ble.zigbee_direct.requests",
-    "vicare_local_ble.zigbee_direct.routing",
-    "vicare_local_ble.zigbee_direct.session",
-    "vicare_local_ble.zigbee_direct.transport",
+    "localtrv.bridge",
+    "localtrv.bridge_cache",
+    "localtrv.valves",
+    "localtrv.valves.constants",
+    "localtrv.valves.decode",
+    "localtrv.valves.models",
+    "localtrv.testing.errors",
+    "localtrv.testing.gatt",
+    "localtrv.testing.network",
+    "localtrv.testing.scenario",
+    "localtrv.testing.valve",
+    "localtrv.testing.zdd",
+    "localtrv.zigbee_direct.clock",
+    "localtrv.zigbee_direct.connection",
+    "localtrv.zigbee_direct.debug",
+    "localtrv.zigbee_direct.discovery",
+    "localtrv.zigbee_direct.dispatch",
+    "localtrv.zigbee_direct.errors",
+    "localtrv.zigbee_direct.frames",
+    "localtrv.zigbee_direct.node",
+    "localtrv.zigbee_direct.node_types",
+    "localtrv.zigbee_direct.requests",
+    "localtrv.zigbee_direct.routing",
+    "localtrv.zigbee_direct.session",
+    "localtrv.zigbee_direct.transport",
 ]
 
 #: Every public and shared name, by defining module.
 FROZEN_NAMES = {
-    "vicare_local_ble.zigbee_direct.clock": ["Clock", "Cancellable", "LoopClock", "VirtualClock"],
-    "vicare_local_ble.zigbee_direct.errors": [
+    "localtrv.zigbee_direct.clock": ["Clock", "Cancellable", "LoopClock", "VirtualClock"],
+    "localtrv.zigbee_direct.errors": [
         "TransportError",
         "ConnectionLostError",
         "HandshakeRejectedError",
@@ -67,13 +67,13 @@ FROZEN_NAMES = {
         "RouteError",
         "ZclStatusError",
     ],
-    "vicare_local_ble.zigbee_direct.transport": [
+    "localtrv.zigbee_direct.transport": [
         "MIN_RECOMMENDED_MTU",
         "SessionInfo",
         "TransportStats",
         "ZigbeeDirectTransport",
     ],
-    "vicare_local_ble.zigbee_direct.node": [
+    "localtrv.zigbee_direct.node": [
         "RouteReplyMode",
         "NodeConfig",
         "JoinInfo",
@@ -82,9 +82,9 @@ FROZEN_NAMES = {
         "NodeStats",
         "ZigbeeDirectNode",
     ],
-    "vicare_local_ble.zigbee_direct.requests": ["Envelope", "Pending", "PendingMap"],
-    "vicare_local_ble.zigbee_direct.discovery": ["Topology", "walk_topology"],
-    "vicare_local_ble.zigbee_direct.connection": [
+    "localtrv.zigbee_direct.requests": ["Envelope", "Pending", "PendingMap"],
+    "localtrv.zigbee_direct.discovery": ["Topology", "walk_topology"],
+    "localtrv.zigbee_direct.connection": [
         "ConnectionState",
         "DeviceResolver",
         "Connector",
@@ -93,9 +93,9 @@ FROZEN_NAMES = {
         "ZdConnection",
         "validate_connection",
     ],
-    "vicare_local_ble.zigbee_direct.debug": ["NpduRecorder", "sanitize_records"],
-    "vicare_local_ble.zigbee_direct.session": ["CounterModel"],
-    "vicare_local_ble.bridge": [
+    "localtrv.zigbee_direct.debug": ["NpduRecorder", "sanitize_records"],
+    "localtrv.zigbee_direct.session": ["CounterModel"],
+    "localtrv.bridge": [
         "BridgeCache",
         "CachedValve",
         "SetpointStatus",
@@ -104,7 +104,7 @@ FROZEN_NAMES = {
         "BridgeSnapshot",
         "ViCareBridge",
     ],
-    "vicare_local_ble.valves": [
+    "localtrv.valves": [
         "AttrSpec",
         "FAST",
         "SLOW",
@@ -122,7 +122,7 @@ FROZEN_NAMES = {
         "MANUFACTURER",
         "OUI_HINT",
     ],
-    "vicare_local_ble.testing": [
+    "localtrv.testing": [
         "FakeZdd",
         "FakeGattError",
         "FakeBleakClient",
@@ -159,7 +159,7 @@ def test_codec_exports_every_submodule_public_name() -> None:
         "zcl_types",
         "fallback",
     ):
-        module = importlib.import_module(f"vicare_local_ble.zigbee_direct.codec.{sub}")
+        module = importlib.import_module(f"localtrv.zigbee_direct.codec.{sub}")
         for attr, value in vars(module).items():
             if attr.startswith("_") or attr in renamed or not hasattr(codec, attr):
                 continue
@@ -192,9 +192,9 @@ def test_frozen_methods_and_callbacks() -> None:
 
 
 def test_zigbee_direct_reexports_are_canonical() -> None:
-    package = importlib.import_module("vicare_local_ble.zigbee_direct")
+    package = importlib.import_module("localtrv.zigbee_direct")
     for module_name, names in FROZEN_NAMES.items():
-        if not module_name.startswith("vicare_local_ble.zigbee_direct."):
+        if not module_name.startswith("localtrv.zigbee_direct."):
             continue
         module = importlib.import_module(module_name)
         for name in names:
@@ -203,8 +203,8 @@ def test_zigbee_direct_reexports_are_canonical() -> None:
 
 
 def test_testing_module_keeps_legacy_imports() -> None:
-    legacy = importlib.import_module("vicare_local_ble.testing")
-    zdd = importlib.import_module("vicare_local_ble.testing.zdd")
+    legacy = importlib.import_module("localtrv.testing")
+    zdd = importlib.import_module("localtrv.testing.zdd")
     assert legacy.FakeZdd is zdd.FakeZdd
     assert legacy.GATT_ERROR_REJECTED == 0x80
     zdd_eui = Eui64.from_str("02:00:00:00:00:00:00:02")
@@ -237,15 +237,15 @@ def test_structural_helpers_exist() -> None:
 
 
 def test_cache_types_reexported_from_bridge() -> None:
-    bridge = importlib.import_module("vicare_local_ble.bridge")
-    cache = importlib.import_module("vicare_local_ble.bridge_cache")
+    bridge = importlib.import_module("localtrv.bridge")
+    cache = importlib.import_module("localtrv.bridge_cache")
     assert bridge.BridgeCache is cache.BridgeCache
     assert bridge.CachedValve is cache.CachedValve
 
 
 def test_valves_package_reexports_submodules() -> None:
-    valves = importlib.import_module("vicare_local_ble.valves")
+    valves = importlib.import_module("localtrv.valves")
     for sub in ("constants", "models", "decode"):
-        module = importlib.import_module(f"vicare_local_ble.valves.{sub}")
+        module = importlib.import_module(f"localtrv.valves.{sub}")
         for name in module.__all__:
             assert getattr(valves, name) is getattr(module, name), f"{sub}.{name}"

@@ -19,7 +19,7 @@ Defensive: unrecognised lines containing a bare 16-byte (32 hex chars) blob are
 dropped and counted, never emitted.
 
 ``--from-ha-log PATH`` instead reads the library's NPDU debug log (logger
-``vicare_local_ble.npdu``): every line holding ``NPDU {json}`` after any HA log
+``localtrv.npdu``): every line holding ``NPDU {json}`` after any HA log
 prefix, or a bare JSON object (the ``grep NPDU home-assistant.log | cut -d' '
 -f2-`` form). Records are already redacted by the recorder; suppressed ones
 (``"redacted"``: APS command, ZCL secret, undecodable header-only) carry no

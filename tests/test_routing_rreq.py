@@ -8,17 +8,17 @@ import logging
 import pytest
 
 from fixtures import golden as g
+from localtrv.zigbee_direct import routing
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.nwk_commands import RouteReply, RouteRequest
+from localtrv.zigbee_direct.codec.zdo_mgmt import DeviceType, Neighbor, Relationship
+from localtrv.zigbee_direct.errors import ConnectionLostError
+from localtrv.zigbee_direct.frames import LIVE_ROUTE_REPLY_OPTIONS, route_reply_npdu
+from localtrv.zigbee_direct.node import NodeConfig, RouteReplyMode
+from localtrv.zigbee_direct.requests import SeqAllocator
+from localtrv.zigbee_direct.routing import RREP_MIN_INTERVAL, Router
+from localtrv.zigbee_direct.types import BROADCAST_ROUTERS, Eui64
 from test_node import Rig, rig
-from vicare_local_ble.zigbee_direct import routing
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import RouteReply, RouteRequest
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import DeviceType, Neighbor, Relationship
-from vicare_local_ble.zigbee_direct.errors import ConnectionLostError
-from vicare_local_ble.zigbee_direct.frames import LIVE_ROUTE_REPLY_OPTIONS, route_reply_npdu
-from vicare_local_ble.zigbee_direct.node import NodeConfig, RouteReplyMode
-from vicare_local_ble.zigbee_direct.requests import SeqAllocator
-from vicare_local_ble.zigbee_direct.routing import RREP_MIN_INTERVAL, Router
-from vicare_local_ble.zigbee_direct.types import BROADCAST_ROUTERS, Eui64
 
 RID_OFFSET = 10  # NWK header (8 B), then 02 options rid
 GOLDEN_NWK_SEQ = 4  # NWK seq of RREP_LIVE / RREP_SPEC
@@ -284,7 +284,7 @@ async def test_own_echo_is_not_logged_and_relayed_copies_log_once(
 ) -> None:
     async with rig() as r:
         router, own = r.core.router, r.node.own_short
-        with caplog.at_level(logging.DEBUG, logger="vicare_local_ble.zigbee_direct.node"):
+        with caplog.at_level(logging.DEBUG, logger="localtrv.zigbee_direct.node"):
             router.on_route_request(*rreq_frame(own, 0xFFFC, 1))
             for _ in range(3):  # the coordinator's MTORR, relayed by three neighbours
                 router.on_route_request(*rreq_frame(0x0000, 0xFFFC, 9))

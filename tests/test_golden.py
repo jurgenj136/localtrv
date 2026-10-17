@@ -10,16 +10,16 @@ from __future__ import annotations
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.testing import FakeZdd
-from vicare_local_ble.zigbee_direct.codec.aps import (
+from localtrv.testing import FakeZdd
+from localtrv.zigbee_direct.codec.aps import (
     HA_PROFILE_ID,
     ZDO_PROFILE_ID,
     ApsDataFrame,
     ApsDeliveryMode,
 )
-from vicare_local_ble.zigbee_direct.codec.fallback import ExpectedZcl, ScanMatch, scan_for_response
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType, SourceRoute
-from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
+from localtrv.zigbee_direct.codec.fallback import ExpectedZcl, ScanMatch, scan_for_response
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType, SourceRoute
+from localtrv.zigbee_direct.codec.nwk_commands import (
     CommissioningRequest,
     CommissioningResponse,
     ManyToOne,
@@ -30,8 +30,8 @@ from vicare_local_ble.zigbee_direct.codec.nwk_commands import (
     decode_nwk_command,
     many_to_one_route_request_npdu,
 )
-from vicare_local_ble.zigbee_direct.codec.tlv import TunnelNpdu
-from vicare_local_ble.zigbee_direct.codec.zcl import (
+from localtrv.zigbee_direct.codec.tlv import TunnelNpdu
+from localtrv.zigbee_direct.codec.zcl import (
     AttributeRecord,
     DefaultResponse,
     ReadAttributes,
@@ -44,22 +44,22 @@ from vicare_local_ble.zigbee_direct.codec.zcl import (
     ZclDirection,
     ZclFrame,
 )
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.codec.zdo import (
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.codec.zdo import (
     ActiveEpRsp,
     DeviceAnnce,
     SimpleDescriptor,
     SimpleDescRsp,
 )
-from vicare_local_ble.zigbee_direct.codec.zdo_mgmt import (
+from localtrv.zigbee_direct.codec.zdo_mgmt import (
     DeviceType,
     MgmtLqiReq,
     MgmtLqiRsp,
     Neighbor,
     Relationship,
 )
-from vicare_local_ble.zigbee_direct.crypto import SecretType
-from vicare_local_ble.zigbee_direct.session import (
+from localtrv.zigbee_direct.crypto import SecretType
+from localtrv.zigbee_direct.session import (
     OPCODE_SE1,
     OPCODE_SE2,
     OPCODE_SE3,
@@ -70,7 +70,7 @@ from vicare_local_ble.zigbee_direct.session import (
     HandshakeInitiator,
     parse_handshake_message,
 )
-from vicare_local_ble.zigbee_direct.types import BROADCAST_ROUTERS, BROADCAST_RX_ON, SecretBytes
+from localtrv.zigbee_direct.types import BROADCAST_ROUTERS, BROADCAST_RX_ON, SecretBytes
 
 DUMMY_PSK = SecretBytes(bytes(range(0x40, 0x50)))
 THERMOSTAT = 0x0201

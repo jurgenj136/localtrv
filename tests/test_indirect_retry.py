@@ -11,27 +11,21 @@ import asyncio
 
 import pytest
 
-from test_bridge import poll, stop
-from test_e2e_sim import begin, e2e_rig
-from test_node import Rig, rig
-from test_node_requests import read
-from test_node_routing import mtorrs, status_npdu
-from test_requests import TSN, VALVE, zcl_envelope
-from vicare_local_ble.testing import network_frames as nf
-from vicare_local_ble.testing.network_aps import is_aps_ack
-from vicare_local_ble.testing.network_link import SIM_INDIRECT_EXPIRY_DELAY
-from vicare_local_ble.zigbee_direct.clock import VirtualClock
-from vicare_local_ble.zigbee_direct.codec.aps import ApsDataFrame
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.codec.zcl import ZclFrame
-from vicare_local_ble.zigbee_direct.errors import (
+from localtrv.testing import network_frames as nf
+from localtrv.testing.network_aps import is_aps_ack
+from localtrv.testing.network_link import SIM_INDIRECT_EXPIRY_DELAY
+from localtrv.zigbee_direct.clock import VirtualClock
+from localtrv.zigbee_direct.codec.aps import ApsDataFrame
+from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.codec.zcl import ZclFrame
+from localtrv.zigbee_direct.errors import (
     ConnectionLostError,
     RequestTimeoutError,
     RouteError,
 )
-from vicare_local_ble.zigbee_direct.node import NodeConfig
-from vicare_local_ble.zigbee_direct.requests import PendingMap
-from vicare_local_ble.zigbee_direct.routing import (
+from localtrv.zigbee_direct.node import NodeConfig
+from localtrv.zigbee_direct.requests import PendingMap
+from localtrv.zigbee_direct.routing import (
     ATTEMPT_FAILURE_STATUSES,
     NO_INDIRECT_CAPACITY_RETRY_DELAY,
     NWK_STATUS_INDIRECT_TRANSACTION_EXPIRY,
@@ -39,6 +33,12 @@ from vicare_local_ble.zigbee_direct.routing import (
     ROUTE_FAILURE_STATUSES,
     attempt_retry_delay,
 )
+from test_bridge import poll, stop
+from test_e2e_sim import begin, e2e_rig
+from test_node import Rig, rig
+from test_node_requests import read
+from test_node_routing import mtorrs, status_npdu
+from test_requests import TSN, VALVE, zcl_envelope
 
 LATENCY = 14.0  # the rig's valves answer after exactly this long
 EXPIRY = NWK_STATUS_INDIRECT_TRANSACTION_EXPIRY
@@ -420,7 +420,7 @@ async def test_resends_are_logged_with_their_cause(caplog: pytest.LogCaptureFixt
         valve = r.inst.valves[0]
         r.inst.network.drop_indirect(valve.short)
         tsn = r.core.allocators.tsn.peek()
-        with caplog.at_level("DEBUG", logger="vicare_local_ble.zigbee_direct.node"):
+        with caplog.at_level("DEBUG", logger="localtrv.zigbee_direct.node"):
             await r.clock.run_task(read(r))
         assert f"zcl seq {tsn} to 0x{valve.short:04X}: attempt 1 sent (after a drop)" in (
             caplog.text
@@ -429,7 +429,7 @@ async def test_resends_are_logged_with_their_cause(caplog: pytest.LogCaptureFixt
         valve.drop_rate = 1.0
         caplog.clear()
         with (
-            caplog.at_level("DEBUG", logger="vicare_local_ble.zigbee_direct.node"),
+            caplog.at_level("DEBUG", logger="localtrv.zigbee_direct.node"),
             pytest.raises(RequestTimeoutError),
         ):
             await r.clock.run_task(read(r))

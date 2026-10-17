@@ -1,7 +1,7 @@
 # Protocol notes: Zigbee Direct to ZK03840 valves
 
 Distilled from live research (one installation, October 2026) and the Zigbee R23 / Zigbee Direct 1.0
-(ZD) specs. Describes what `vicare_local_ble` implements. Everything marked **unverified** has not been
+(ZD) specs. Describes what `localtrv` implements. Everything marked **unverified** has not been
 confirmed on hardware. No installation-specific values appear here; `<ZDD short>` etc. are
 placeholders.
 
@@ -517,8 +517,8 @@ now implemented. Where the build differs, the bullet says so.
   is authoritative and may be persisted for the next join.
 - Persistent connection. Passive change detection was the plan, but no attribute reports ever
   reach the tunnel (open question 9), so the bridge polls.
-- Test helper: `vicare_local_ble.testing.FakeZdd` (responder side of SE1-SE4 plus session crypto);
-  `vicare_local_ble.testing` also provides a scripted NWK/ZCL peer.
+- Test helper: `localtrv.testing.FakeZdd` (responder side of SE1-SE4 plus session crypto);
+  `localtrv.testing` also provides a scripted NWK/ZCL peer.
 
 ## 12. Open questions
 

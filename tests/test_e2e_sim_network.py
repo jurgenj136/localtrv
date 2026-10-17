@@ -11,6 +11,23 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from localtrv import valves
+from localtrv.bridge import (
+    DISCOVERY_RETRY_DELAYS,
+    MISSES_UNAVAILABLE,
+    TOPOLOGY_REFRESH,
+    SetpointStatus,
+)
+from localtrv.testing import valve_table as vt
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.codec.aps import ZDO_PROFILE_ID
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.codec.zdo import ZdoCluster
+from localtrv.zigbee_direct.routing import (
+    MTORR_ON_ROUTE_FAILURE_INTERVAL,
+    NWK_STATUS_NON_TREE_LINK_FAILURE,
+)
+from localtrv.zigbee_direct.types import COORDINATOR, Eui64
 from test_bridge import (
     hardware_latency,
     poll,
@@ -22,28 +39,11 @@ from test_bridge import (
     zcl_requests,
 )
 from test_e2e_sim import S, all_available, begin, e2e_rig, on_attempt, track_states
-from vicare_local_ble import valves
-from vicare_local_ble.bridge import (
-    DISCOVERY_RETRY_DELAYS,
-    MISSES_UNAVAILABLE,
-    TOPOLOGY_REFRESH,
-    SetpointStatus,
-)
-from vicare_local_ble.testing import valve_table as vt
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.codec.aps import ZDO_PROFILE_ID
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.codec.zdo import ZdoCluster
-from vicare_local_ble.zigbee_direct.routing import (
-    MTORR_ON_ROUTE_FAILURE_INTERVAL,
-    NWK_STATUS_NON_TREE_LINK_FAILURE,
-)
-from vicare_local_ble.zigbee_direct.types import COORDINATOR, Eui64
 
 if TYPE_CHECKING:
+    from localtrv.bridge import BridgeSnapshot
+    from localtrv.testing.scenario import Installation
     from test_bridge import BRig
-    from vicare_local_ble.bridge import BridgeSnapshot
-    from vicare_local_ble.testing.scenario import Installation
 
 NEW_EUI = Eui64.from_str("02:00:00:00:00:01:00:30")
 SLOW_EUI = Eui64.from_str("02:00:00:00:00:01:00:31")

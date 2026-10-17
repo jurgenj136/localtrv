@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from vicare_local_ble.valves import (
+from localtrv.valves import (
     A_BATTERY,
     A_HEATING_DEMAND,
     A_LOCAL_TEMPERATURE,
@@ -65,10 +65,10 @@ from vicare_local_ble.valves import (
     spec_for,
     window_open,
 )
-from vicare_local_ble.valves import models as valve_models
-from vicare_local_ble.zigbee_direct.codec.zcl import AttributeRecord, ReadAttributeStatus
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.types import Eui64
+from localtrv.valves import models as valve_models
+from localtrv.zigbee_direct.codec.zcl import AttributeRecord, ReadAttributeStatus
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.types import Eui64
 
 I16, U8, I8, E8, STR = (
     ZclDataType.INT16,

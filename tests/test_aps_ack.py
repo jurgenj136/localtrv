@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fixtures import golden as g
-from vicare_local_ble.zigbee_direct.codec.aps import (
+from localtrv.zigbee_direct.codec.aps import (
     APS_ACK_LENGTH,
     HA_PROFILE_ID,
     ZDO_PROFILE_ID,
@@ -15,9 +15,9 @@ from vicare_local_ble.zigbee_direct.codec.aps import (
     ApsFrameControl,
     ApsFrameType,
 )
-from vicare_local_ble.zigbee_direct.codec.nwk import DISCOVER_ROUTE_ENABLE, NwkFrame, NwkFrameType
-from vicare_local_ble.zigbee_direct.errors import ApsDecodeError, EncodeError, UnsupportedFrameError
-from vicare_local_ble.zigbee_direct.frames import aps_ack_npdu
+from localtrv.zigbee_direct.codec.nwk import DISCOVER_ROUTE_ENABLE, NwkFrame, NwkFrameType
+from localtrv.zigbee_direct.errors import ApsDecodeError, EncodeError, UnsupportedFrameError
+from localtrv.zigbee_direct.frames import aps_ack_npdu
 
 h = g.h
 

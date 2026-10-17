@@ -9,6 +9,19 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from localtrv import valves
+from localtrv.bridge import SETPOINT_ACK_DEADLINE, SETPOINT_TOTAL_DEADLINE, SetpointStatus
+from localtrv.bridge_state import TxLock
+from localtrv.testing import valve_table as vt
+from localtrv.testing.valve import SimValve
+from localtrv.zigbee_direct.codec.zcl import ZclCommandId, ZclStatus
+from localtrv.zigbee_direct.codec.zcl_types import ZclDataType
+from localtrv.zigbee_direct.errors import (
+    ConnectionLostError,
+    RequestTimeoutError,
+    ZclStatusError,
+)
+from localtrv.zigbee_direct.types import COORDINATOR, Eui64
 from test_bridge import (
     BRig,
     discovered,
@@ -20,25 +33,12 @@ from test_bridge import (
     stop,
     zcl_requests,
 )
-from vicare_local_ble import valves
-from vicare_local_ble.bridge import SETPOINT_ACK_DEADLINE, SETPOINT_TOTAL_DEADLINE, SetpointStatus
-from vicare_local_ble.bridge_state import TxLock
-from vicare_local_ble.testing import valve_table as vt
-from vicare_local_ble.testing.valve import SimValve
-from vicare_local_ble.zigbee_direct.codec.zcl import ZclCommandId, ZclStatus
-from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType
-from vicare_local_ble.zigbee_direct.errors import (
-    ConnectionLostError,
-    RequestTimeoutError,
-    ZclStatusError,
-)
-from vicare_local_ble.zigbee_direct.types import COORDINATOR, Eui64
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
-    from vicare_local_ble.bridge import BridgeSnapshot
-    from vicare_local_ble.testing.scenario import Installation
+    from localtrv.bridge import BridgeSnapshot
+    from localtrv.testing.scenario import Installation
 
 SLOW_EUI = Eui64.from_str("02:00:00:00:00:01:00:30")
 

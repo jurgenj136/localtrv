@@ -7,25 +7,25 @@ import logging
 from typing import TYPE_CHECKING
 
 import pytest
-from custom_components.vicare_local_ble.diagnostics import _connection
+from custom_components.localtrv.diagnostics import _connection
 
-from test_connection import make_rig, start, stop
-from vicare_local_ble.testing.gatt import SimulatedR0
-from vicare_local_ble.zigbee_direct.codec.commissioning import StatusTag
-from vicare_local_ble.zigbee_direct.codec.tlv import Tlv, decode_tlvs, encode_tlvs
-from vicare_local_ble.zigbee_direct.connection_failure import describe_failure
-from vicare_local_ble.zigbee_direct.errors import (
+from localtrv.testing.gatt import SimulatedR0
+from localtrv.zigbee_direct.codec.commissioning import StatusTag
+from localtrv.zigbee_direct.codec.tlv import Tlv, decode_tlvs, encode_tlvs
+from localtrv.zigbee_direct.connection_failure import describe_failure
+from localtrv.zigbee_direct.errors import (
     ConnectionLostError,
     JoinError,
     TransportError,
 )
-from vicare_local_ble.zigbee_direct.node import ZigbeeDirectNode
+from localtrv.zigbee_direct.node import ZigbeeDirectNode
+from test_connection import make_rig, start, stop
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from localtrv.zigbee_direct.node import JoinInfo
     from test_connection import Rig
-    from vicare_local_ble.zigbee_direct.node import JoinInfo
 
 SECRET_HEX = "deadbeef" * 4  # dummy, secret-looking
 DUMMY_KEY = bytes(range(0xA0, 0xB0))  # stands in for decrypted key material

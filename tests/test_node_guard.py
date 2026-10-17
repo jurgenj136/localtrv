@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from localtrv.zigbee_direct.codec.nwk import NwkFrame
+from localtrv.zigbee_direct.types import Eui64
 from test_node import rig
 from test_node_requests import read
-from vicare_local_ble.zigbee_direct.codec.nwk import NwkFrame
-from vicare_local_ble.zigbee_direct.types import Eui64
 
 OTHER = Eui64.from_str("02:00:00:00:00:09:00:01")
 
