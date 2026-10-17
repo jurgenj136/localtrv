@@ -38,7 +38,7 @@ VALIDATE_TIMEOUT: Final = 60
 # Valve is unavailable after this many consecutive missed polls.
 MISSED_POLLS_UNAVAILABLE: Final = 3
 
-# Setup and shutdown (T16). Seconds on the library clock unless noted.
+# Setup and shutdown. Seconds on the library clock unless noted.
 FIRST_READY_TIMEOUT: Final = 90.0
 # Upper bound for connection.stop() at unload / HA stop (the teardown has its own inner bounds).
 STOP_TIMEOUT: Final = 30.0

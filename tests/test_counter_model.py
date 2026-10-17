@@ -1,4 +1,4 @@
-"""Per-characteristic incoming tracking and ZDD counter-model detection (spec §1.1)."""
+"""Per-characteristic incoming tracking and ZDD counter-model detection (docs/protocol.md §4)."""
 
 from __future__ import annotations
 

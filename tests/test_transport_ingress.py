@@ -1,4 +1,4 @@
-"""ZigbeeDirectTransport (T10): ingress counters, Commissioning Status read, counter-model log."""
+"""ZigbeeDirectTransport: ingress counters, Commissioning Status read, counter-model log."""
 
 from __future__ import annotations
 

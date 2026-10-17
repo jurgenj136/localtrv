@@ -51,7 +51,7 @@ class ManyToOne(IntEnum):
 
 
 class AssociationType(IntEnum):
-    """Commissioning Request association type (values as research tools/zvd_tunnel.py:28-30)."""
+    """Commissioning Request association type (values as sent by the research prototype)."""
 
     INITIAL_JOIN = 0x00
     REJOIN = 0x01
@@ -176,7 +176,7 @@ def many_to_one_route_request(
 ) -> RouteRequest:
     """Many-to-one Route Request to 0xFFFC; default encodes ``01 08 id FC FF 00``.
 
-    As research tools/zvd_tunnel.py ``build_manytoone_route_request`` (Telink reference).
+    As in the research prototype, after the Telink reference (docs/protocol.md §6.3).
     """
     return RouteRequest(
         route_id=route_id, dst=BROADCAST_ROUTERS, path_cost=path_cost, many_to_one=many_to_one
@@ -186,9 +186,10 @@ def many_to_one_route_request(
 def many_to_one_route_request_npdu(
     *, route_id: int, src_short: int, src_ieee: Eui64, seq: int, radius: int = 30
 ) -> bytes:
-    """Full NWK frame: command, dst 0xFFFC, src IEEE present, security bit set (handover §5).
+    """Full NWK frame: command, dst 0xFFFC, src IEEE present, security bit set.
 
-    Radius 30 and the security bit follow research tools/zvd_client.py:968-972.
+    See docs/protocol.md §6.3. Radius 30 and the security bit follow what the research
+    prototype sent live.
     """
     return NwkFrame(
         frame_type=NwkFrameType.COMMAND,
@@ -212,8 +213,8 @@ class RouteReply:
     Options are DERIVED (R23 3.4.2.3.1): bit 4 originator IEEE present, bit 5
     responder IEEE present, bit 6 multicast. With both EUIs this yields 0x30,
     which is spec-correct but unverified live: the research client sent 0x20
-    with both EUIs appended (research tools/zvd_tunnel.py ``build_route_reply``)
-    and that worked against the installation.
+    with both EUIs appended and that worked against the installation
+    (docs/protocol.md §6.4).
 
     ``options_override`` replaces the options byte on ``encode`` only (live mode: 0x20) and
     every present EUI is still appended. ``decode`` stays spec-derived and never sets it.
@@ -331,10 +332,10 @@ class CommissioningRequest:
 
 
 def zvd_commissioning_tlvs(*, zvd_eui: Eui64, placeholder_short: int) -> tuple[Tlv, ...]:
-    """Joiner Encapsulation TLV (0x48) wrapping the TLVs of handover §5.
+    """Joiner Encapsulation TLV (0x48) wrapping the TLVs of docs/protocol.md §6.1.
 
-    Inner TLVs (values as research tools/zvd_tunnel.py ``build_commissioning_request``,
-    after the Telink zbdirectTestTool reference):
+    Inner TLVs (values as sent by the research prototype, after the Telink
+    zbdirectTestTool reference):
     Supported Key Negotiation Methods ``01 00 ‖ EUI``, Fragmentation Parameters
     ``short ‖ 01 ‖ CF 00``, Device Capability Extension ``01 00``.
     """
@@ -361,11 +362,11 @@ def commissioning_request_npdu(
     capability: int = DEFAULT_ZVD_CAPABILITY,
     discover_route: int = 0,
 ) -> bytes:
-    """Full NWK Commissioning Request frame (handover §5).
+    """Full NWK Commissioning Request frame (docs/protocol.md §6.1).
 
     Command frame, no security, radius 1 (R23 3.4.14.2), dst = ZDD short + IEEE,
     src = placeholder short + ZVD IEEE (FC byte1 0x18; the SiLabs ZDD requires
-    both IEEEs). ``discover_route=0`` gives FC byte0 0x09 as research; 1 gives 0x49.
+    both IEEEs). ``discover_route=0`` gives FC byte0 0x09 as sent live; 1 gives 0x49.
     The ZDD short comes from the Commissioning Status characteristic and the
     placeholder short is caller-chosen; the TC-assigned short is in the response.
     """

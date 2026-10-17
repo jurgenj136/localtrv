@@ -1,4 +1,4 @@
-"""Raw ZK03840 simulator fixture data (PN §4, §1.5), written independently of ``valves``.
+"""Raw ZK03840 simulator fixture data (protocol.md §9), written independently of ``valves``.
 
 Values are raw wire values: centi-degrees, 0.5 % battery units, raw enums, quarter-seconds.
 Nothing here is imported from ``vicare_local_ble.valves`` (CONTRIBUTING.md layering), so
@@ -13,7 +13,7 @@ from vicare_local_ble.zigbee_direct.codec.zcl_types import ZclDataType, ZclValue
 
 type RawKey = tuple[int, int, int | None]
 
-#: Viessmann manufacturer code used by the mfr-specific thermostat attributes (PN §4).
+#: Viessmann manufacturer code used by the mfr-specific thermostat attributes.
 MFR_CODE: Final = 0x1221
 
 CL_BASIC: Final = 0x0000
@@ -25,7 +25,7 @@ CL_THERMOSTAT: Final = 0x0201
 CL_UI: Final = 0x0204
 CL_DIAGNOSTICS: Final = 0x0B05
 
-#: Simple descriptor of endpoint 1 (PN §1.5).
+#: Simple descriptor of endpoint 1.
 PROFILE_HA: Final = 0x0104
 DEVICE_ID: Final = 0x0301
 IN_CLUSTERS: Final = (

@@ -1,4 +1,4 @@
-"""node_types.py (T11): ``NetworkSummary.from_status`` keeps only the allowlisted fields."""
+"""node_types.py: ``NetworkSummary.from_status`` keeps only the allowlisted fields."""
 
 from __future__ import annotations
 

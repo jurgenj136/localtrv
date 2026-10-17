@@ -1,7 +1,6 @@
-"""ViCareBridge: discovery, polling, setpoints and reports on top of a ZdConnection (§1.6).
+"""ViCareBridge: discovery, polling, setpoints and reports on top of a ZdConnection.
 
-Implemented by T14 (which wires bridge -> connection); frozen interface (T2). Orchestration
-only: every cluster, attribute, scale, sentinel, model id and read plan comes from
+Orchestration only: every cluster, attribute, scale, sentinel, model id and read plan comes from
 ``vicare_local_ble.valves``; no Zigbee literals here.
 
 Lifecycle and ownership
@@ -75,7 +74,7 @@ request (a poll counts a miss; the usual re-walk follows). An identification hol
 lease on its short; if evidence changes meanwhile, its result is discarded (not added, not
 ignored).
 
-HA wiring (T16): ``on_update`` and ``connection.add_state_listener`` both push
+HA wiring: ``on_update`` and ``connection.add_state_listener`` both push
 ``bridge.snapshot()`` to the coordinator (``async_update_listeners``, no schedule reset), so the
 bridge connectivity entity flips at once on a state change, not at the next poll.
 

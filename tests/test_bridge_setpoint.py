@@ -1,4 +1,4 @@
-"""ViCareBridge (T14): the setpoint transaction (versions, lock, ack, confirm, deadlines)."""
+"""ViCareBridge: the setpoint transaction (versions, lock, ack, confirm, deadlines)."""
 
 from __future__ import annotations
 

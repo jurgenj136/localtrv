@@ -1,6 +1,6 @@
 """ZCL frame codec (ZCL rev 8 section 2.4): header plus profile-wide commands.
 
-Ports research tools/zvd_tunnel.py:239-317 with fixes: full frame control
+Ports the research prototype's ZCL code with fixes: full frame control
 (frame type, manufacturer specific + code, direction, disable default
 response), the full type table (``zcl_types.py``), strict record parsing (a
 truncated record or unknown type raises instead of being swallowed) and the
@@ -262,7 +262,7 @@ class WriteAttributeStatus:
 
 @dataclass(frozen=True, slots=True)
 class WriteAttributesResponse:
-    """Write Attributes Response (0x04), BUILD_SPEC A8.
+    """Write Attributes Response (0x04), ZCL rev 8 section 2.5.5.
 
     Empty payload -> error; a single 0x00 -> all success; otherwise a list of
     ``status ‖ attr id`` (3 bytes each) for the failed attributes only. A

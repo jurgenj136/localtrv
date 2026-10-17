@@ -1,8 +1,8 @@
-"""Golden wire fixtures decode with the phase-1 decoders; phase-1 encoders reproduce them.
+"""Golden wire fixtures decode with the codec decoders; the codec encoders reproduce them.
 
-The fixtures (``tests/fixtures/golden.py``) are hand-written from the PN. Production NPDU
-builders (``zigbee_direct.frames``) are asserted against them by T11/T12; here only phase-1
-codecs are used, composed by hand.
+The fixtures (``tests/fixtures/golden.py``) are hand-written from captured byte layouts.
+Production NPDU builders (``zigbee_direct.frames``) are asserted against them in
+``test_frames.py``; here only the codecs are used, composed by hand.
 """
 
 from __future__ import annotations
@@ -120,7 +120,7 @@ def test_every_npdu_decodes_as_nwk_and_reencodes(name: str) -> None:
     assert frame.encode() == raw
 
 
-# --- PN §1.1 -------------------------------------------------------------------------------
+# --- handshake -----------------------------------------------------------------------------
 
 
 def test_se1_layout_matches_handshake_initiator() -> None:
@@ -156,10 +156,10 @@ def test_se3_se4_layout(raw: bytes, opcode: int) -> None:
     assert len(raw) == 19
 
 
-# --- PN §1.3 -------------------------------------------------------------------------------
+# --- Commissioning Request / Response ------------------------------------------------------
 
 
-def test_commissioning_request_equals_phase1_builder() -> None:
+def test_commissioning_request_equals_codec_builder() -> None:
     assert len(g.COMMISSIONING_REQUEST) == 52
     built = commissioning_request_npdu(
         zvd_eui=g.ZVD_EUI,
@@ -195,7 +195,7 @@ def test_commissioning_responses_decode() -> None:
     assert decode_nwk_command(other.payload) == CommissioningResponse(g.OTHER_PLACEHOLDER, 0)
 
 
-# --- PN §1.4 -------------------------------------------------------------------------------
+# --- post-join frames ----------------------------------------------------------------------
 
 
 def test_device_annce_decodes_and_composes() -> None:
@@ -221,7 +221,7 @@ def test_device_annce_decodes_and_composes() -> None:
     assert composed == g.DEVICE_ANNCE
 
 
-def test_mtorr_equals_phase1_builder() -> None:
+def test_mtorr_equals_codec_builder() -> None:
     built = many_to_one_route_request_npdu(
         route_id=1, src_short=g.ZVD_SHORT, src_ieee=g.ZVD_EUI, seq=3
     )
@@ -232,7 +232,7 @@ def test_mtorr_equals_phase1_builder() -> None:
 
 
 def test_rrep_live_shows_why_options_override_exists() -> None:
-    """Spec-derived decode reads the live 0x20 frame as 'responder IEEE only' (PN §5.1)."""
+    """Spec-derived decode reads the live 0x20 frame as 'responder IEEE only' (R23 3.4.2.3.1)."""
     frame = nwk(g.RREP_LIVE)
     assert (frame.frame_type, frame.discover_route, frame.security) == (
         NwkFrameType.COMMAND,
@@ -247,7 +247,7 @@ def test_rrep_live_shows_why_options_override_exists() -> None:
     assert rrep.tlvs == g.ZVD_EUI.wire  # the real responder EUI ends up as "TLVs"
 
 
-def test_rrep_spec_equals_phase1_composition() -> None:
+def test_rrep_spec_equals_codec_composition() -> None:
     reply = RouteReply(
         route_id=7,
         originator=g.VALVE_SHORT,
@@ -327,10 +327,10 @@ def test_active_ep_and_simple_desc() -> None:
     assert rsp.encode() == g.SIMPLE_DESC_RSP_ZDO
 
 
-# --- PN §1.6 -------------------------------------------------------------------------------
+# --- ZCL -----------------------------------------------------------------------------------
 
 
-def test_zcl_read_equals_phase1_composition() -> None:
+def test_zcl_read_equals_codec_composition() -> None:
     read = ReadAttributes((0x0000, 0x0008, 0x0012, 0x001C))
     zcl_bytes = ZclFrame.build(0x2B, read).encode()
     assert zcl_bytes[:3] == bytes.fromhex("002B00")
@@ -341,7 +341,7 @@ def test_zcl_read_equals_phase1_composition() -> None:
     assert zcl(g.ZCL_READ).global_command() == read
 
 
-def test_zcl_mfr_read_equals_phase1_composition() -> None:
+def test_zcl_mfr_read_equals_codec_composition() -> None:
     frame = zcl(g.ZCL_READ_MFR)
     assert frame.header.manufacturer_code == 0x1221
     built = ZclFrame.build(0x2C, ReadAttributes((0x4000,)), manufacturer_code=0x1221).encode()

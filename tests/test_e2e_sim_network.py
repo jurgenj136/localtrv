@@ -1,4 +1,4 @@
-"""End to end over the simulator: spec §3 edge table, network and valve rows (T18).
+"""End to end over the simulator: the network and valve rows of the edge-case table.
 
 The row -> test map is in ``test_e2e_sim.py``. Whole library stack on ``VirtualClock``.
 """

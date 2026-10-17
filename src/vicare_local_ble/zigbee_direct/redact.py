@@ -1,6 +1,6 @@
 """NPDU inspection for the debug recorder: classify one NPDU and list its EUI fields.
 
-Pure helper of ``debug.py`` (spec §1.8); it only reads bytes and never logs. ``inspect_npdu``
+Pure helper of ``debug.py``; it only reads bytes and never logs. ``inspect_npdu``
 decodes with the production codecs and returns a verdict plus every EUI-64 and extended PAN the
 decoders expose. The caller (``debug.redact_npdu``) maps those to pseudonyms and replaces the
 wire bytes; nothing here produces output text.

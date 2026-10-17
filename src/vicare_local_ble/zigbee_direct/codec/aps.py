@@ -4,8 +4,8 @@ Only unsecured, unfragmented APS *data* frames and data-frame acknowledgements
 (``ApsAckFrame``, R23 2.2.5.2.3, ack format 0) are decoded. Command and inter-PAN
 frames, command acks, APS-secured frames and frames with an extended header
 (fragmentation) raise :class:`UnsupportedFrameError` -- their payload is never
-treated as plaintext (the research code skipped a fake "aux header + MIC",
-research tools/zvd_tunnel.py:348-388; that is dropped here).
+treated as plaintext (the research prototype skipped a fake "aux header + MIC";
+that is dropped here).
 """
 
 from __future__ import annotations

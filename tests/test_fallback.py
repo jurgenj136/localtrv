@@ -1,4 +1,4 @@
-"""Tests for the offset-scan fallback decoder (handover section 6, BUILD_SPEC A4)."""
+"""Tests for the offset-scan fallback decoder (docs/protocol.md §8)."""
 
 from __future__ import annotations
 
@@ -142,7 +142,7 @@ def test_wrong_source_fails() -> None:
 
 
 def test_active_ep_vs_simple_desc_by_expected_kind() -> None:
-    """In scan mode only the expected kind tells the two apart (handover section 6)."""
+    """In scan mode only the expected kind tells the two apart (docs/protocol.md §8)."""
     desc = SimpleDescriptor(1, HA_PROFILE_ID, 0x0301, 1, (0x0000, 0x0201), ())
     simple = SimpleDescRsp(seq=0x42, status=0, nwk_addr=SRC, descriptor=desc)
     simple_payload = quirk(ZdoCluster.SIMPLE_DESC_RSP, 0, simple.encode())
@@ -393,8 +393,8 @@ def test_prefixed_secured_frame_with_ff_refused_by_default() -> None:
 def test_residual_risk_plain_data_fc_scans_inner_bytes() -> None:
     """Documented residual risk: behind a plain data FC at offset 0, bytes are scanned as-is.
 
-    Mitigation is (src_short, tsn, command, exact length) correlation; the phase-2
-    quirk-layout decoder replaces the scan.
+    Mitigation is (src_short, tsn, command, exact length) correlation; a fixture-backed
+    quirk-layout decoder is meant to replace the scan.
     """
     payload = PREFIX + secured(0x0201, HA_PROFILE_ID, h("18 80 04 00"))
     result = scan_for_response(payload, WRITE_OK_EXPECTED, src_short=SRC)

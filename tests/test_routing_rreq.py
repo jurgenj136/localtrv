@@ -1,4 +1,4 @@
-"""T12 routing: the RREP responder (golden bytes per mode, dedupe, rate limit, originator EUI)
+"""Routing: the RREP responder (golden bytes per mode, dedupe, rate limit, originator EUI)
 and the periodic MTORR loop, on ``VirtualClock`` against the simulator."""
 
 from __future__ import annotations

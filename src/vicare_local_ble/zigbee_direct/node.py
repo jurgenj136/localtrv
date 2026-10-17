@@ -1,13 +1,12 @@
-"""Virtual Zigbee node behind a ZDD: join, requests, listeners (spec §1.3).
+"""Virtual Zigbee node behind a ZDD: join, requests, listeners.
 
-Implemented by T11, complete on its own (minimal RREQ counting and periodic MTORR included);
-T12 later swaps in the full RREP responder inside ``routing.Router``. Frozen interface (T2).
+Route Request handling (the RREP responder) and the periodic MTORR live in ``routing.Router``.
 
-Composition (one node per connection generation, built by ``ZdConnection``, T13)
+Composition (one node per connection generation, built by ``ZdConnection``)
     The node owns ``requests.Allocators``, ``requests.PendingMap``, ``requests.JoinSlot``,
     ``routing.NeighborTable``, ``routing.Router`` and ``dispatch.Dispatcher``. It implements
     ``dispatch.DispatchHost`` and ``routing.RoutingHost`` (directly or through a private core
-    object; T11's choice, invisible to callers). The constructor installs
+    object, invisible to callers). The constructor installs
     ``dispatcher.handle`` with ``transport.set_npdu_handler``; it never installs the
     transport's fatal handler (the connection does).
 
@@ -37,7 +36,7 @@ Requests
     (``TransportError`` chained as ``__cause__``). Cancelling the caller retires the key and
     propagates.
 
-Join (``join``): STATUS -> COMMISSIONING -> ANNOUNCED -> ROUTED, exactly as spec §1.3 steps 1-8.
+Join (``join``): STATUS -> COMMISSIONING -> ANNOUNCED -> ROUTED (docs/protocol.md §6).
     Each of the ``join_attempts`` attempts draws a NEW placeholder short (``preferred_short``
     only for the first attempt), avoiding ``avoid_shorts | {0x0000, zdd_short}`` plus every
     placeholder already used in this join (a per-join avoid set), and opens a new
@@ -55,7 +54,7 @@ Listeners
     Listeners are called synchronously from ingress (the BLE notify callback), address-conflict
     listeners included; exceptions are logged and swallowed; they must not await. The conflict
     listeners fire once per Network Status 0x0D frame naming our short (several frames, several
-    calls: the connection, T13, de-duplicates).
+    calls: the connection de-duplicates).
 
 Logging (logger ``vicare_local_ble.zigbee_direct.node``): INFO join result (shorts, never
 keys); DEBUG pending lifecycle, RREP, fallback hits, late drops.

@@ -1,4 +1,4 @@
-"""Simulated R0, connection-level faults (T8): write faults, cancellation, disconnect, stale
+"""Simulated R0, connection-level faults: write faults, cancellation, disconnect, stale
 services, reboot, Status variants, the GATT surface and ``fake_connector``."""
 
 from __future__ import annotations

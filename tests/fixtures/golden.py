@@ -1,13 +1,13 @@
-"""Golden wire fixtures, hand-written from the phase-2 protocol notes (PN) §1.1-1.6.
+"""Golden wire fixtures, hand-written from captured byte layouts (see ``docs/protocol.md``).
 
-Rules (spec §1.7):
-- Written by hand from the PN byte layouts; NEVER produced by calling production encoders.
+Rules:
+- Written by hand from the documented byte layouts; NEVER produced by calling production encoders.
 - Dummy identities only: EUIs ``02:00:00:00:00:00:00:NN`` (locally administered), extended PAN
   ``DD:DD:DD:DD:DD:DD:DD:01``, made-up shorts, made-up points and tags. No key material.
-- One field per line so a reviewer can check every byte against the PN.
-- "live" = bytes the research client actually sent (PN §1.3, §1.4, §1.6).
-  "synth" = the PN gives only the payload; the NWK/APS header around it is our assumption
-  (the research never logged the header of frames *received*), marked per fixture.
+- One field per line so a reviewer can check every byte against the layout.
+- "live" = bytes a client actually sent on hardware (seen in live captures).
+  "synth" = only the payload was captured; the NWK/APS header around it is our assumption
+  (the captures never logged the header of frames *received*), marked per fixture.
 
 EUIs are written in wire (little-endian) order inside frames.
 """
@@ -48,7 +48,7 @@ _Q_ZDD = ("52 52 52 52 52 52 52 52", "52 52 52 52 52 52 52 52") * 2
 _TAG_U = ("A1 A1 A1 A1 A1 A1 A1 A1", "A1 A1 A1 A1 A1 A1 A1 A1")
 _TAG_V = ("B1 B1 B1 B1 B1 B1 B1 B1", "B1 B1 B1 B1 B1 B1 B1 B1")
 
-# --- PN §1.1 handshake -----------------------------------------------------------------------
+# --- handshake (SE1-SE4) ---------------------------------------------------------------------
 
 #: SE1, 47 B: opcode, method TLV (C25519/AES-MMO=1, secret type 3=BAK), point TLV (EUI ‖ Q).
 SE1: Final = h(
@@ -66,7 +66,7 @@ SE3: Final = h("03", "04 0F", *_TAG_U)
 #: SE4: opcode, MAC tag TLV 0x04 with tag_V.
 SE4: Final = h("04", "04 0F", *_TAG_V)
 
-# --- PN §1.3 Commissioning Request / Response ---------------------------------------------
+# --- Commissioning Request / Response -----------------------------------------------------
 
 #: live, 52 B: NWK command, discover_route 0 (FC 09), dst+src IEEE (FC byte1 18), radius 1.
 COMMISSIONING_REQUEST: Final = h(
@@ -89,7 +89,7 @@ COMMISSIONING_REQUEST: Final = h(
 #: Tunnel TLV around it: tag 00, len-1 = 53, flags 0 (no NWK security), npdu_len 52.
 TUNNEL_COMMISSIONING_REQUEST: Final = h("00 35", "00 34") + COMMISSIONING_REQUEST
 
-#: synth header; payload PN §1.3 ``0F short status`` (status 0, assigned = placeholder).
+#: synth header; payload ``0F short status`` (status 0, assigned = placeholder).
 COMMISSIONING_RESPONSE: Final = h(
     "09 08",  # FC: command | dst IEEE
     "34 12",  # dst = placeholder
@@ -104,7 +104,7 @@ COMMISSIONING_RESPONSE: Final = h(
 #: synth: a response for someone else's placeholder (must not resolve our join).
 COMMISSIONING_RESPONSE_OTHER: Final = h("09 00", "78 56", "1B 2A", "1E", "06", "0F 78 56 00")
 
-# --- PN §1.4 post-join frames ----------------------------------------------------------------
+# --- post-join frames ------------------------------------------------------------------------
 
 #: live (probe mode): Device_annce broadcast to 0xFFFD.
 DEVICE_ANNCE: Final = h(
@@ -136,7 +136,7 @@ MTORR: Final = h(
     "01 08 01 FC FF 00",  # RREQ, options 0x08 (many-to-one), rid 1, dst FFFC, cost 0
 )
 
-#: live (probe mode): Route Reply with options 0x20 and BOTH EUIs (PN §5.1), to a valve.
+#: live (probe mode): Route Reply with options 0x20 and BOTH EUIs, to a valve.
 RREP_LIVE: Final = h(
     "49 02",  # FC: command, discover_route 1 | security
     "6F 5E",  # dst = originator (valve)
@@ -152,7 +152,7 @@ RREP_LIVE: Final = h(
     VALVE_EUI_WIRE,  # originator IEEE
     ZVD_EUI_WIRE,  # responder IEEE
 )
-#: spec mode (spec §1.3 table): same frame, options derived = 0x30.
+#: spec mode (R23 3.4.2.3.1): same frame, options derived = 0x30.
 RREP_SPEC: Final = h(
     "49 02",
     "6F 5E",
@@ -165,7 +165,7 @@ RREP_SPEC: Final = h(
     ZVD_EUI_WIRE,
 )
 
-#: synth header: RREQ from a valve for our short, option 0x20 + dst IEEE (PN §3.5, §6).
+#: synth header: RREQ from a valve for our short, option 0x20 + dst IEEE.
 RREQ_FROM_VALVE: Final = h(
     "09 12",  # FC: command | security, src IEEE
     "FC FF",  # broadcast to routers
@@ -182,7 +182,7 @@ RREQ_NO_SRC_IEEE: Final = h(
     "09 02", "FC FF", "6F 5E", "1E", "0A", "01 20 08 34 12 00", ZVD_EUI_WIRE
 )
 
-#: live layout: ZDO unicast Mgmt_Lqi_req to the coordinator, APS counter 0 (PN §1.4, §1.5).
+#: live layout: ZDO unicast Mgmt_Lqi_req to the coordinator, APS counter 0.
 MGMT_LQI_REQ: Final = h(
     "48 02",  # FC: data, discover_route 1 | security
     "00 00",  # dst coordinator
@@ -198,7 +198,7 @@ MGMT_LQI_REQ: Final = h(
     "0A",  # ZDO seq (live: 10 + page)
     "00",  # start index
 )
-#: synth header; payload PN §1.5: page 1 of 3, valve (end device child) + R0 (router).
+#: synth header; captured payload: page 1 of 3, valve (end device child) + R0 (router).
 MGMT_LQI_RSP: Final = h(
     "08 02",  # FC: data | security
     "34 12",  # dst = us
@@ -227,9 +227,9 @@ MGMT_LQI_RSP: Final = h(
     "C8",
 )
 
-#: PN §1.5 ZDO payloads (seq ‖ body) from a valve: endpoint 1 only.
+#: Captured ZDO payloads (seq ‖ body) from a valve: endpoint 1 only.
 ACTIVE_EP_RSP_ZDO: Final = h("0B", "00", "6F 5E", "01", "01")
-#: PN §1.5: profile 0x0104, device 0x0301, 8 in-clusters, 2 out-clusters.
+#: Captured: profile 0x0104, device 0x0301, 8 in-clusters, 2 out-clusters.
 SIMPLE_DESC_RSP_ZDO: Final = h(
     "0C 00 6F 5E",  # seq, status, NWK addr of interest
     "1C",  # descriptor length 28
@@ -244,7 +244,7 @@ SIMPLE_DESC_RSP_ZDO: Final = h(
     "00 00 19 00",  # 0000 0019
 )
 
-# --- PN §1.6 ZCL -------------------------------------------------------------------------------
+# --- ZCL ---------------------------------------------------------------------------------------
 
 _NWK_TO_VALVE = ("48 02", "6F 5E", "34 12", "1E")  # FC, dst valve, src us, radius 30
 _NWK_FROM_VALVE = ("08 02", "34 12", "6F 5E", "1E")  # synth: data | security, to us
@@ -272,7 +272,7 @@ ZCL_READ_MFR: Final = h(
     "00",  # Read Attributes
     "00 40",
 )
-#: synth header/FC; records from PN §1.6/§4: 19.65 °C ``00 00 00 29 AD 07``, demand 2,
+#: synth header/FC; captured records: 19.65 °C ``00 00 00 29 AD 07``, demand 2,
 #: setpoint 22.00 °C, systemMode 9.
 ZCL_READ_RSP: Final = h(
     *_NWK_FROM_VALVE,
@@ -291,7 +291,7 @@ ZCL_READ_RSP: Final = h(
 ZCL_READ_RSP_MFR: Final = h(
     *_NWK_FROM_VALVE, "32", _APS_THERMOSTAT, "41", "1C 21 12 2C 01", "00 40 00 30 01"
 )
-#: synth: the same response WITHOUT the MS header (PN §5.11: never recorded which one is live).
+#: synth: the same response WITHOUT the MS header (which one the valve sends was never recorded).
 ZCL_READ_RSP_MFR_NO_HEADER: Final = h(
     *_NWK_FROM_VALVE, "33", _APS_THERMOSTAT, "42", "18 2C 01", "00 40 00 30 01"
 )
@@ -304,9 +304,9 @@ ZCL_WRITE: Final = h(
     "00 2D 02",  # FC, tsn, Write Attributes
     "12 00 29 66 08",  # 0x0012, int16, 2150
 )
-#: synth header; payload PN §1.6 ``FC tsn 04 00`` (all succeeded).
+#: synth header; payload ``FC tsn 04 00`` (all succeeded).
 ZCL_WRITE_RSP: Final = h(*_NWK_FROM_VALVE, "34", _APS_THERMOSTAT, "43", "18 2D 04 00")
-#: synth: Default Response 0xC3 (unsupported cluster) to a Read on Groups 0x0004 (PN §5.10).
+#: synth: Default Response 0xC3 (unsupported cluster) to a Read on Groups 0x0004.
 ZCL_DEFAULT_RSP: Final = h(
     *_NWK_FROM_VALVE,
     "35",
@@ -318,9 +318,9 @@ ZCL_DEFAULT_RSP: Final = h(
 #: synth: Report Attributes of localTemperature (reports were never observed live).
 ZCL_REPORT: Final = h(*_NWK_FROM_VALVE, "36", _APS_THERMOSTAT, "45", "18 2F 0A", "00 00 29 AD 07")
 
-# --- PN §3.8 quirk ---------------------------------------------------------------------------
+# --- incoming frame quirk (docs/protocol.md §8) ----------------------------------------------
 
-#: synth (hypothesis PN §3.8): read response with a 1-relay source-route subframe via the ZDD.
+#: synth (hypothesis): read response with a 1-relay source-route subframe via the ZDD.
 QUIRK_SOURCE_ROUTE: Final = h(
     "08 06",  # FC: data | security, source route
     "34 12",
@@ -336,7 +336,7 @@ QUIRK_SOURCE_ROUTE: Final = h(
     "00 00 00 29 AD 07",
 )
 #: synth: 4 bytes before the APS header that are NOT a subframe (FC bit clear); the ZCL
-#: payload then sits at NWK-payload offset 12 (the research observation, PN §3.8).
+#: payload then sits at NWK-payload offset 12 (as seen in live captures).
 QUIRK_GARBAGE4: Final = h(
     "08 02",
     "34 12",
@@ -350,7 +350,7 @@ QUIRK_GARBAGE4: Final = h(
     "00 00 00 29 AD 07",
 )
 
-# --- Network Status (PN §5.6, spec §1.7 gating) ----------------------------------------------
+# --- Network Status (docs/protocol.md §6.3b) -------------------------------------------------
 
 #: synth header: ``03 02 <dst>`` after a unicast with discover_route 0.
 NETWORK_STATUS_NO_ROUTE: Final = h("09 02", "34 12", "1B 2A", "1E", "39", "03 02 6F 5E")

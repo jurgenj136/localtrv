@@ -1,4 +1,4 @@
-"""Config flow for ViCare Local (Bluetooth via ubisys R0) (spec §2.2).
+"""Config flow for ViCare Local (Bluetooth via ubisys R0).
 
 Steps::
 
@@ -89,7 +89,7 @@ KEY_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 
 
 def _is_r0(info: BluetoothServiceInfoBleak) -> bool:
-    """User-step filter: Zigbee Direct service **or** an "ubisys" name (§2.2)."""
+    """User-step filter: Zigbee Direct service **or** an "ubisys" name."""
     return ZIGBEE_DIRECT_SERVICE_UUID in info.service_uuids or (info.name or "").startswith(
         LOCAL_NAME_PREFIX
     )

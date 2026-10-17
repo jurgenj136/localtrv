@@ -1,4 +1,4 @@
-"""GATT table, characteristic lookup and Commissioning Status value of the simulated R0 (T8).
+"""GATT table, characteristic lookup and Commissioning Status value of the simulated R0.
 
 Private helpers of ``testing.gatt``; not part of the public test API. Nothing here logs or
 formats the Commissioning Status value: it holds the network key.

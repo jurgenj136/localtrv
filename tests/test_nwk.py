@@ -59,7 +59,7 @@ def test_command_frame_with_both_ieee_byte_exact() -> None:
 def test_source_route_subframe_shifts_payload_by_four() -> None:
     """A 1-relay source route adds 4 header bytes (count, index, relay short).
 
-    Documents the HYPOTHESIS behind the research offset scan: inbound frames
+    Documents the HYPOTHESIS behind the fallback offset scan: inbound frames
     whose payload seemed to start "4 bytes late" may carry this subframe.
     """
     plain = NwkFrame(NwkFrameType.DATA, dst=0x1234, src=0x5A5A, radius=29, seq=9, payload=b"\x40")

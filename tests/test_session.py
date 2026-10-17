@@ -84,7 +84,7 @@ GOOD_POINT = (0x02, BOB_EUI.wire + BOB_Q)
 
 
 def expected_tag(label: bytes) -> bytes:
-    """Responder-first confirmation tag built from primitives (A6)."""
+    """Responder-first confirmation tag built from primitives (docs/protocol.md §3)."""
     return hmac_aes_mmo(LINK_KEY_1, label + BOB_EUI.wire + BOB_Q + ALICE_EUI.wire + ALICE_Q)
 
 

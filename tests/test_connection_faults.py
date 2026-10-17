@@ -1,4 +1,4 @@
-"""ZdConnection (T13): auth, handshake faults, stale GATT cache, address conflicts, issues."""
+"""ZdConnection: auth, handshake faults, stale GATT cache, address conflicts, issues."""
 
 from __future__ import annotations
 

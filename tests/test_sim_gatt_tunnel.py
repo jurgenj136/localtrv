@@ -1,4 +1,4 @@
-"""Simulated R0, Tunnel (T8): network seam, replays, MTU and oversize, long writes, injection."""
+"""Simulated R0, Tunnel: network seam, replays, MTU and oversize, long writes, injection."""
 
 from __future__ import annotations
 

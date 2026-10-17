@@ -1,4 +1,4 @@
-"""requests.py (T11): allocators, retired window, pending map, envelopes, join slot."""
+"""requests.py: allocators, retired window, pending map, envelopes, join slot."""
 
 from __future__ import annotations
 

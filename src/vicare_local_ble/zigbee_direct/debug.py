@@ -1,7 +1,7 @@
-"""NPDU debug log, ring buffer, structural redaction and secret sanitising (spec §1.8).
+"""NPDU debug log, ring buffer, structural redaction and secret sanitising.
 
-Implemented by T5; frozen interface (T2). This module is the secret surface: everything that
-leaves the process as a log line or a diagnostics record passes through it.
+This module is the secret surface: everything that leaves the process as a log line or a
+diagnostics record passes through it.
 
 NPDU log
     Logger ``vicare_local_ble.npdu`` (``NPDU_LOGGER``), DEBUG only, one JSON line per tunnel

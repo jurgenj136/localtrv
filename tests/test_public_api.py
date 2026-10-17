@@ -54,7 +54,7 @@ MODULES = [
     "vicare_local_ble.zigbee_direct.transport",
 ]
 
-#: Spec §6 T2: every public and shared name, by defining module.
+#: Every public and shared name, by defining module.
 FROZEN_NAMES = {
     "vicare_local_ble.zigbee_direct.clock": ["Clock", "Cancellable", "LoopClock", "VirtualClock"],
     "vicare_local_ble.zigbee_direct.errors": [

@@ -1,4 +1,4 @@
-"""Bridge constants and frozen value types (T2 interface), re-exported by ``bridge``.
+"""Bridge constants and frozen value types, re-exported by ``bridge``.
 
 They live here so the ``bridge_*`` helper modules can use them without importing ``bridge``
 (which imports the helpers). See the ``bridge`` module docstring for the behaviour.
@@ -71,7 +71,7 @@ class ValveAddressUnverifiedError(ValveAddressUnknownError):
 
 @dataclass(frozen=True, slots=True)
 class SetpointStatus:
-    """Setpoint transaction state of one valve (spec §1.6 #7).
+    """Setpoint transaction state of one valve.
 
     ``requested_c`` is set while a write is in flight; ``acknowledged_c`` once the valve
     acknowledged it; ``confirmed_c`` from the last confirming read. ``version`` increases per

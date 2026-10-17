@@ -1,4 +1,4 @@
-"""Supervisor loop, generations, triggers and teardown of ``ZdConnection`` (spec §1.5, T13).
+"""Supervisor loop, generations, triggers and teardown of ``ZdConnection``.
 
 Private helper of ``connection.py`` (whose module docstring is the contract). ``ConnectionCore``
 holds all state; ``ZdConnection`` adds the public API on top.

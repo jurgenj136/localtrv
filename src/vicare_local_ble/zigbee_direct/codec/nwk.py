@@ -130,7 +130,7 @@ class NwkFrame:
     """A plaintext NWK frame. Presence bits in the frame control derive from the optional fields.
 
     Encoding a frame with ``security=True`` just sets the FC bit; the ZDD
-    applies the actual NWK security (handover §4).
+    applies the actual NWK security (docs/protocol.md §1).
     """
 
     frame_type: NwkFrameType

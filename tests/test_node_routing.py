@@ -1,4 +1,4 @@
-"""ZigbeeDirectNode routing (T11): Network Status, address conflicts, RREQ counting, MTORR tasks."""
+"""ZigbeeDirectNode routing: Network Status, address conflicts, RREQ counting, MTORR tasks."""
 
 from __future__ import annotations
 
@@ -158,7 +158,7 @@ async def test_route_request_is_counted_and_not_answered_when_off(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG, logger=LOGGER)
-    # T12 answers by default; with RREP off the T11 counting/learning behaviour remains.
+    # The RREP responder answers by default; with RREP off only counting/learning remains.
     async with rig(config=NodeConfig(route_reply_mode=RouteReplyMode.OFF)) as r:
         valve = r.inst.valves[0]
         r.inst.network.emit_route_request(valve.short, route_id=7)

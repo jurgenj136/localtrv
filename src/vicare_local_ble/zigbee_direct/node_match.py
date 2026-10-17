@@ -1,6 +1,6 @@
-"""Envelope verdicts shared by ``requests.Envelope`` and the dispatcher's fallback path (T11).
+"""Envelope verdicts shared by ``requests.Envelope`` and the dispatcher's fallback path.
 
-Private helper module of the node (spec §1.3 Envelope table). The standard path has the APS
+Private helper module of the node (see ``requests.Envelope``). The standard path has the APS
 header and a decoded ZCL frame or ZDO response; the fallback path (``codec.fallback`` scan) only
 has the ZCL header and command, or the ZDO response. Both end in the same header/command and
 address-of-interest checks here, so a ``ScanMatch`` passes exactly the envelope parts it can.

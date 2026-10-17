@@ -1,4 +1,4 @@
-"""ViCareBridge (T14) regression tests from the adversarial review (fix round 1).
+"""ViCareBridge regression tests from an adversarial review.
 
 Each test names the review item it pins.
 """

@@ -1,4 +1,4 @@
-"""ZigbeeDirectNode CP3 hardening (T11): secret lifetime, close races, timeout races, config,
+"""ZigbeeDirectNode hardening: secret lifetime, close races, timeout races, config,
 per-destination allocation."""
 
 from __future__ import annotations
@@ -300,8 +300,8 @@ def test_node_config_rejects_out_of_range_values(kwargs: dict[str, Any]) -> None
         {"late_window": 0.0},
         {"mtorr_spacing": 0.0},
         {"mtorr_interval": MIN_MTORR_INTERVAL},
-        {"mtorr_interval": 0.0},  # disabled (T12)
-        {"mtorr_interval": float("nan")},  # disabled (T12)
+        {"mtorr_interval": 0.0},  # disabled
+        {"mtorr_interval": float("nan")},  # disabled
         {"preferred_short": 0x0001},
         {"preferred_short": 0xFFF7},
     ],

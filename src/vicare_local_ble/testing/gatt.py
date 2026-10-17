@@ -1,9 +1,8 @@
 """Simulated ubisys R0 at the GATT level: ``SimulatedR0``, ``FakeBleakClient``, ``fake_connector``.
 
-Implemented by T8 on the frozen T2 interface. ``FakeBleakClient``/``FakeConnector`` live in
-``gatt_client.py`` and the GATT table/Status value in ``gatt_services.py``; both are
-re-exported here. Everything runs on a shared ``VirtualClock``: every
-delay is a ``clock.call_later``; indications are delivered by calling the client's notify
+``FakeBleakClient``/``FakeConnector`` live in ``gatt_client.py`` and the GATT table/Status value
+in ``gatt_services.py``; both are re-exported here. Everything runs on a shared ``VirtualClock``:
+every delay is a ``clock.call_later``; indications are delivered by calling the client's notify
 callback from a clock callback (or synchronously inside ``write_gatt_char`` when
 ``indicate_before_write_returns``), never from another thread.
 
@@ -16,14 +15,14 @@ Layers
     ``fake_connector(r0)`` returns a ``Connector`` that "connects" by asking the R0 for a new
     client.
 
-Seam to the network simulator (T9)
+Seam to the network simulator
     The R0 decrypts every Tunnel write and hands the plaintext ``TunnelNpdu`` to its attached
     ``TunnelPeer`` (``SimNetwork``); the network answers by calling ``r0.indicate_npdu(...)``,
     which encrypts and indicates it (applying MTU and oversize behaviour). The R0 calls
     ``peer.on_session_reset()`` when the session ends (disconnect, reboot), so the network
     forgets join/gating state.
 
-GATT behaviours (spec §1.7 "Required behaviours: GATT") and their knobs
+GATT behaviours and their knobs
     * SE3 with a bad tag -> ``FakeGattError(0x80)`` (always, via ``FakeZdd``).
     * Read of Commissioning Status or Identify before the session -> ``FakeGattError(0x80)``.
     * SE3 write failing with a non-0x80 error or a disconnect -> ``se3_fault``.

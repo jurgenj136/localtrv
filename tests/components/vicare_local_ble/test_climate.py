@@ -1,4 +1,4 @@
-"""Climate platform (spec §2.5, §6 T17), through the simulator."""
+"""Climate platform, through the simulator."""
 
 from __future__ import annotations
 

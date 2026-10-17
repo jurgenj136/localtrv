@@ -4,9 +4,9 @@ The value is a back-to-back Zigbee TLV list (tag, len-1, value). Tag meanings
 follow ZD 1.0 as encoded in Wireshark ``packet-zbee-tlv.h``
 (``ZBEE_TLV_TYPE_COMM_*``) and value layouts as in ``packet-zbee-tlv.c``.
 
-Deviation from research tools/zvd_client.py:89-116 (``parse_status_tlvs``):
-research verified tags 0x01 (PAN ID), 0x06 (short) and 0x08 (ZDD EUI) live and
-guessed the rest. Per ZD 1.0, tag 0x00 is the Extended PAN ID (research guessed
+Deviation from the research prototype's status parser: it verified tags 0x01
+(PAN ID), 0x06 (short) and 0x08 (ZDD EUI) on hardware and guessed the rest.
+Per ZD 1.0, tag 0x00 is the Extended PAN ID (research guessed
 "trust-center-eui64") and 0x09 the Trust Center address (research guessed
 "extended-pan-id"); 0x02 is the network channel list, 0x05 the device type,
 0x0A the network status map, 0x0B the NWK update id and 0x0C the active key

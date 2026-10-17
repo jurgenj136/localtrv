@@ -1,11 +1,11 @@
-"""Ingress dispatch: one decrypted tunnel NPDU in, routed to exactly one consumer (spec §1.3).
+"""Ingress dispatch: one decrypted tunnel NPDU in, routed to exactly one consumer.
 
-Implemented by T11; frozen interface (T2). ``Dispatcher.handle`` is installed as the
-transport's NPDU handler (``transport.set_npdu_handler``) by the node's constructor. It runs
-synchronously on the loop inside the BLE notify callback: it never awaits, never sends, and
-never raises (every exception is caught, counted in ``decode_errors`` and logged at DEBUG).
+``Dispatcher.handle`` is installed as the transport's NPDU handler (``transport.set_npdu_handler``)
+by the node's constructor. It runs synchronously on the loop inside the BLE notify callback: it
+never awaits, never sends, and never raises (every exception is caught, counted in
+``decode_errors`` and logged at DEBUG).
 
-Per NPDU (spec §1.3 "Ingress dispatch"):
+Per NPDU:
 
 1. ``NwkFrame.decode`` (strips multicast and source-route data); error -> ``decode_errors``.
    A ``src_ieee`` in the header is noted in ``host.neighbors`` and, unless the frame is
@@ -124,7 +124,7 @@ _FIRST_BROADCAST: Final = 0xFFF8
 
 
 class DispatchHost(Protocol):
-    """What the dispatcher needs from its node (``ZigbeeDirectNode`` implements it, T11)."""
+    """What the dispatcher needs from its node (``ZigbeeDirectNode`` implements it)."""
 
     @property
     def current_short(self) -> int | None:

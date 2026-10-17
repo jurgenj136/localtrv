@@ -1,4 +1,4 @@
-"""Config entry diagnostics, built from an explicit allowlist (spec §2.6, #2).
+"""Config entry diagnostics, built from an explicit allowlist.
 
 Nothing is serialised generically: every field below is named. Never included: the network
 key, the BAK, the raw Commissioning Status, ``entry.data`` (only "has ..." booleans), the R0's

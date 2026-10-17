@@ -29,7 +29,7 @@ def mmo_pad(data: bytes) -> bytes:
     * otherwise: append ``0x80``, zero-pad to 10 mod 16 bytes, append l as a
       32-bit big-endian value followed by ``0x0000``.
 
-    Fixes the research padding (``tools/zvd_crypto.py:54-66``), which always used a
+    Fixes the research prototype's padding, which always used a
     32-bit length in the last 4 bytes and was wrong for len = 12/13 mod 16 and
     for inputs of 8192 bytes or more.
     """

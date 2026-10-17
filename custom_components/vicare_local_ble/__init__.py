@@ -1,4 +1,4 @@
-"""ViCare Local (Bluetooth via ubisys R0) integration: setup and unload (spec §2.3).
+"""ViCare Local (Bluetooth via ubisys R0) integration: setup and unload.
 
 Setup: resolver precheck -> cache from ``Store`` -> ``ZdConnection`` + coordinator (which owns
 the ``ViCareBridge``) -> ``bridge.attach()`` and the state/issue/advertisement listeners ->

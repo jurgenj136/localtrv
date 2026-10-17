@@ -1,4 +1,4 @@
-"""Mutable bridge state shared by the ``bridge_*`` helpers (T14; internal).
+"""Mutable bridge state shared by the ``bridge_*`` helpers (internal).
 
 ``BridgeCore`` owns every per-valve dictionary, the callbacks and the snapshot cache. Helpers
 mutate it and call ``changed()`` once per state change; ``changed()`` pushes ``on_update`` and,

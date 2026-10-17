@@ -1,6 +1,6 @@
 """ZCL data types (ZCL rev 8, section 2.6.2) and typed value encode/decode.
 
-Replaces the research size table (tools/zvd_tunnel.py:245-246), which knew 9
+Replaces the research prototype's size table, which knew 9
 types and returned the raw tail for anything else; unknown types now raise
 :class:`ZclDecodeError`.
 

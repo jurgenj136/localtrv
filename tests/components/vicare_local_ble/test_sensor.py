@@ -1,4 +1,4 @@
-"""Sensor platform (spec §2.5, §6 T17): values, units, classes, defaults, dynamic add."""
+"""Sensor platform: values, units, classes, defaults, dynamic add."""
 
 from __future__ import annotations
 

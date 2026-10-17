@@ -1,6 +1,6 @@
-"""Climate platform: one heat-only thermostat per valve (spec §2.5).
+"""Climate platform: one heat-only thermostat per valve.
 
-Override semantics (evidence-backed, research of 2026-10-11): a Zigbee Direct setpoint write
+Override semantics (observed on hardware, 2026-10-11): a Zigbee Direct setpoint write
 behaves exactly like turning the valve wheel by hand. The ViCare app then shows the room as
 "manually set, for 2 hours". The 2 h duration is OPTO2/cloud logic, not a valve feature: the
 thermostat cluster has no hold or duration attribute. After 2 h, or at the next schedule

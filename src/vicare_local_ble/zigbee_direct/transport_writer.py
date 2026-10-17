@@ -1,4 +1,4 @@
-"""Private writer task of ``transport``: the only code path that writes Tunnel (spec §1.2).
+"""Private writer task of ``transport``: the only code path that writes Tunnel.
 
 One task per session consumes a FIFO of ``(TunnelNpdu, future)``. It owns the outgoing session
 counter: frames reach the GATT layer strictly in counter order and never overlap. Any failure

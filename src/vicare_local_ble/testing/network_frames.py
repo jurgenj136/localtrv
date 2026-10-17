@@ -1,6 +1,6 @@
-"""NPDU builders for ``SimNetwork`` (T9): frames the mesh sends into the tunnel.
+"""NPDU builders for ``SimNetwork``: frames the mesh sends into the tunnel.
 
-Pure helpers over the phase-1 codecs. Header shapes follow the golden fixtures
+Pure helpers over the codecs. Header shapes follow the golden fixtures
 (``tests/fixtures/golden.py``): data frames ``08 02`` (security, no discover), commands
 ``09 02`` / ``09 12`` / ``09 08``, radius 30.
 """
@@ -58,7 +58,7 @@ type NoiseKind = Literal["foreign_annce", "foreign_broadcast", "network_status_o
 _VARIANTS: Final[tuple[FrameVariant, ...]] = ("plain", "source_route", "garbage4")
 
 RADIUS: Final = 0x1E
-#: Four bytes before the APS header that are NOT a source-route subframe (PN §3.8).
+#: Four bytes before the APS header that are NOT a source-route subframe (protocol.md §8).
 GARBAGE4: Final = bytes.fromhex("005A5A00")
 #: Capability of a sleepy end device (allocate address only).
 END_DEVICE_CAPABILITY: Final = 0x80
@@ -173,7 +173,7 @@ def device_annce_aps(*, zdo_seq: int, short: int, eui: Eui64, counter: int) -> A
 
 
 def match_desc_broadcast_aps(*, zdo_seq: int, counter: int) -> ApsDataFrame:
-    """Foreign noise: a Match_Desc_req broadcast for HA thermostats (PN §6 "Noise")."""
+    """Foreign noise: a Match_Desc_req broadcast for HA thermostats."""
     req = MatchDescReq(zdo_seq, BROADCAST_RX_ON, HA_PROFILE_ID, (_THERMOSTAT,), ())
     return ApsDataFrame(
         cluster_id=ZdoCluster.MATCH_DESC_REQ,
@@ -227,7 +227,7 @@ def noise_npdu(
     valve_short: int,
     zdd_short: int,
 ) -> bytes:
-    """One foreign frame the ZVD must ignore (PN §6 "Noise")."""
+    """One foreign frame the ZVD must ignore."""
     match kind:
         case "foreign_annce":
             eui = Eui64.from_wire(bytes([0xEE, foreign_short & 0xFF, 0, 0, 0, 0, 0, 0x02]))

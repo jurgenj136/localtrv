@@ -1,11 +1,11 @@
-"""Simulated ZK03840 valve: raw attribute table, ZCL semantics, sleepy timing (T9).
+"""Simulated ZK03840 valve: raw attribute table, ZCL semantics, sleepy timing.
 
-Frozen interface (T2); implemented by T9. The attribute table here is simulator fixture data
-written independently of ``vicare_local_ble.valves`` (CONTRIBUTING.md layering), so a
-scaling or id bug in ``valves.py`` cannot pass tautologically. Values follow PN §4 (raw wire
-values: centi-degrees, 0.5 % battery units, raw enums).
+The attribute table here is simulator fixture data written independently of
+``vicare_local_ble.valves`` (CONTRIBUTING.md layering), so a scaling or id bug in ``valves.py``
+cannot pass tautologically. Values follow docs/protocol.md §9 (raw wire values: centi-degrees,
+0.5 % battery units, raw enums).
 
-Behaviours (spec §1.7 "Sleepy valves" and "ZCL")
+Behaviours (sleepy valves and ZCL)
     * Reply latency drawn from ``latency`` (default 2-30 s) and quantised up to the next
       ``poll_interval`` tick (default 7 s); ``drop_rate`` drops requests (no reply).
     * ``duplicate_rate``: a same-TSN retransmit may produce two responses.
@@ -18,7 +18,7 @@ Behaviours (spec §1.7 "Sleepy valves" and "ZCL")
       including a report reusing a pending TSN; ``queue_default_response`` for a Default
       Response to a different command.
 
-Implementation notes (T9)
+Implementation notes
     * Quantisation: the drawn latency is rounded up to a whole number of polls; when that
       overshoots ``latency[1]`` and one poll fewer still reaches ``latency[0]``, one poll fewer
       is used (defaults give 7, 14, 21 or 28 s). ``poll_interval <= 0`` disables it.
@@ -457,7 +457,7 @@ class SimValve:
 
 
 def zk03840_attributes() -> dict[AttrKey, tuple[ZclDataType, ZclValue]]:
-    """A fresh copy of the default raw attribute table (PN §4, per-valve inventory)."""
+    """A fresh copy of the default raw attribute table (per-valve inventory)."""
     return vt.default_table()
 
 

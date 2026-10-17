@@ -1,4 +1,4 @@
-"""frames.py (T11): production builders emit the hand-written golden bytes exactly."""
+"""frames.py: production builders emit the hand-written golden bytes exactly."""
 
 from __future__ import annotations
 

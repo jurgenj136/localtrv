@@ -105,7 +105,7 @@ def test_short_form_boundary_is_2_pow_16_bits() -> None:
 
 
 def test_regression_research_padding_was_wrong_for_len_12() -> None:
-    # Research padding (tools/zvd_crypto.py:54-66) used a 32-bit length in the last
+    # The research prototype's padding used a 32-bit length in the last
     # 4 bytes; for 12 bytes it needed 2 blocks, the spec needs 1.
     assert len(mmo_pad(bytes(12))) == 16
 

@@ -1,8 +1,8 @@
-"""Simulated R0, GATT level (T8): handshake, Status reads, counter models, indication timing.
+"""Simulated R0, GATT level: handshake, Status reads, counter models, indication timing.
 
 Shared helpers live here too (``test_sim_gatt_*.py`` import them). The client side is the
-phase-1 ``HandshakeInitiator`` + ``SessionCipher`` driving ``FakeBleakClient`` directly; the
-transport (T10) is not involved. Everything runs on ``VirtualClock`` with production-size
+bare ``HandshakeInitiator`` + ``SessionCipher`` driving ``FakeBleakClient`` directly; the
+transport is not involved. Everything runs on ``VirtualClock`` with production-size
 timeouts. Keys and EUIs are dummies.
 """
 
@@ -94,7 +94,7 @@ class RecordingPeer:
 
 
 class Zvd:
-    """The client side: phase-1 initiator + cipher over one ``FakeBleakClient``."""
+    """The client side: bare initiator + cipher over one ``FakeBleakClient``."""
 
     def __init__(self, r0: SimulatedR0, clock: VirtualClock) -> None:
         self.r0 = r0
@@ -383,7 +383,7 @@ async def test_counter_models(
     assert zvd.cipher.counter_model() is expected
 
 
-# --- indication timing (race hooks for T10) ----------------------------------------------------
+# --- indication timing (race hooks for the transport) ------------------------------------------
 
 
 async def test_handshake_response_before_write_returns() -> None:

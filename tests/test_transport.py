@@ -1,4 +1,4 @@
-"""ZigbeeDirectTransport (T10): handshake, strict auth classification, MTU, missing characteristic.
+"""ZigbeeDirectTransport: handshake, strict auth classification, MTU, missing characteristic.
 
 Shared helpers live here (``test_transport_*.py`` import them). Everything runs against the
 simulated R0 on ``VirtualClock`` with production timeouts (10 s); keys and EUIs are dummies.

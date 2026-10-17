@@ -1,4 +1,4 @@
-"""Private helpers of ``transport``: SE1-SE4 driving, strict failure classification (spec §1.2).
+"""Private helpers of ``transport``: SE1-SE4 driving, strict failure classification.
 
 Nothing here logs or formats handshake messages, the PSK or the session key. Public names stay in
 ``transport``; this module is an implementation detail of ``ZigbeeDirectTransport.open``.
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.transport import GattClient
     from vicare_local_ble.zigbee_direct.types import Eui64, SecretBytes
 
-#: ATT error code the ZDD answers a rejected SE3 with (wrong key; PN §6).
+#: ATT error code the ZDD answers a rejected SE3 with (wrong key; docs/protocol.md §3).
 ATT_ERROR_REJECTED: Final = 0x80
 #: How deep ``_att_error_code`` follows ``__cause__``/``__context__``.
 _CHAIN_DEPTH: Final = 4

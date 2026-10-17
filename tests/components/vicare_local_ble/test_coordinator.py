@@ -1,4 +1,4 @@
-"""Coordinator: cached first refresh, poll schedule vs pushes, entity base (spec §2.4, §2.5).
+"""Coordinator: cached first refresh, poll schedule vs pushes, entity base.
 
 HA time (the coordinator schedule) is driven with ``freezer`` + ``async_fire_time_changed``;
 library and simulator time is the ``VirtualClock`` (``Sim.drive*``, ``clock.advance``). The

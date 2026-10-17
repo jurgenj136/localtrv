@@ -1,7 +1,7 @@
-"""Allocators, envelopes, pending requests, the retired window and the join slot (spec §1.3).
+"""Allocators, envelopes, pending requests, the retired window and the join slot.
 
-Implemented by T11; frozen interface (T2). Pure bookkeeping on the loop thread: no I/O, no
-tasks. Futures are created on the running loop by ``PendingMap.register``/``JoinSlot.open``.
+Pure bookkeeping on the loop thread: no I/O, no tasks. Futures are created on the running loop
+by ``PendingMap.register``/``JoinSlot.open``.
 Time comes from the injected ``Clock`` (TTL checks are lazy, no timers).
 
 Who calls what
@@ -112,7 +112,7 @@ class Allocators:
       ``(dst, "zdo", seq)`` is pending or retired for THAT destination
       (``PendingMap.key_in_use``): matching is per source, so other devices may share a seq.
     * ``tsn``: ZCL transaction sequence numbers, skipped the same way (``kind="zcl"``).
-    * ``aps``: APS counter for ZCL unicasts and broadcasts. Not a correlation key (PN §5.7).
+    * ``aps``: APS counter for ZCL unicasts and broadcasts. Not a correlation key.
       ZDO unicasts use APS counter 0 as the live client did (``frames.zdo_unicast_npdu``).
 
     Start values are 1 (live: commissioning used NWK seq 1). Tests may inject others.
@@ -139,13 +139,14 @@ class EnvelopeMatch(Enum):
     NO_MATCH = "no_match"
     MATCH = "match"
     #: Matched, but a manufacturer-specific request was answered without the MS header
-    #: (accepted per PN §5.11, counted in ``NodeStats.mfr_header_missing``).
+    #: (accepted: captures never showed which form the valve sends; counted in
+    #: ``NodeStats.mfr_header_missing``).
     MATCH_MFR_HEADER_MISSING = "match_mfr_header_missing"
 
 
 @dataclass(frozen=True, slots=True)
 class Envelope:
-    """Everything a response must carry to resolve a pending request (spec §1.3 table).
+    """Everything a response must carry to resolve a pending request.
 
     ZCL (``kind="zcl"``): ``seq`` is the TSN; response must come from ``src_short``, with APS
     profile ``profile_id``, cluster ``cluster_id``, APS src endpoint ``remote_endpoint`` (the
@@ -159,8 +160,8 @@ class Envelope:
     ``cluster_id`` (request cluster | 0x8000). Endpoints are not checked. If
     ``nwk_addr_of_interest`` is set and the decoded response has an address-of-interest field
     (``nwk_addr`` on Active_EP/Simple_Desc/IEEE_addr responses), it must be equal; Mgmt_Lqi has
-    none. (The spec table says Active_EP and Simple_Desc have none; their codecs do carry
-    ``nwk_addr`` and PN §1.5 shows the valve short there, so T2 chose to check it.)
+    none. (Active_EP and Simple_Desc responses carry ``nwk_addr`` and live captures show the
+    valve short there, so it is checked.)
     """
 
     src_short: int
@@ -312,7 +313,7 @@ class RetiredWindow:
         return any(k[1] == kind and k[2] == seq for k in self._entries)
 
     def discard(self, key: PendingKey) -> None:
-        """Forget ``key`` (it is pending again). T11 addition."""
+        """Forget ``key`` (it is pending again)."""
         self._entries.pop(key, None)
 
     def __len__(self) -> int:
@@ -366,7 +367,7 @@ class PendingMap:
 
     def key_in_use(self, key: PendingKey) -> bool:
         """True if ``key`` is pending or retired within the window: the allocators' ``skip``
-        predicate for one destination. T11 addition (CP3: collisions are per source)."""
+        predicate for one destination (collisions are per source)."""
         return key in self._entries or self._retired.contains(key)
 
     def is_retired(self, key: PendingKey) -> bool:

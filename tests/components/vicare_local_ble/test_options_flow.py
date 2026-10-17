@@ -1,4 +1,4 @@
-"""Options flow tests (spec §2.2 Options; task T15)."""
+"""Options flow tests."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _bluetooth(mock_bluetooth: None) -> None:
 
 @pytest.fixture(autouse=True)
 def mock_setup_entry() -> Iterator[AsyncMock]:
-    """Options changes reload the entry; keep setup (T16) out of these tests."""
+    """Options changes reload the entry; keep setup out of these tests."""
     with patch("custom_components.vicare_local_ble.async_setup_entry", return_value=True) as m:
         yield m
 

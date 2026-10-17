@@ -1,16 +1,13 @@
-"""Routing duties of the virtual node: announce, MTORR, RREQ->RREP, Network Status (spec §1.3).
+"""Routing duties of the virtual node: announce, MTORR, RREQ->RREP, Network Status.
 
-Frozen interface (T2). Task split inside this module:
+Contents (docs/protocol.md §6.3-§6.4):
 
-* **T11** (must be complete on its own; nothing on the T11 path may raise
-  ``NotImplementedError("T12")``): ``NeighborTable``, ``Router.announce``,
-  ``Router.send_mtorr``, ``Router.send_mtorr_burst``, ``Router.on_network_status``, a minimal
-  ``Router.start_periodic``/``Router.stop`` (task lifecycle of the periodic MTORR loop), and a
-  minimal ``Router.on_route_request`` that only counts ``NodeStats.rreq_seen`` and never
-  raises.
-* **T12**: replaces ``on_route_request`` with the full RREP responder (dedupe TTL, per-originator
-  rate limit, originator EUI lookup, ``frames.route_reply_npdu``) and finishes/hardens the
-  periodic MTORR if T11 left it minimal.
+* ``NeighborTable``, ``Router.announce``, ``Router.send_mtorr``, ``Router.send_mtorr_burst``,
+  ``Router.on_network_status`` and ``Router.start_periodic``/``Router.stop`` (task lifecycle
+  of the periodic MTORR loop).
+* ``Router.on_route_request``: counts ``NodeStats.rreq_seen`` and runs the RREP responder
+  (dedupe TTL, per-originator rate limit, originator EUI lookup, ``frames.route_reply_npdu``).
+  It never raises.
 
 The router never touches the transport, allocators' owners or pending map directly: it goes
 through ``RoutingHost``, which ``ZigbeeDirectNode`` implements. All methods run on the loop
@@ -139,7 +136,7 @@ class NeighborTable:
 
 
 class RoutingHost(Protocol):
-    """What the router needs from its node (``ZigbeeDirectNode`` implements it, T11)."""
+    """What the router needs from its node (``ZigbeeDirectNode`` implements it)."""
 
     @property
     def clock(self) -> Clock: ...
@@ -207,7 +204,7 @@ class Router:
         self._periodic: asyncio.Task[None] | None = None
         self._last_failure_mtorr: float | None = None
 
-    # --- T11 -----------------------------------------------------------------------------
+    # --- announce, MTORR, Network Status --------------------------------------------------
 
     async def announce(self) -> None:
         """Send one Device_annce (``frames.device_annce_npdu``) with fresh NWK/ZDO/APS values."""
@@ -312,15 +309,13 @@ class Router:
     def on_route_request(self, frame: NwkFrame, request: RouteRequest) -> None:
         """Handle a Route Request (sync, from dispatch). Never raises.
 
-        T11 (minimal): count ``stats.rreq_seen`` and return.
-
-        Counting (T12): ``stats.rreq_seen`` counts every Route Request from another node,
+        Counting: ``stats.rreq_seen`` counts every Route Request from another node,
         whatever its destination (relayed copies included; only the first copy of an
         ``(originator, route_id)`` is logged); echoes of our own MTORRs (NWK src == our short,
         or src IEEE == our EUI) count ``stats.rreq_own_echo`` instead and are not logged.
         ``stats.rrep_sent`` counts the replies actually sent.
 
-        T12 (full responder): answer only if ``request.dst == own_short`` and the mode is not
+        Responder: answer only if ``request.dst == own_short`` and the mode is not
         ``RouteReplyMode.OFF`` (others are counted and ignored). Dedupe on
         ``(frame.src, route_id)`` for ``config.rreq_dedupe_ttl``; at most one RREP per
         originator every ``RREP_MIN_INTERVAL``. The originator EUI is ``frame.src_ieee``, else
@@ -411,7 +406,7 @@ class Router:
         """Start the periodic MTORR task (one ``send_mtorr`` every ``config.mtorr_interval``,
         via ``clock.sleep`` in a ``host.start_task``). Idempotent. Called by ``node.join`` after
         the join burst. Send failures are logged at DEBUG and the loop continues; it ends on
-        cancellation or ``ConnectionLostError``. T11 implements; T12 may harden."""
+        cancellation or ``ConnectionLostError``."""
         task = self._periodic
         if task is not None and not task.done():
             return
@@ -423,7 +418,7 @@ class Router:
 
     def stop(self) -> None:
         """Cancel the periodic MTORR task (the node also cancels and awaits all its tasks at
-        close). Idempotent. T11."""
+        close). Idempotent."""
         task, self._periodic = self._periodic, None
         if task is not None:
             task.cancel()

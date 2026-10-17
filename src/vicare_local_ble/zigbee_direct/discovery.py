@@ -1,6 +1,6 @@
-"""Generic topology discovery: Mgmt_Lqi paging plus a breadth-first router walk (spec §1.3).
+"""Generic topology discovery: Mgmt_Lqi paging plus a breadth-first router walk.
 
-Implemented by T12; frozen interface (T2). No vendor knowledge: which neighbors are valves is
+See docs/protocol.md §7. No vendor knowledge: which neighbors are valves is
 the bridge's question (``valves.is_supported_valve`` after a Basic read).
 
 Algorithm (``walk_topology``)

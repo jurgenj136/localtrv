@@ -1,4 +1,4 @@
-"""ZigbeeDirectNode requests (T11): envelopes, late window, races, parallelism, retries, quirks."""
+"""ZigbeeDirectNode requests: envelopes, late window, races, parallelism, retries, quirks."""
 
 from __future__ import annotations
 

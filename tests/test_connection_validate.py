@@ -1,4 +1,4 @@
-"""``validate_connection`` (T13): handshake-only check for the config flow."""
+"""``validate_connection``: handshake-only check for the config flow."""
 
 from __future__ import annotations
 

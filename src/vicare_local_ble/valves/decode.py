@@ -1,4 +1,4 @@
-"""Validation, scaling and identification functions (T4). Pure: no I/O, no logging."""
+"""Validation, scaling and identification functions. Pure: no I/O, no logging."""
 
 from __future__ import annotations
 

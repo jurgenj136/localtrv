@@ -1,4 +1,4 @@
-"""Incoming frame-counter tracking and ZDD counter-model detection (spec §1.1, PN §5.9).
+"""Incoming frame-counter tracking and ZDD counter-model detection (docs/protocol.md §4).
 
 Sans-IO, pure. ``SessionCipher`` owns one ``IncomingCounters`` and feeds it every accepted
 peer frame counter. Detection never rejects anything.
@@ -21,7 +21,7 @@ _TUNNEL: Final = uuid_bytes(TUNNEL_NPDU)
 
 
 class CounterModel(StrEnum):
-    """How the ZDD numbers its outgoing frames across characteristics (spec §1.1, PN §5.9).
+    """How the ZDD numbers its outgoing frames across characteristics (docs/protocol.md §4).
 
     * ``SHARED``: one counter for the whole session; Tunnel's first counter is above the Status
       counter and no value repeats across characteristics.

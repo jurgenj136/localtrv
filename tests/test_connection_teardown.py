@@ -1,4 +1,4 @@
-"""ZdConnection (T13): generation teardown order, stale events, spawn ownership, diagnostics."""
+"""ZdConnection: generation teardown order, stale events, spawn ownership, diagnostics."""
 
 from __future__ import annotations
 

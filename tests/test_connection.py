@@ -1,4 +1,4 @@
-"""ZdConnection (T13): READY, resolver, backoff and lifecycle, against the simulator.
+"""ZdConnection: READY, resolver, backoff and lifecycle, against the simulator.
 
 Shared helpers live here (``test_connection_*.py`` import them). Everything runs on
 ``VirtualClock`` with production constants; keys and EUIs are dummies from

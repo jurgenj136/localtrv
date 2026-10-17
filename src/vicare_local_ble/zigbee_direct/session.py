@@ -3,9 +3,9 @@
 No asyncio, no I/O. The caller moves bytes between this module and the
 Security Service Authenticate characteristic (SE1/SE3 writes, SE2/SE4
 indications) and afterwards uses ``SessionCipher`` for every characteristic
-value (Zigbee R23 Annex J, Zigbee Direct 1.0; research handover section 3.2-3.3).
+value (Zigbee R23 Annex J, Zigbee Direct 1.0; docs/protocol.md §3-§4).
 
-Handshake message layout (research tools/zvd_client.py:53-83, 175-262)::
+Handshake message layout (docs/protocol.md §3)::
 
     SE1 = 0x01 | TLV(0x00, method || secret_type) | TLV(0x02, own_EUI || own_Q)
     SE2 = 0x02 | TLV(0x02, peer_EUI || peer_Q) [| TLV(0x00, method || secret_type)]
@@ -14,7 +14,7 @@ Handshake message layout (research tools/zvd_client.py:53-83, 175-262)::
 
 Every handshake TLV is ``tag(1) | len-1 (1) | value(len)``. Unknown TLVs are
 ignored; duplicate known TLVs and malformed TLVs are rejected. Whether SE2
-echoes the method TLV is not observed in research; it is validated if present.
+echoes the method TLV is not observed on hardware; it is validated if present.
 
 ``CounterModel`` and the incoming-counter tracker live in ``counters.py`` (re-exported here).
 """
@@ -139,8 +139,8 @@ class SessionCipher:
     to Authenticate (before the session) and Tunnel, so our CCM nonces are never reused.
 
     Incoming: the last accepted counter is tracked per characteristic UUID and must be strictly
-    greater on that characteristic. Whether the ZDD uses one counter for all characteristics or
-    one per characteristic is NOT proven (PN §5.9); both are accepted, and ``counter_model()``
+    greater on that characteristic. The tested R0 uses one counter for all characteristics (observed
+    on hardware); a per-characteristic counter is still accepted, and ``counter_model()``
     reports what was observed. Residual risk: the CCM nonce has no characteristic in it, so a
     per-characteristic ZDD reuses nonces across characteristics under one key (leaking the XOR of
     those plaintexts and weakening authenticity for them). That is a ZDD flaw we cannot fix
@@ -214,7 +214,7 @@ class SessionCipher:
         return plaintext
 
     def counter_model(self) -> CounterModel:
-        """Detected ZDD counter model from the counters accepted so far (spec §1.1).
+        """Detected ZDD counter model from the counters accepted so far.
 
         Never rejects a session. ``PER_CHARACTERISTIC`` is sticky and wins over ``SHARED``;
         ``UNKNOWN`` until both Status and Tunnel have been seen. Pure and cheap; the transport

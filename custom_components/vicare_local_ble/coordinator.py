@@ -1,4 +1,4 @@
-"""Coordinator and runtime data (spec §2.3, §2.4).
+"""Coordinator and runtime data.
 
 Polling and pushes are separate paths:
 
@@ -142,7 +142,7 @@ class VicareRuntime:
 
     ``async_shutdown`` is idempotent (unload and the HA stop event may both call it): bounded
     ``connection.stop()``, then the registered cleanups (listeners, repair issues), then the
-    cache is saved. ``added_valves`` lets each platform add a valve's entities once (T17).
+    cache is saved. ``added_valves`` lets each platform add a valve's entities once.
     """
 
     clock: Clock

@@ -1,4 +1,4 @@
-"""``FakeBleakClient`` and ``FakeConnector``: the client side of the simulated R0 (T8).
+"""``FakeBleakClient`` and ``FakeConnector``: the client side of the simulated R0.
 
 Re-exported by ``testing.gatt`` (the documented import path). The client is a thin
 per-connection handle: it owns its subscriptions and its connected flag and forwards every GATT

@@ -1,13 +1,12 @@
-"""Offset-scan fallback decoder for incoming APS frames (handover section 6 quirk).
+"""Offset-scan fallback decoder for incoming APS frames (docs/protocol.md §8 quirk).
 
-Background: during research, frames indicated by the ZDD through the tunnel
-did not decode as a standard APS frame at offset 0 of the (research-parsed)
+Background: in live captures, frames indicated by the ZDD through the tunnel
+did not decode as a standard APS frame at offset 0 of the (prototype-parsed)
 NWK payload; the ZDO/ZCL payload was found 12 bytes in instead of 8. The
-research client scanned offsets 8..17 for something that looked right
-(tools/zvd_client.py:750-761 ``_scan_zdo``, :855-868 for ZCL, :876-892 for
-ZDO). Hypothesis (unverified): the extra 4 bytes were an NWK source-route
-subframe the research NWK parser did not skip; ``nwk.py`` now strips it, so
-the standard decode may simply work. Phase-2 fixtures must confirm.
+research prototype scanned offsets 8..17 for something that looked right,
+for both ZDO and ZCL. Hypothesis (unverified): the extra 4 bytes were an NWK
+source-route subframe the prototype's NWK parser did not skip; ``nwk.py`` now
+strips it, so the standard decode may simply work. Real fixtures must confirm.
 
 Rule. The NWK payload handed in always starts with the real APS frame control
 at offset 0 (``nwk.py`` strips multicast/source-route subframes; no other
@@ -20,10 +19,10 @@ prefix exists). Hence:
 3. otherwise classify only the offset-0 frame control (R23 2.2.5.1.1). A
    non-data frame, the reserved delivery mode 0b01, APS security or an
    extended header (fragmentation) means the payload may be ciphertext or a
-   fragment: refuse (BUILD_SPEC A2) unless ``allow_unsupported_aps=True``.
-   The opt-in exists because research tools/zvd_tunnel.py:348-387 had a
-   secured-APS path and handover section 6 mentions a 4-byte frame counter
-   (hypothesis); such matches carry ``aps_unsupported=True``;
+   fragment: refuse unless ``allow_unsupported_aps=True``.
+   The opt-in exists because the research prototype had a secured-APS path
+   and the captures suggested a 4-byte frame counter (hypothesis); such
+   matches carry ``aps_unsupported=True``;
 4. scan every offset 8..17 as a bare ZDO payload (``seq ...``) or ZCL frame,
    validated strictly against the expected kind (seq / tsn, command,
    manufacturer code, exact decode). The offset where a successful step-2
@@ -39,7 +38,7 @@ header bytes are exactly what the quirk garbles -- so scan matches have
 Residual risk: behind a plain unsecured data frame control, a crafted or
 garbled frame may yield a false match. Mitigation is correlation on
 (src_short, seq/tsn, command, exact length). The definitive fix is an explicit,
-fixture-backed quirk-layout decoder in phase 2 that replaces this scan.
+fixture-backed quirk-layout decoder that replaces this scan.
 
 Trailing bytes: strict by default (``max_trailing=0``). Only with
 ``max_trailing >= 4`` is each candidate retried with exactly 4 bytes (presumed

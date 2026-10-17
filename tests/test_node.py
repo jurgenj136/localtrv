@@ -1,4 +1,4 @@
-"""ZigbeeDirectNode (T11): join, gating and golden post-join bytes, against the simulator.
+"""ZigbeeDirectNode: join, gating and golden post-join bytes, against the simulator.
 
 Shared helpers live here (``test_node_*.py`` import them). Everything runs on ``VirtualClock``
 with production ``NodeConfig`` timeouts; keys and EUIs are dummies from ``default_installation``.

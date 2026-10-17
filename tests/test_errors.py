@@ -1,4 +1,4 @@
-"""Phase-2 runtime error classes (spec §1.1)."""
+"""Runtime error classes."""
 
 from __future__ import annotations
 

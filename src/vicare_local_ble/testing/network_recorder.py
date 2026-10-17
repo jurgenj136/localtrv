@@ -1,4 +1,4 @@
-"""``RecordingTunnelHost``: a ``TunnelHost`` stub that records what the network indicates (T9).
+"""``RecordingTunnelHost``: a ``TunnelHost`` stub that records what the network indicates.
 
 Lets tests drive ``SimNetwork`` with raw NPDUs (golden fixtures) without a ``SimulatedR0``:
 ``send`` hands a ZVD NPDU to the attached network, ``indications`` lists every NPDU the

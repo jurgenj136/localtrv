@@ -177,8 +177,8 @@ payload: 0E ‖ assoc_type(00 initial join) ‖ capability(8E) ‖ TLV 48 [Joine
 
 Wire form of the payload TLV section: `48 len-1 [41 09 01 00 EUI][47 04 short_le 01 CF 00][4C 01 01 00]`
 (inner `4C` value `01 00`). The ZDD forwards this as a rejoin; the TC answers. All three pitfalls
-(both IEEEs, the TLV context, radius 1) produced silent failure when missed. The research handover
-claims 0x49 "also works", but no 0x49 send exists in the prototype code: only FC `0x09` is proven;
+(both IEEEs, the TLV context, radius 1) produced silent failure when missed. Earlier research notes
+claim 0x49 "also works", but no 0x49 send exists in the prototype code: only FC `0x09` is proven;
 the library default is `discover_route=0`. ZDD short and EUI come
 from Commissioning Status / SE2; the placeholder short is caller supplied (no default).
 
@@ -377,7 +377,7 @@ parse failed.
      be ciphertext or a fragment), unless `allow_unsupported_aps=True`; such matches carry
      `aps_unsupported=True`. The opt-in exists because the research client had
      a secured-APS path and the research notes mention a 4-byte frame counter (hypothesis; verify with
-     phase-2 fixtures).
+     captured fixtures).
   3. Scan every offset 8..17 as a bare ZDO payload or ZCL frame, validated strictly against the
      expected kind (ZDO seq; ZCL tsn/command/manufacturer code; exact decode). The payload offset
      already judged by a well-formed step-1 decode is skipped. Nothing else is inferred from bytes
@@ -388,7 +388,7 @@ parse failed.
   indistinguishable; the caller must state which kind it expects for that seq.
 - **Residual risk:** behind a plain unsecured data frame control, a crafted or garbled frame may
   yield a false match. Mitigation: correlation on (src_short, seq/tsn, command, exact length). The
-  definitive fix is an explicit, fixture-backed quirk-layout decoder in phase 2 replacing the scan.
+  definitive fix is an explicit, fixture-backed quirk-layout decoder replacing the scan.
 - **Trailing bytes:** `max_trailing=0` tolerates none. With `max_trailing>=4`, each candidate is
   retried with exactly 4 bytes (presumed MIC-32) trimmed after the exact decode fails. No capture
   proves those bytes are a MIC, and trimming can turn a malformed response into a success, so enable
@@ -492,12 +492,12 @@ writer wins. The manual state cannot be cancelled over Zigbee, only in the app o
   counter never reused or wrapped.
 - **No hardcoded addresses**: no default placeholder short, no fixed ZDD short or EUI. The research
   incremented the counter before an awaited write (out-of-order frames, rejected as replays); the
-  phase-2 transport serialises counter, encrypt, and write.
+  transport serialises counter, encrypt, and write.
 
-## 11. Phase 2 design constraints
+## 11. Runtime design constraints
 
-Written before phase 2 as the contract for `transport.py` and `node.py`; all of it is now
-implemented. Where the build differs, the bullet says so.
+Written as the contract for `transport.py` and `node.py` before they existed; all of it is
+now implemented. Where the build differs, the bullet says so.
 
 - `ZigbeeDirectTransport` wraps an already connected GATT client. `ZdConnection`
   (`connection.py`) owns the connection: it asks the caller for the device (HA supplies a
@@ -516,9 +516,9 @@ implemented. Where the build differs, the bullet says so.
 - Own short: random valid address avoiding known shorts; the short in the Commissioning Response
   is authoritative and may be persisted for the next join.
 - Persistent connection. Passive change detection was the plan, but no attribute reports ever
-  reach the tunnel (§5 of the phase 2 spec), so the bridge polls.
+  reach the tunnel (open question 9), so the bridge polls.
 - Test helper: `vicare_local_ble.testing.FakeZdd` (responder side of SE1-SE4 plus session crypto);
-  phase 2 adds a scripted NWK/ZCL peer.
+  `vicare_local_ble.testing` also provides a scripted NWK/ZCL peer.
 
 ## 12. Open questions
 

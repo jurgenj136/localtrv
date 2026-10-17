@@ -1,4 +1,4 @@
-"""Pure post-join NPDU builders (PN §1.4); sans-IO, no allocation, no state.
+"""Pure post-join NPDU builders; sans-IO, no allocation, no state.
 
 Every builder returns the complete plaintext NPDU (NWK header + APS + ZDO/ZCL) that the node
 hands to ``ZigbeeDirectTransport.send_npdu`` with ``secure=True``. Sequence numbers and
@@ -7,12 +7,12 @@ builders are deterministic and golden-testable (``tests/fixtures/golden.py``).
 
 Common NWK layout for post-join frames: security bit set (FC byte1 bit 0x02, the ZDD applies
 the real NWK security), radius 30, src = our short. Unicast data uses ``discover_route=1``
-(FC ``48 02``); a suppressed route discovery gave Network Status 0x02 live (PN §5.6).
+(FC ``48 02``); a suppressed route discovery gave Network Status 0x02 live (docs/protocol.md §6.3).
 
-Task ownership: T11 implements ``device_annce_npdu``, ``zdo_unicast_npdu`` and
-``zcl_unicast_npdu``; T12 implements ``route_reply_npdu`` (needs T3's
-``RouteReply.options_override``). The many-to-one Route Request NPDU already exists as
-``codec.nwk_commands.many_to_one_route_request_npdu`` (live ``09 12``).
+Builders: ``device_annce_npdu``, ``zdo_unicast_npdu``, ``zcl_unicast_npdu`` and
+``route_reply_npdu`` (which uses ``RouteReply.options_override``). The many-to-one Route
+Request NPDU already exists as ``codec.nwk_commands.many_to_one_route_request_npdu`` (live
+``09 12``).
 """
 
 from __future__ import annotations
@@ -33,11 +33,11 @@ from vicare_local_ble.zigbee_direct.types import BROADCAST_RX_ON
 if TYPE_CHECKING:
     from vicare_local_ble.zigbee_direct.types import Eui64
 
-#: Radius of every post-join frame we originate (PN §1.4).
+#: Radius of every post-join frame we originate.
 DEFAULT_RADIUS: Final = 30
-#: Our application endpoint for ZCL traffic (APS src endpoint of requests; PN §1.4 ``01``).
+#: Our application endpoint for ZCL traffic (APS src endpoint of requests, ``01``).
 LOCAL_ENDPOINT: Final = 1
-#: Options byte the live client sent in Route Replies (PN §5.1), with both EUIs appended.
+#: Options byte the live client sent in Route Replies, with both EUIs appended (protocol.md §6.4).
 LIVE_ROUTE_REPLY_OPTIONS: Final = 0x20
 
 
@@ -70,7 +70,7 @@ def device_annce_npdu(
     """Device_annce broadcast to 0xFFFD.
 
     NWK ``48 02 FD FF <own> 1E seq`` (data, discover_route=1, security), APS broadcast
-    ``08 00 13 00 00 00 00 ctr``, ZDO ``zdo_seq <own> EUI_own capability`` (PN §1.4).
+    ``08 00 13 00 00 00 00 ctr``, ZDO ``zdo_seq <own> EUI_own capability``.
     """
     annce = DeviceAnnce(seq=zdo_seq, nwk_addr=own_short, ieee=own_eui, capability=capability)
     aps = ApsDataFrame(
@@ -125,7 +125,7 @@ def zcl_unicast_npdu(
     radius: int = DEFAULT_RADIUS,
 ) -> bytes:
     """ZCL unicast request: NWK ``48 02 <dst> <own> 1E seq``, APS ``00 <dst_ep> <cluster>
-    <profile> <src_ep> ctr`` (PN §1.4: ``00 01 01 02 04 01 01 ctr``), then the encoded
+    <profile> <src_ep> ctr`` (live: ``00 01 01 02 04 01 01 ctr``), then the encoded
     ``ZclFrame``."""
     aps = ApsDataFrame(
         cluster_id=cluster_id,

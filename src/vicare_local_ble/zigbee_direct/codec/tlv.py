@@ -124,8 +124,8 @@ class TunnelNpdu:
 def parse_tunnel_tlvs(data: bytes) -> tuple[TunnelNpdu | Tlv, ...]:
     """Decode a tunnel indication: NPDU TLVs become ``TunnelNpdu``, other tags stay raw ``Tlv``.
 
-    Unlike the research parser (research tools/zvd_tunnel.py ``parse_tunnel_tlvs``),
-    unknown tags do not stop parsing, and truncation / npdu_len mismatch raise.
+    Unlike the research prototype's parser, unknown tags do not stop parsing, and
+    truncation / npdu_len mismatch raise.
     """
     return tuple(
         TunnelNpdu.from_tlv(t) if t.tag == TUNNEL_NPDU_TAG else t for t in decode_tlvs(data)

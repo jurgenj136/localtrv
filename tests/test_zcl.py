@@ -1,4 +1,4 @@
-"""Tests for the ZCL codec and data type table (handover section 7, BUILD_SPEC 7/8/A8)."""
+"""Tests for the ZCL codec and data type table (docs/protocol.md §9)."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def h(text: str) -> bytes:
 # --------------------------------------------------------------------------- section 7 vectors
 
 
-def test_read_attributes_matches_handover() -> None:
+def test_read_attributes_matches_captured_layout() -> None:
     frame = ZclFrame.build(0x80, ReadAttributes((0x0000, 0x0008, 0x0012)))
     assert frame.encode() == h("00 80 00 0000 0800 1200")
     decoded = ZclFrame.decode(frame.encode())
@@ -53,7 +53,7 @@ def test_read_attributes_matches_handover() -> None:
     assert decoded.global_command() == ReadAttributes((0x0000, 0x0008, 0x0012))
 
 
-def test_write_setpoint_matches_handover() -> None:
+def test_write_setpoint_matches_captured_layout() -> None:
     record = AttributeRecord(0x0012, T.INT16, 2150)  # 21.50 degC
     frame = ZclFrame.build(0x81, WriteAttributes((record,)))
     assert frame.encode() == h("00 81 02 1200 29 6608")

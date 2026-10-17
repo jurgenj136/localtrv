@@ -1,4 +1,4 @@
-"""ViCareBridge (T14): poll cadence, misses, rejoin rule, busy valves, reports, logging."""
+"""ViCareBridge: poll cadence, misses, rejoin rule, busy valves, reports, logging."""
 
 from __future__ import annotations
 

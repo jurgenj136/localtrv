@@ -1,13 +1,13 @@
-"""Simulated Zigbee network behind the R0: TC rules, routing, Mgmt_Lqi, RREQs, noise (T9).
+"""Simulated Zigbee network behind the R0: TC rules, routing, Mgmt_Lqi, RREQs, noise.
 
-Frozen interface (T2); implemented by T9. Driven by the golden fixtures, never by the
-production builders: frames from the ZVD are decoded with the phase-1 decoders and checked
-against the live rules below; replies are assembled from fixture-shaped bytes.
+Driven by the golden fixtures, never by the production builders: frames from the ZVD are decoded
+with the codec decoders and checked against the live rules below; replies are assembled from
+fixture-shaped bytes.
 
 All delays are ``clock.call_later`` on the shared ``VirtualClock``; randomness comes only from
 the injected ``random.Random``.
 
-Behaviours (spec §1.7) and their knobs
+Behaviours and their knobs
     Join
         * Silent drop of a Commissioning Request when FC byte1 != 0x18, radius != 1, or the
           0x48 TLV is missing (always).
@@ -47,7 +47,7 @@ Behaviours (spec §1.7) and their knobs
           new_short)``, ``address_conflict()`` (Network Status 0x0D for the ZVD short),
           ``SimulatedR0.r0_reboot()`` (via ``on_session_reset``).
 
-Implementation notes (T9)
+Implementation notes
     * Every frame the network sends goes out from a ``clock.call_later`` callback (scripted
       events and noise use delay 0: ``await clock.advance(0)`` delivers them).
     * A session generation guards scheduled frames: after ``on_session_reset`` nothing

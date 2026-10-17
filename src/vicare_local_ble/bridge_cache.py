@@ -1,4 +1,4 @@
-"""Persisted bridge state: ``BridgeCache``/``CachedValve`` and their JSON round trip (T14).
+"""Persisted bridge state: ``BridgeCache``/``CachedValve`` and their JSON round trip.
 
 Re-exported from ``vicare_local_ble.bridge``. No key material, ever: only shorts, EUIs (display
 form), identification strings and validated limits.

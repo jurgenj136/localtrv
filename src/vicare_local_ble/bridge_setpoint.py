@@ -1,4 +1,4 @@
-"""Bridge setpoint transaction: version, lock, write, background confirm (T14; internal).
+"""Bridge setpoint transaction: version, lock, write, background confirm (internal).
 
 Implements steps 1-6 of the ``bridge`` module docstring. Lock ownership moves from the HA
 call to the confirm task at the acknowledgement. The HA call releases it in its ``finally``;

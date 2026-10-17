@@ -1,4 +1,4 @@
-"""ViCareBridge (T14): cache round trip, restart from cache, node config and attach/detach."""
+"""ViCareBridge: cache round trip, restart from cache, node config and attach/detach."""
 
 from __future__ import annotations
 

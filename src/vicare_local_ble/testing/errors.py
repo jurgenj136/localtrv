@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Final
 
-#: ATT error the live ZDD returned for a rejected SE3 and for reads before the session (PN §6).
+#: ATT error the ZDD returned on hardware for a rejected SE3 and for reads before the session.
 GATT_ERROR_REJECTED: Final = 0x80
 #: A generic non-auth ATT error ("unlikely error"), for SE3 faults that must NOT count as auth.
 GATT_ERROR_UNLIKELY: Final = 0x0E
@@ -17,7 +17,7 @@ GATT_ERROR_UNLIKELY: Final = 0x0E
 class FakeGattError(Exception):
     """Emulates a GATT error response from the ZDD; ``code`` is the ATT error code.
 
-    The transport's ``_att_error_code`` reads ``code`` directly (spec §1.2).
+    The transport's ``_att_error_code`` reads ``code`` directly.
     """
 
     def __init__(self, message: str, *, code: int = GATT_ERROR_REJECTED) -> None:

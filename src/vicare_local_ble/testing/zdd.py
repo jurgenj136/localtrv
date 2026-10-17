@@ -1,15 +1,15 @@
 """``FakeZdd``: the ZDD (responder) side of SE1-SE4 plus its session crypto.
 
-Moved unchanged in behaviour from the former ``vicare_local_ble.testing`` module (T2).
+Moved unchanged in behaviour from the former ``vicare_local_ble.testing`` module.
 ``FakeZdd`` emulates the responder (Zigbee Direct Device) side of the SPEKE session
 establishment and then the session-frame crypto, so integrations can
 be tested without hardware. It uses the same crypto primitives as the
 initiator but with the roles spelled out explicitly, so a responder/initiator
 mix-up in the library fails the tests instead of cancelling itself out.
 
-T8 adds the ZDD counter models (``ZddCounterModel``): the per-characteristic model gives every
+It also has ZDD counter models (``ZddCounterModel``): the per-characteristic model gives every
 characteristic its own outgoing counter (starting at 1) under the one session key, to exercise
-the client's per-characteristic incoming tracking and counter-model detection (spec §1.1).
+the client's per-characteristic incoming tracking and counter-model detection.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ _EUI_SIZE: Final = 8
 
 
 class ZddCounterModel(StrEnum):
-    """How the simulated ZDD numbers its outgoing session frames (PN §5.9 is unresolved).
+    """How the simulated ZDD numbers its outgoing session frames (docs/protocol.md §4).
 
     * ``SHARED``: one outgoing counter across Status reads and Tunnel indications.
     * ``PER_CHARACTERISTIC``: one outgoing counter per characteristic, each starting at 1.

@@ -1,4 +1,4 @@
-"""Sending side of ``SimNetwork`` (T9): session generation, sequence counters, delayed frames,
+"""Sending side of ``SimNetwork``: session generation, sequence counters, delayed frames,
 the ZVD gate and APS acknowledged unicasts (``network_aps``).
 
 ``SimMeshLink`` is the base class of ``SimNetwork``; it holds no topology and decodes nothing.
@@ -34,7 +34,7 @@ SIM_INDIRECT_EXPIRY_DELAY: Final = 8.8
 
 
 class TunnelHost(Protocol):
-    """What the network needs from the R0 (``SimulatedR0`` implements it; T9 tests may pass a
+    """What the network needs from the R0 (``SimulatedR0`` implements it; tests may pass a
     recording stub instead)."""
 
     def attach_network(self, peer: TunnelPeer) -> None: ...

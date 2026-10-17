@@ -1,4 +1,4 @@
-"""Who is in the simulated mesh (T9): coordinator, routers, valves and their Mgmt_Lqi tables.
+"""Who is in the simulated mesh: coordinator, routers, valves and their Mgmt_Lqi tables.
 
 Used by ``SimNetwork``; holds no timing and sends nothing.
 """

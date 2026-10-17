@@ -1,6 +1,6 @@
-"""The NWK join of a ``ZigbeeDirectNode``: STATUS -> COMMISSIONING -> ANNOUNCED -> ROUTED (T11).
+"""The NWK join of a ``ZigbeeDirectNode``: STATUS -> COMMISSIONING -> ANNOUNCED -> ROUTED.
 
-Private helper of ``node.py`` (spec §1.3 "Join", steps 1-8; ``ZigbeeDirectNode`` docstring).
+Private helper of ``node.py`` (docs/protocol.md §6; ``ZigbeeDirectNode`` docstring).
 Each Commissioning Request attempt draws a NEW placeholder short and opens a fresh
 ``JoinToken``, so a late response to an older attempt no longer matches. The Commissioning
 Status is reduced to ``NetworkSummary`` at once and never logged.

@@ -1,7 +1,6 @@
-"""Generic connection manager for one ZDD: resolve, connect, handshake, join, supervise (§1.5).
+"""Generic connection manager for one ZDD: resolve, connect, handshake, join, supervise.
 
-Implemented by T13 (which wires connection -> transport -> node); frozen interface (T2). No
-vendor knowledge.
+Wires connection -> transport -> node. No vendor knowledge.
 
 Per attempt
     1. ``device = resolve_device()`` (HA: a fresh ``async_ble_device_from_address(...,
@@ -44,8 +43,8 @@ Short addresses (``avoid_shorts`` ownership)
     it can never erase the conflict set; a pushed ``preferred_short`` that is in the conflict
     set is ignored by the node anyway (it is in ``avoid_shorts``).
 
-Size note: keep this module under ~500 lines when implemented; T13 may split the supervisor
-loop and backoff into ``connection_supervisor.py`` (public names stay here).
+Size note: this module stays under ~500 lines; the supervisor loop and backoff live in
+``connection_supervisor.py`` and ``connection_backoff.py`` (public names stay here).
 
 Threading: loop thread only; every listener is called synchronously and must not await.
 Logging (``vicare_local_ble.zigbee_direct.connection``): INFO state changes and generations,

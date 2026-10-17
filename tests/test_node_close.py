@@ -1,4 +1,4 @@
-"""ZigbeeDirectNode lifecycle (T11): close(), broken transports, node-owned tasks."""
+"""ZigbeeDirectNode lifecycle: close(), broken transports, node-owned tasks."""
 
 from __future__ import annotations
 

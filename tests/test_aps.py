@@ -1,4 +1,4 @@
-"""Tests for the APS data frame codec (R23 2.2.5, handover section 7)."""
+"""Tests for the APS data frame codec (R23 2.2.5, docs/protocol.md §9)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from vicare_local_ble.zigbee_direct.errors import ApsDecodeError, EncodeError, U
 ZCL_READ = bytes.fromhex("0005000000080012 00".replace(" ", ""))
 
 
-def test_unicast_zcl_layout_matches_handover_section_7() -> None:
+def test_unicast_zcl_layout_matches_captured_layout() -> None:
     frame = ApsDataFrame(
         cluster_id=0x0201,
         profile_id=HA_PROFILE_ID,

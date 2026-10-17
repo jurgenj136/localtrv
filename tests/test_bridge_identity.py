@@ -1,4 +1,4 @@
-"""ViCareBridge: valve identity under short reuse (Codex review fix round).
+"""ViCareBridge: valve identity under short reuse (review regressions).
 
 An explicit source IEEE outranks the short lookup, and a Device_annce that arrives while a
 valve is being identified wins over the short the identification started with.

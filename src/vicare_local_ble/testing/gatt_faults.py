@@ -1,4 +1,4 @@
-"""Fault-injection types of the simulated R0 and the pending write-fault queue (T8).
+"""Fault-injection types of the simulated R0 and the pending write-fault queue.
 
 The public names are re-exported by ``testing.gatt`` (the documented import path).
 """
@@ -21,7 +21,7 @@ type HandshakeFault = Literal["none", "se2_silence", "se4_silence", "malformed_s
 
 
 class TunnelPeer(Protocol):
-    """The network behind the R0 (``SimNetwork`` implements it, T9)."""
+    """The network behind the R0 (``SimNetwork`` implements it)."""
 
     def on_zvd_npdu(self, npdu: TunnelNpdu) -> None:
         """A decrypted Tunnel write from the ZVD (sync; schedule replies on the clock)."""

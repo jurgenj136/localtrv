@@ -1,4 +1,4 @@
-"""ViCareBridge (T14): discovery, retries and Device_annce, against the simulator.
+"""ViCareBridge: discovery, retries and Device_annce, against the simulator.
 
 Shared helpers live here (``test_bridge_*.py`` import them). A real ``ZdConnection`` runs on
 ``VirtualClock`` with production timings; keys and EUIs are the dummies of
@@ -214,7 +214,7 @@ def zdo_requests(r: BRig, cluster: int, start: int = 0) -> list[int]:
     ]
 
 
-#: Reply latency as measured on hardware (median 2.1-3.8 s, max 10.2 s; spec §1.6 item 9). The
+#: Reply latency as measured on hardware (median 2.1-3.8 s, max 10.2 s). The
 #: simulator default (2-30 s) is pessimistic; a verified setpoint costs two round trips plus
 #: any lock wait, so timing tests of queued setpoints use the measured range.
 HARDWARE_LATENCY = (2.0, 10.2)

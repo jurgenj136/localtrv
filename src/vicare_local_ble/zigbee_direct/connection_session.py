@@ -1,4 +1,4 @@
-"""One connection attempt/generation of ``ZdConnection`` and its ordered teardown (§1.5, T13).
+"""One connection attempt/generation of ``ZdConnection`` and its ordered teardown.
 
 Private helper of ``connection.py``. A ``Session`` is created per attempt and owns the client,
 transport, node and the generation's spawned tasks. ``teardown`` runs the contract order:

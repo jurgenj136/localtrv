@@ -1,4 +1,4 @@
-"""Setup, unload and shutdown (spec §2.3, §3 HA rows; task T16), against the simulator."""
+"""Setup, unload and shutdown, against the simulator."""
 
 from __future__ import annotations
 

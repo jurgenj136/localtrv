@@ -1,4 +1,4 @@
-"""Config flow tests (spec §2.2, task T15). ``validate_connection`` is always patched."""
+"""Config flow tests. ``validate_connection`` is always patched."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _bluetooth(mock_bluetooth: None) -> None:
 
 @pytest.fixture(autouse=True)
 def mock_setup_entry() -> Iterator[AsyncMock]:
-    """Keep entry setup (T16) out of the flow tests."""
+    """Keep entry setup out of the flow tests."""
     with patch("custom_components.vicare_local_ble.async_setup_entry", return_value=True) as m:
         yield m
 

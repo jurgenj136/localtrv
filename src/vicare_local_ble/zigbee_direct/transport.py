@@ -1,9 +1,7 @@
-"""GATT transport for Zigbee Direct: handshake, status read, writer task, ingress (spec §1.2).
-
-Implemented by phase-2 task T10; this module is the frozen interface (T2).
+"""GATT transport for Zigbee Direct: handshake, status read, writer task, ingress.
 
 Ownership and threading
-    One ``ZigbeeDirectTransport`` per BLE connection attempt, created by ``ZdConnection`` (T13)
+    One ``ZigbeeDirectTransport`` per BLE connection attempt, created by ``ZdConnection``
     around a client that is already connected. The transport never scans, connects or
     disconnects: the connection owns the client. All methods run on the loop thread. Queues,
     futures and the writer task are created lazily in ``open()`` (the object can be built
@@ -13,7 +11,7 @@ Handshake (``open``)
     1. ``start_notify(Authenticate)``; SE2/SE4 indications go to a queue.
     2. Write SE1 (write-with-response). Wait ``handshake_timeout`` for SE2.
     3. Write SE3. Wait ``handshake_timeout`` for SE4.
-    4. ``start_notify(Tunnel)`` only now (PN §1 step 7), start the writer task.
+    4. ``start_notify(Tunnel)`` only now, start the writer task.
     Classification is strict: ``HandshakeRejectedError`` only for an ATT error code exactly 0x80
     on the SE3 write (``_att_error_code``) or an SE4 tag mismatch (``HandshakeError`` from the
     initiator while in AWAIT_SE4 because of the tag). Every other failure raises
@@ -50,9 +48,9 @@ Logging (logger ``vicare_local_ble.zigbee_direct.transport``)
     streaks, low MTU. NEVER logged or recorded: handshake messages, the PSK/BAK, the session
     key, the Commissioning Status value (raw, decrypted or decoded).
 
-Size note: keep this module under ~500 lines when implemented. T10 may split private helpers
-into sibling modules, e.g. ``transport_handshake.py`` (SE1-SE4 driving and classification,
-``_att_error_code``) and ``transport_writer.py`` (writer task); the public names stay here.
+Size note: this module stays under ~500 lines. Private helpers live in sibling modules:
+``transport_handshake.py`` (SE1-SE4 driving and classification, ``_att_error_code``) and
+``transport_writer.py`` (writer task); the public names stay here.
 """
 
 from __future__ import annotations
@@ -380,7 +378,7 @@ class ZigbeeDirectTransport:
     def set_fatal_handler(self, handler: FatalHandler) -> None:
         """Install the handler called once when the transport becomes ``broken``.
 
-        Installed by ``ZdConnection`` (T13). Called synchronously from the writer task; it must
+        Installed by ``ZdConnection``. Called synchronously from the writer task; it must
         not await and must not call ``close()`` inline (schedule teardown instead).
         """
         self._fatal_handler = handler

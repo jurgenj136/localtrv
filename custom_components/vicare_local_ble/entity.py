@@ -1,4 +1,4 @@
-"""Entity base classes (spec §2.5); the platforms (T17) build on these."""
+"""Entity base classes; the platforms build on these."""
 
 from __future__ import annotations
 

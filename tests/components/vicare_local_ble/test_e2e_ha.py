@@ -1,4 +1,4 @@
-"""End to end through Home Assistant: spec §3 edge table, HA-level rows (T18).
+"""End to end through Home Assistant: the HA-level rows of the edge-case table.
 
 The row -> test map is in ``tests/test_e2e_sim.py``. Integration + library + simulator, library
 time virtual (``Sim`` harness in ``conftest.py``).

@@ -1,4 +1,4 @@
-"""T12 discovery: Mgmt_Lqi paging and the breadth-first router walk (``walk_topology``).
+"""Discovery: Mgmt_Lqi paging and the breadth-first router walk (``walk_topology``).
 
 Simulator tests drive a joined node on ``VirtualClock``; the paging edge cases (count 0, page
 limit, failures, limits) use a scripted fake node.

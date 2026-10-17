@@ -1,4 +1,4 @@
-"""Binary sensors (spec §2.5, §6 T17): window_open (experimental), bridge connection."""
+"""Binary sensors: window_open (experimental), bridge connection."""
 
 from __future__ import annotations
 

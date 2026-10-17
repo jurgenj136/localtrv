@@ -1,4 +1,4 @@
-"""ZigbeeDirectTransport (T10): the writer task (ordering, cancellation, failure, close)."""
+"""ZigbeeDirectTransport: the writer task (ordering, cancellation, failure, close)."""
 
 from __future__ import annotations
 

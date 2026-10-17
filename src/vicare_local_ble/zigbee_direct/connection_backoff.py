@@ -1,4 +1,4 @@
-"""Backoff schedule and the shortenable backoff wait of ``ZdConnection`` (spec §1.5, T13).
+"""Backoff schedule and the shortenable backoff wait of ``ZdConnection``.
 
 Private helper of ``connection.py``; the constants live there and are passed in. Every delay
 goes through the injected ``Clock``.

@@ -1,4 +1,4 @@
-"""Tests for NWK command payloads (R23 3.4) and the handover §5 builders."""
+"""Tests for NWK command payloads (R23 3.4) and the Commissioning Request builders."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ ZDD_SHORT = 0x5A5A
 PLACEHOLDER = 0x1234
 
 
-# --- Commissioning Request (handover §5) ------------------------------------
+# --- Commissioning Request (docs/protocol.md §6.1) --------------------------
 
 EXPECTED_COMMISSIONING_NPDU = bytes.fromhex(
     "0918"  # FC: command, v2, discover route 0; dst + src IEEE

@@ -1,4 +1,4 @@
-"""Valve data models: attribute specs, read requests, limits, valve and state (T4 implements).
+"""Valve data models: attribute specs, read requests, limits, valve and state.
 
 No imports from ``constants`` (it imports this module).
 """
@@ -53,7 +53,7 @@ class AttrSpec:
     ``manufacturer`` is the ZCL manufacturer code for manufacturer-specific attributes (they
     need their own request with the MS bit). ``field`` is the ``ValveState`` field it feeds, or
     ``None`` for attributes that feed ``Valve``/``SetpointLimits``/``BasicInfo`` instead.
-    ``decode`` names the validation/scaling rule (``ValueKind``); T4 implements it in
+    ``decode`` names the validation/scaling rule (``ValueKind``), implemented in
     ``decode_attr``.
     """
 

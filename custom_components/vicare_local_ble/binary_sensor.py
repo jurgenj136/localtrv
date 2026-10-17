@@ -1,4 +1,4 @@
-"""Binary sensors: valve window detection (experimental) and the R0 connection (spec §2.5)."""
+"""Binary sensors: valve window detection (experimental) and the R0 connection."""
 
 from __future__ import annotations
 

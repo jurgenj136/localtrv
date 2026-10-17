@@ -1,6 +1,6 @@
 """NPDU recorder: log line, ring buffer, secret suppression, header-only frames, no raising.
 
-Dummy keys and EUIs only (spec §1.8, §6 T5).
+Dummy keys and EUIs only.
 """
 
 from __future__ import annotations

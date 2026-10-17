@@ -37,7 +37,7 @@ SECURITY_LEVEL: Final = 0x05  # ENC-MIC-32
 MAX_COUNTER: Final = 0xFFFFFFFF
 UUID_SIZE: Final = 16
 
-#: Anonymous well-known PSK (``apscWellKnownPSK``, R23 Annex C.7.1; research zvd_crypto.py:24).
+#: Anonymous well-known PSK (``apscWellKnownPSK``, R23 Annex C.7.1).
 WELL_KNOWN_PSK: Final = SecretBytes(b"ZigBeeAlliance18")
 
 #: SE3 (initiator -> responder) and SE4 (responder -> initiator) confirmation labels.
@@ -50,7 +50,7 @@ _LINK_KEY_KDF_INPUT: Final = b"\x01"
 
 
 class SecretType(IntEnum):
-    """Pre-shared secret type of the Security Service (research zvd_crypto.py:27-32)."""
+    """Pre-shared secret type of the Security Service (docs/protocol.md §3)."""
 
     SYMMETRIC_AUTH_TOKEN = 0x00
     INSTALL_CODE_LINK_KEY = 0x01
@@ -61,7 +61,7 @@ class SecretType(IntEnum):
 
 
 class KeyNegotiationMethod(IntEnum):
-    """Key negotiation method of the Security Service (research zvd_crypto.py:35)."""
+    """Key negotiation method of the Security Service (docs/protocol.md §3)."""
 
     CURVE25519_AESMMO128 = 0x01
 
@@ -90,7 +90,7 @@ def install_code_to_link_key(install_code: bytes, *, includes_crc: bool = False)
 def derive_basic_authorization_key(zvd_eui: Eui64, network_key: SecretBytes) -> SecretBytes:
     """Basic Authorization Key ``HMAC-AES-MMO(MMO(zvd_eui_wire || network_key), 0x03)``.
 
-    ``zvd_eui`` enters in little-endian wire order (research zvd_crypto.py:105-113;
+    ``zvd_eui`` enters in little-endian wire order (docs/protocol.md §3;
     Silicon Labs ``sl_zigbee_direct_calculate_basic_key``).
     """
     if len(network_key) != KEY_SIZE:
@@ -159,8 +159,7 @@ def speke_shared_point(private_key: SecretBytes, peer_q: bytes) -> SecretBytes:
 def eui64_compare(a: Eui64, b: Eui64) -> int:
     """Compare two EUI-64 as 64-bit integers; returns -1, 0 or 1.
 
-    The last wire byte is most significant (research zvd_crypto.py:139-151,
-    Annex J.1.3 step 5).
+    The last wire byte is most significant (R23 Annex J.1.3 step 5).
     """
     x, y = a.as_int(), b.as_int()
     return (x > y) - (x < y)
@@ -176,7 +175,7 @@ def speke_session_secret(
 ) -> SecretBytes:
     """``s = MMO(xk || I || G)``; ``I`` is the (EUI, Q) pairs, numerically smaller EUI first.
 
-    Ties put the responder first, exactly as research zvd_crypto.py:154-161.
+    Ties put the responder first, as the research prototype did (docs/protocol.md §3).
     """
     if eui64_compare(responder_eui, initiator_eui) <= 0:
         session_id = responder_eui.wire + responder_q + initiator_eui.wire + initiator_q
@@ -202,8 +201,7 @@ def confirmation_tag(
 
     ``HMAC-AES-MMO(key, label || responder_EUI || responder_Q || initiator_EUI || initiator_Q)``
     with ``label`` ``KC_2_U`` (SE3) or ``KC_2_V`` (SE4). This is the only order the
-    ZDD accepted live (research zvd_client.py:228-261, ``pairs_resp``); the other
-    research variants are dropped.
+    ZDD accepted on hardware; the other orders the research prototype tried are dropped.
     """
     if label not in (LABEL_KC_2_U, LABEL_KC_2_V):
         raise ValueError("label must be KC_2_U or KC_2_V")

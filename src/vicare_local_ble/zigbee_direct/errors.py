@@ -69,7 +69,7 @@ class EncodeError(ZigbeeDirectError, ValueError):
     """A frame could not be encoded from the given values."""
 
 
-# --- phase 2: runtime errors (spec §1.1) --------------------------------------------------
+# --- runtime errors -----------------------------------------------------------------------
 
 type TransportErrorReason = Literal[
     "write",

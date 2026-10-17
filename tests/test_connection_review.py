@@ -1,4 +1,4 @@
-"""ZdConnection (T13): regressions from the CP4 adversarial review."""
+"""ZdConnection: regressions from an adversarial review."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 async def test_rejection_wins_over_disconnect_during_cleanup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#1: the ZDD drops the link while the transport cleans up after SE3 0x80."""
+    """The ZDD drops the link while the transport cleans up after SE3 0x80."""
     r = make_rig(network_key=WRONG_KEY)
 
     async def drop_link(self: FakeBleakClient, char: str) -> None:
@@ -51,7 +51,7 @@ async def test_rejection_wins_over_disconnect_during_cleanup(
 
 
 async def test_cancelled_stop_does_not_fake_completion(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#2: a bounded (cancelled) stop() must not let a second stop() return early."""
+    """A bounded (cancelled) stop() must not let a second stop() return early."""
     r = make_rig()
     await start(r)
     done: list[float] = []
@@ -85,7 +85,7 @@ async def test_stop_from_a_spawned_task() -> None:
 
 
 async def test_stop_right_after_start_interrupts_first_attempt() -> None:
-    """#3: stop() before the supervisor's first step, with a hanging connector."""
+    """stop() before the supervisor's first step, with a hanging connector."""
     r = make_rig()
     r.inst.connector.hang_next()
     task = asyncio.ensure_future(r.conn.start())
@@ -112,7 +112,7 @@ async def test_stop_while_connector_hangs_later() -> None:
 async def test_missing_characteristic_during_join_clears_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#4: the Commissioning Status read (join) hits a stale GATT cache."""
+    """The Commissioning Status read (join) hits a stale GATT cache."""
     r = make_rig()
     original = FakeBleakClient.read_gatt_char
     reads: list[int] = []
@@ -148,7 +148,7 @@ async def test_missing_characteristic_from_fatal_handler_clears_cache(
 async def test_teardown_bounds_tasks_ignoring_cancellation(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """#5: a spawned task that ignores cancellation delays teardown by at most 10 s."""
+    """A spawned task that ignores cancellation delays teardown by at most 10 s."""
     r = make_rig()
     gen = await start(r)
     release = asyncio.Event()
@@ -177,7 +177,7 @@ async def test_teardown_bounds_tasks_ignoring_cancellation(
 async def test_unexpected_cycle_error_fails_start_and_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#6: a bug in a cycle never leaves a zombie supervisor."""
+    """A bug in a cycle never leaves a zombie supervisor."""
     r = make_rig()
     original = ConnectionCore._become_ready
     calls: list[int] = []
@@ -204,7 +204,7 @@ def _entered(r: Rig, state: ConnectionState, count: int) -> Callable[[], bool]:
 
 
 async def test_notify_seen_uses_the_unjittered_base() -> None:
-    """#9: the 30 s step is shortenable even when jitter makes it shorter than 30 s."""
+    """The 30 s step is shortenable even when jitter makes it shorter than 30 s."""
     below = 0
     for seed in range(8):
         r = make_rig(seed=seed)
@@ -228,7 +228,7 @@ async def test_notify_seen_uses_the_unjittered_base() -> None:
 async def test_validate_connection_disconnect_survives_repeated_cancel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#11: cancelling validate_connection during its disconnect cannot skip it."""
+    """Cancelling validate_connection during its disconnect cannot skip it."""
     inst = default_installation(n_valves=1, behind_router=0)
     started: list[float] = []
     done: list[float] = []

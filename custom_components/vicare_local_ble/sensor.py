@@ -1,4 +1,4 @@
-"""Sensors: per-valve battery, heating demand, LQI, RSSI; R0 connection state (spec §2.5)."""
+"""Sensors: per-valve battery, heating demand, LQI, RSSI; R0 connection state."""
 
 from __future__ import annotations
 

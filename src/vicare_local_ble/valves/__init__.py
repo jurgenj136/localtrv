@@ -1,16 +1,15 @@
-"""Viessmann ZK03840 radiator valve knowledge: the ONLY Viessmann package (spec §1.4, PN §4).
+"""Viessmann ZK03840 radiator valve knowledge: the ONLY Viessmann package.
 
 Layout: ``constants`` (ids, specs, read plans), ``models`` (dataclasses), ``decode`` (pure
 functions). Import from the package: ``from vicare_local_ble.valves import X``.
 
-Implemented by T4; frozen interface (T2). Constants and read plans below are data and final;
-function bodies are T4's. Everything here is pure: no I/O, no logging of values (the bridge logs
-``read_issues`` once per valve and attribute).
+Constants and read plans are data and final. Everything here is pure: no I/O, no logging of
+values (the bridge logs ``read_issues`` once per valve and attribute).
 
 The valve exposes endpoint 1, profile 0x0104 (Home Automation). ``bridge.py`` takes every
 cluster, attribute, scale, sentinel and model id from this module.
 
-Validation before scaling (spec §1.4 #14): an attribute must have its expected ZCL type and must
+Validation before scaling: an attribute must have its expected ZCL type and must
 not be a sentinel, and scaled values must be in range; otherwise the field becomes unknown
 (``None``) and ``read_issues`` reports it. A non-success read status leaves the field unchanged.
 

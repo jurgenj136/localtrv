@@ -1,4 +1,4 @@
-"""Value types and constants of ``ZdConnection`` (spec §1.5, T13).
+"""Value types and constants of ``ZdConnection``.
 
 Private home of names that ``connection.py`` re-exports (the public import path); split out so
 the supervisor (``connection_supervisor.py``) can use them without an import cycle.

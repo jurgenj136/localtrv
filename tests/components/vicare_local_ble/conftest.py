@@ -93,7 +93,7 @@ def _only_our_discovery_flows() -> Iterator[None]:
         yield
 
 
-# --- simulator harness (T16) -----------------------------------------------------------------
+# --- simulator harness -----------------------------------------------------------------------
 #
 # Time: the library runs on the simulator's ``VirtualClock``. ``LoopClock`` is patched in the
 # integration module to return it, so every library and simulator delay (handshake, joins,

@@ -1,11 +1,11 @@
-"""End to end over the simulator: spec §3 edge table, connection rows (T18).
+"""End to end over the simulator: the connection rows of the edge-case table.
 
 Every test runs the whole library stack (``ZdConnection`` + ``ViCareBridge`` over
 ``SimulatedR0`` + ``SimNetwork`` + ``SimValve``) on ``VirtualClock`` with production timings;
 HA-level rows go through the integration harness. Keys and EUIs are the dummies of
 ``default_installation``.
 
-§3 row -> test (``sim`` = this file, ``net`` = ``test_e2e_sim_network.py``,
+Edge-case row -> test (``sim`` = this file, ``net`` = ``test_e2e_sim_network.py``,
 ``ha`` = ``tests/components/vicare_local_ble/test_e2e_ha.py``)
 
 Row                                         File  Test

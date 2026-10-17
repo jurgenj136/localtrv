@@ -1,4 +1,4 @@
-"""Structural EUI redaction of the NPDU recorder (spec §1.8, §6 T5).
+"""Structural EUI redaction of the NPDU recorder.
 
 Dummy identities only. The golden fixtures use ``02:00:..:NN`` EUIs, which have the same shape
 as the recorder's pseudonyms, so the leak tests run on copies of the golden frames whose EUIs

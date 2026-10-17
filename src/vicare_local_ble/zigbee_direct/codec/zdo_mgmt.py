@@ -1,6 +1,6 @@
 """ZDO network management: Mgmt_Lqi_req / Mgmt_Lqi_rsp (Zigbee R23 2.4.3.3.2, 2.4.4.4.2).
 
-Ports research tools/zvd_tunnel.py:463-497 with fixes: ``rx_on_when_idle`` and
+Ports the research prototype's Mgmt_Lqi code with fixes: ``rx_on_when_idle`` and
 ``permit_joining`` are tri-state (``None`` = unknown) instead of ``bool``, the
 extended PAN id / permit joining / depth are kept, and the neighbor count must
 match the payload length exactly (the research parser stopped silently).

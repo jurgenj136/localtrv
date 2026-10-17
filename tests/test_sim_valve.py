@@ -1,7 +1,7 @@
-"""SimValve (T9): ZCL semantics and sleepy timing, driven by golden bytes through SimNetwork.
+"""SimValve: ZCL semantics and sleepy timing, driven by golden bytes through SimNetwork.
 
-The expected values are the hand-written golden fixtures and PN §4 raw numbers, never
-``vicare_local_ble.valves`` (spec §6 T9: no tautological scaling checks).
+The expected values are the hand-written golden fixtures and raw wire numbers (docs/protocol.md §9),
+never ``vicare_local_ble.valves`` (no tautological scaling checks).
 """
 
 from __future__ import annotations

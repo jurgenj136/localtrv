@@ -1,13 +1,13 @@
-"""Ready-made simulated installations (T9).
+"""Ready-made simulated installations.
 
-Frozen interface (T2); implemented by T9. ``default_installation`` builds the research layout:
+``default_installation`` builds the layout of the tested installation:
 the coordinator with ``n_valves - behind_router`` valve children, the R0 as a router, and one
 extra router carrying ``behind_router`` valves. Every EUI is a dummy (``02:00:...``), every key
 a distinct dummy ``SecretBytes``; the same ``seed`` gives the same installation and traffic.
 The R0's ``zdd_short``/``eui`` and the network's ``zdd_short``/``zdd_eui`` are always set from
 the same values (one source of truth in ``default_installation``).
 
-Layout (T9): shorts are drawn from ``random.Random(seed)`` (distinct, never 0x0000 or a
+Layout: shorts are drawn from ``random.Random(seed)`` (distinct, never 0x0000 or a
 broadcast); the extra router exists only when ``behind_router > 0``. EUIs:
 ZVD ``02:00:00:00:00:00:00:01``, R0 ``...:02``, coordinator ``...:04``, extra router
 ``...:05``, valve *i* ``02:00:00:00:00:01:00:<i+1>``.

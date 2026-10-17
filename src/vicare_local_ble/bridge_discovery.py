@@ -1,4 +1,4 @@
-"""Bridge discovery: topology walk, identification, retries, Device_annce (T14; internal).
+"""Bridge discovery: topology walk, identification, retries, Device_annce (internal).
 
 One discovery task is spawned per generation (from the READY listener). It runs an attempt,
 spawns the initial poll after the first one, then sleeps until the next attempt: the retry

@@ -1,6 +1,6 @@
 """ZK03840 identification, cluster/attribute ids, validation constants, specs and read plans.
 
-Pure data (PN §4, spec §1.4); final as of T2.
+Pure data (docs/protocol.md §9).
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ MODEL_NAME: Final = "ZK03840"
 ENDPOINT: Final = 1
 PROFILE: Final = HA_PROFILE_ID
 
-# --- clusters and attributes (PN §4) -----------------------------------------------------
+# --- clusters and attributes ----------------------------------------------------------
 
 CLUSTER_BASIC: Final = 0x0000
 CLUSTER_POWER: Final = 0x0001

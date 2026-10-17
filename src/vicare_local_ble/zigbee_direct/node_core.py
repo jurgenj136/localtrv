@@ -1,4 +1,4 @@
-"""Private state of one ``ZigbeeDirectNode``: the ``DispatchHost`` and ``RoutingHost`` (T11).
+"""Private state of one ``ZigbeeDirectNode``: the ``DispatchHost`` and ``RoutingHost``.
 
 ``NodeCore`` owns the allocators, pending map, join slot, neighbor table, router, dispatcher,
 node tasks and listeners of one node generation. ``node.py`` is the public facade; the join

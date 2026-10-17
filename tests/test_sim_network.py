@@ -1,7 +1,7 @@
-"""SimNetwork (T9): join rules, gating, routing, Mgmt_Lqi, RREQs, quirks, noise and events.
+"""SimNetwork: join rules, gating, routing, Mgmt_Lqi, RREQs, quirks, noise and events.
 
 Driven with the hand-written golden fixtures through a recording ``TunnelHost`` on a
-``VirtualClock``; never with the production builders (spec §6 T9).
+``VirtualClock``; never with the production builders.
 """
 
 from __future__ import annotations

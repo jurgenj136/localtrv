@@ -1,4 +1,4 @@
-"""dispatch.py (T11): golden NPDUs through the dispatcher with a recording host (unit level)."""
+"""dispatch.py: golden NPDUs through the dispatcher with a recording host (unit level)."""
 
 from __future__ import annotations
 
@@ -330,7 +330,7 @@ async def test_fallback_still_checks_the_envelope() -> None:
     assert not bare.future.done()
 
 
-# --- fallback scope (CP3): only implausible APS headers are offset-scanned ------------------
+# --- fallback scope: only implausible APS headers are offset-scanned ------------------------
 
 READ_RSP_ZCL = bytes.fromhex("18 2B 01 00 00 00 29 AD 07")  # tsn 0x2B, localTemperature 1965
 

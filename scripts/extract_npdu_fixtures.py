@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Extract NPDU/payload hex from saved research-client output or a Home Assistant log.
+"""Extract NPDU/payload hex from saved prototype-client output or a Home Assistant log.
 
 Input is an explicit text file (or ``-`` for stdin) holding the stdout of the
-research client (``tools/zvd_client.py``). Only hex printed by these known,
-Dutch-language line formats is extracted (research file:line):
+earlier prototype client (not part of this repository). Only hex printed by these
+known, Dutch-language line formats is extracted:
 
-* ``[tunnel] onparseerbaar NWK-frame: <hex>``        (:413) nwk_frame_unparsed
-* ``resterende bytes: <hex>``                         (:456) commissioning_response_rest
-* ``[zdo] APS cluster 0xCCCC van 0xSSSS: <hex>``      (:672) aps_payload
-* ``[dbg] NWK cmd van 0xSSSS: <hex>``                 (:849) nwk_command
-* ``[dbg] frame van 0xSSSS (dst 0xDDDD, NB): <hex>``  (:896) nwk_payload
+* ``[tunnel] onparseerbaar NWK-frame: <hex>``        nwk_frame_unparsed
+* ``resterende bytes: <hex>``                         commissioning_response_rest
+* ``[zdo] APS cluster 0xCCCC van 0xSSSS: <hex>``      aps_payload
+* ``[dbg] NWK cmd van 0xSSSS: <hex>``                 nwk_command
+* ``[dbg] frame van 0xSSSS (dst 0xDDDD, NB): <hex>``  nwk_payload
 
-DELIBERATELY EXCLUDED: the Commissioning Status dump (``tag 0x.. name: <hex>``,
-:129). It prints raw TLV values, including unknown tags, and may carry network
+DELIBERATELY EXCLUDED: the Commissioning Status dump (``tag 0x.. name: <hex>``).
+It prints raw TLV values, including unknown tags, and may carry network
 key material. Lines of that shape are never matched.
 
 Defensive: unrecognised lines containing a bare 16-byte (32 hex chars) blob are

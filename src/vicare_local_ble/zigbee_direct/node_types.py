@@ -1,4 +1,4 @@
-"""Value types shared by the node, dispatcher, router and connection (spec §1.3).
+"""Value types shared by the node, dispatcher, router and connection.
 
 They live here, below ``node.py``, so ``dispatch.py`` and ``routing.py`` can build them at
 runtime without importing the node. ``node.py`` re-exports every name; import them from there.
@@ -22,7 +22,7 @@ MIN_MTORR_INTERVAL: Final = 10.0
 
 
 class RouteReplyMode(StrEnum):
-    """How the node answers a Route Request addressed to its own short (spec §1.3 Routing).
+    """How the node answers a Route Request addressed to its own short (docs/protocol.md §6.4).
 
     * ``LIVE``: options byte forced to 0x20 with both EUIs appended (the live-proven bytes).
     * ``SPEC``: options derived from the present EUIs (0x30 with both).
@@ -63,7 +63,7 @@ class NodeConfig:
     ``mtorr_count``, ``max_in_flight`` below 1; negative ``indirect_extra_attempts``,
     ``late_window`` or ``mtorr_spacing``;
     a positive ``mtorr_interval`` below ``MIN_MTORR_INTERVAL`` (a value <= 0 or NaN disables
-    the periodic MTORR, T12); a ``preferred_short`` outside 0x0001..0xFFF7.
+    the periodic MTORR); a ``preferred_short`` outside 0x0001..0xFFF7.
     * ``avoid_shorts``: shorts never used as the placeholder (known device shorts, a short that
       caused an address conflict).
     """

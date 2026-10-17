@@ -1,4 +1,4 @@
-"""``default_installation`` (T9): research layout, one source of truth, determinism."""
+"""``default_installation``: research layout, one source of truth, determinism."""
 
 from __future__ import annotations
 

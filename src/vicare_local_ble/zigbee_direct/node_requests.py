@@ -1,4 +1,4 @@
-"""Request engine of a ``ZigbeeDirectNode``: locks, allocation, pending lifecycle, retries (T11).
+"""Request engine of a ``ZigbeeDirectNode``: locks, allocation, pending lifecycle, retries.
 
 Private helper of ``node.py`` (see the ``ZigbeeDirectNode`` docstring "Requests"):
 

@@ -1,4 +1,4 @@
-"""Bridge poll cycle, valve reads and topology re-walks (T14; internal, see ``bridge``).
+"""Bridge poll cycle, valve reads and topology re-walks (internal, see ``bridge``).
 
 Per valve: ``try_acquire`` the transaction lock (busy -> skipped), then the plan
 ``FAST`` (+ ``SLOW`` every ``SLOW_EVERY_N_POLLS``-th poll, + ``STATIC`` when due), one request

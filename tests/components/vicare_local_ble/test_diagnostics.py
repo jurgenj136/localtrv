@@ -1,4 +1,4 @@
-"""Diagnostics allowlist and the secret test (spec §2.6, #2; task T16).
+"""Diagnostics allowlist and the secret test.
 
 Distinct dummy secrets: the network key (0x11 x16), link key (0x22 x16) and admin key
 (0x33 x16) of the simulator's Commissioning Status, plus a KEY128 ZCL attribute value
