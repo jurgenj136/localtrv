@@ -66,7 +66,7 @@ From a Home Assistant log with debug logging on:
 uv run python scripts/extract_npdu_fixtures.py --from-ha-log home-assistant.log > fixtures.jsonl
 ```
 
-From saved terminal output of the research client:
+From other saved terminal output with NPDU lines:
 
 ```bash
 uv run python scripts/extract_npdu_fixtures.py capture.txt \

@@ -39,3 +39,4 @@ CLAUDE.md
 .claude/
 docs/*
 !docs/protocol.md
+!docs/images/

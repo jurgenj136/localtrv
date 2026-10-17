@@ -11,7 +11,7 @@ R0 **Series 2**. The Series 1 has no Bluetooth and cannot be used.
 <!-- screenshot: docs/images/climate-card.png (to be added) -->
 
 > [!WARNING]
-> **Early release.**
+> **Early release.** Features, options and behaviour may still change between versions.
 
 Not affiliated with or endorsed by Viessmann or ubisys. ViCare is a trademark of Viessmann. Use at
 your own risk; no warranty.
@@ -76,7 +76,7 @@ Or by hand:
 1. In HACS, open the menu (three dots, top right) and choose **Custom repositories**.
 2. Add `https://github.com/jurgenj136/vicare-local-ble` with type **Integration**.
 3. Open **ViCare Local (Bluetooth via ubisys R0)**.
-4. Every release so far is a pre-release. Enable pre-releases for this repository, or pick the
+4. If only a pre-release is available, enable pre-releases for this repository or pick the
    version in the download dialog.
 5. Download it and restart Home Assistant.
 
@@ -112,8 +112,8 @@ valves. Each valve appears as its own device once it answers. Valves sleep most 
 this can take a few minutes.
 
 **New key.** If the R0 rejects the stored key, Home Assistant asks you to **Re-enter the network
-key**. Enter the current key. It is tested before it is saved. If the test times out, the key is saved
-anyway; other connection errors keep the form open until you fix them and try again.
+key**. Enter the current key. It is tested before it is saved. If the test times out, the key is
+saved anyway; other connection errors keep the form open until you fix them and try again.
 
 ## What you get
 
@@ -141,17 +141,16 @@ The R0 device has:
 - Before writing, the integration checks that the device at the valve's network address really
   is that valve. Only then does it send the new target.
 - The call finishes when the valve acknowledges the write: usually a few seconds. On a weak link
-  a dropped and resent request makes it longer (about 18 seconds in our tests); after 60 seconds
-  the call gives up.
+  a dropped and resent request can stretch that to about 20 seconds; after 60 seconds the call
+  gives up.
 - If that fails, the target goes back to the old value and you get one of two errors:
   - "… The valve could not be reached to confirm its address, so nothing was sent. Try again."
   - "… The valve did not confirm the change." The valve may still have applied it; the
     thermostat shows the right value after the next poll.
 - After the acknowledgement, the integration reads the target back in the background to confirm
   it. The call does not wait for that.
-- A change from Home Assistant acts like turning the valve by hand. In an earlier test (with a
-  research client, not yet through this integration), the ViCare app then showed the room as
-  "manually set, for 2 hours".
+- A change from Home Assistant acts like turning the valve by hand: the ViCare app shows the room
+  as "manually set, for 2 hours".
 - Your ViCare gateway and schedule push their own target again later: after that period, or at the
   next schedule change. The last change wins. Only the ViCare app (or waiting) ends the manual
   override; Home Assistant cannot cancel it.
@@ -161,8 +160,8 @@ The thermostat also has the attributes `setpoint_pending`, `setpoint_acknowledge
 
 ## How updates work
 
-- The integration asks every valve for its state every 300 seconds by default. In 21 hours of
-  testing no valve update reached the integration on its own, so polling is how the data arrives.
+- The integration asks every valve for its state every 300 seconds by default. Valves do not send
+  updates over this connection on their own, so polling is how the data arrives.
 - Valves sleep and answer slowly: typically 2-4 seconds, sometimes 10.
 - A valve that misses 3 polls in a row becomes unavailable (15 minutes at the default). It comes
   back by itself when it answers again, and the log says so.
@@ -170,7 +169,7 @@ The thermostat also has the attributes `setpoint_pending`, `setpoint_acknowledge
   connection drops, it reconnects with growing pauses (up to about 6 minutes).
 - Known valves are remembered across restarts. They show up right away but stay unavailable until
   they answer. The valve list is refreshed every 6 hours, so new valves appear on their own.
-- The effect on battery life is not measured yet. Keep the default interval.
+- Every poll wakes the valve's radio. Keep the default interval unless you need faster updates.
 
 ## Options
 
@@ -203,8 +202,8 @@ the integration also puts the old value back.
 No. The R0 requires it. See [The network key](#the-network-key).
 
 **Does it work with other Zigbee routers?**
-Only the ubisys R0 Series 2 with Zigbee Direct is tested. The R0 Series 1 has no Bluetooth and
-cannot work, nor can other routers without Zigbee Direct.
+It needs a router with Zigbee Direct over Bluetooth: the ubisys R0 Series 2. The R0 Series 1 has
+no Bluetooth, and routers without Zigbee Direct cannot work.
 
 **Does it need the internet?**
 Only to install or update it (HACS and the Python package). After that everything stays local.
@@ -283,8 +282,9 @@ Please report vulnerabilities privately. See [SECURITY.md](https://github.com/ju
 The integration is built on the Python package
 [`vicare-local-ble`](https://pypi.org/project/vicare-local-ble/). It handles the Bluetooth
 connection, the Zigbee Direct session and the valve mapping, and includes a small CLI
-(`vicare-local-ble scan`, `vicare-local-ble status`). The API is not stable yet. Start with
-[CONTRIBUTING.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/CONTRIBUTING.md) for the layout.
+(`vicare-local-ble scan`, `vicare-local-ble status`). The API is not stable yet. See
+[CONTRIBUTING.md](https://github.com/jurgenj136/vicare-local-ble/blob/main/CONTRIBUTING.md) for the
+code layout.
 
 ## Protocol documentation
 
