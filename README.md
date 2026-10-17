@@ -89,16 +89,6 @@ Or by hand:
 On first start, Home Assistant downloads the matching `localtrv` Python package from PyPI.
 After that, the integration needs no internet.
 
-### Upgrading from vicare-local-ble 0.1.0
-
-The project was renamed from `vicare-local-ble` to LocalTRV in 0.2.0. Home Assistant sees it as a
-new integration, so the old entry does not carry over:
-
-1. Delete the old **ViCare Local** entry (**Settings > Devices & services**), then remove it from
-   HACS (or delete `custom_components/vicare_local_ble/`) and restart.
-2. Install LocalTRV as described above and restart.
-3. Add it again ([Setup](#setup)). You need to enter the network key again.
-
 ## Setup
 
 1. Make sure nothing else is connected to the R0 over Bluetooth: another adapter or proxy,
