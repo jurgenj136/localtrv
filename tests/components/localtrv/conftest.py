@@ -10,9 +10,11 @@ import asyncio
 import importlib
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import PropertyMock, patch
 
+import custom_components.localtrv as integration
 import pytest
 from custom_components.localtrv.const import (
     CONF_ADDRESS,
@@ -29,6 +31,7 @@ from pytest_homeassistant_custom_component.common import (  # type: ignore[impor
     MockConfigEntry,
 )
 
+import localtrv
 from bluetooth_helpers import DUMMY_ADDRESS
 from localtrv.testing.network_aps import is_aps_ack
 from localtrv.testing.scenario import default_installation
@@ -179,16 +182,26 @@ class Sim:
         return out
 
 
+OUR_DIRS = (Path(localtrv.__file__).parent, Path(integration.__file__).parent)
+
+
 def our_tasks() -> list[asyncio.Task[Any]]:
-    """Unfinished tasks running library or integration code (other than the caller)."""
+    """Unfinished tasks running library or integration code (other than the caller).
+
+    Matches on the package folders, not the name: checkout paths can contain "localtrv" too.
+    """
     current = asyncio.current_task()
     found: list[asyncio.Task[Any]] = []
     for task in asyncio.all_tasks():
         if task is current or task.done():
             continue
-        code = getattr(task.get_coro(), "cr_code", None)
-        origin = code.co_filename if code is not None else repr(task.get_coro())
-        if "localtrv" in origin:
+        coro = task.get_coro()
+        code = getattr(coro, "cr_code", None)
+        if code is not None:
+            ours = any(Path(code.co_filename).is_relative_to(d) for d in OUR_DIRS)
+        else:
+            ours = type(coro).__module__.split(".")[0] in {"localtrv", "custom_components"}
+        if ours:
             found.append(task)
     return found
 

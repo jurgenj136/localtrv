@@ -230,6 +230,20 @@ async def test_cancellation_during_forwarding_shuts_down(hass: HomeAssistant, si
     assert our_tasks() == []
 
 
+async def test_our_tasks_ignores_foreign_code_under_a_localtrv_path() -> None:
+    # CI checks out into .../localtrv/localtrv/, so every venv path contains the name.
+    namespace: dict[str, Any] = {}
+    source = "async def wait(event):\n    await event.wait()\n"
+    exec(compile(source, "/ci/localtrv/localtrv/.venv/lib/foreign.py", "exec"), namespace)  # noqa: S102
+    event = asyncio.Event()
+    task = asyncio.create_task(namespace["wait"](event))
+    try:
+        assert task not in our_tasks()
+    finally:
+        event.set()
+        await task
+
+
 async def test_unload_stops_and_saves_without_lingering_tasks(
     hass: HomeAssistant, sim: Sim, hass_storage: dict[str, Any]
 ) -> None:
