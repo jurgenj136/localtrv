@@ -30,7 +30,7 @@ ViCare valves through it. Your ViCare gateway, app and schedules keep working as
 | Radiator valves | Viessmann ViCare ZK03840 | 8 valves, firmware `01.18.0008 02.06`, model id `7637434` |
 | Zigbee router | ubisys Router R0 **Series 2** (Series 1 has no Bluetooth), on the same Zigbee network as the valves | ubisys R0 Series 2 |
 | ViCare gateway | the gateway that runs your ViCare Zigbee network | Vitoconnect OPTO2 |
-| Home Assistant | 2026.11.0 or newer | 2026.10.1 on Home Assistant OS |
+| Home Assistant | 2026.11.0 or newer | 2026.11.0 on Home Assistant OS |
 | Bluetooth | a local adapter or an ESPHome Bluetooth proxy in range of the R0 | ESP32-C3 ESPHome proxy |
 
 Bluetooth details:
