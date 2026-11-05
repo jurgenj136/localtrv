@@ -22,8 +22,8 @@ the code layout. User documentation lives in the [README](README.md).
 ## Development setup
 
 Python 3.14.2+ and [uv](https://docs.astral.sh/uv/). Integration tests use
-[pytest-homeassistant-custom-component](https://pypi.org/project/pytest-homeassistant-custom-component/),
-pinned to Home Assistant 2026.10.x.
+[pytest-homeassistant](https://pypi.org/project/pytest-homeassistant/), Home Assistant core's
+test harness. Its release matches the Home Assistant version; upgrade them together.
 
 ```bash
 uv sync

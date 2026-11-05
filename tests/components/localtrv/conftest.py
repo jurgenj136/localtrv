@@ -1,7 +1,7 @@
 """Fixtures for the Home Assistant integration tests.
 
-No real Bluetooth adapter is touched: ``enable_bluetooth`` swaps in PHACC's mocked
-adapters and scanner start.
+No real Bluetooth adapter is touched: ``enable_bluetooth`` swaps in pytest-homeassistant's
+mocked adapters and scanner start.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from custom_components.localtrv.const import (
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import discovery_flow
-from pytest_homeassistant_custom_component.common import (  # type: ignore[import-untyped]
+from pytest_homeassistant.common import (  # type: ignore[import-untyped]
     MockConfigEntry,
 )
 
@@ -48,15 +48,10 @@ if TYPE_CHECKING:
     from localtrv.testing.scenario import Installation
     from localtrv.zigbee_direct.clock import VirtualClock
 
-# HA mounts PHACC's testing_config dir first and would import ITS ``custom_components``
-# package (which shadows ours). Importing ours up front (repo root is on sys.path via
-# ``pythonpath = ["."]``) pins ``sys.modules["custom_components"]`` to this repo.
+# HA mounts pytest-homeassistant's testing_config dir first and would import ITS
+# ``custom_components`` package (which shadows ours). Importing ours up front (repo root is on
+# sys.path via ``pythonpath = ["."]``) pins ``sys.modules["custom_components"]`` to this repo.
 importlib.import_module("custom_components.localtrv")
-
-
-@pytest.fixture(autouse=True)
-def _auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
-    """Let HA load custom_components/localtrv."""
 
 
 @pytest.fixture(name="mock_bluetooth")
@@ -66,7 +61,7 @@ def mock_bluetooth_fixture(enable_bluetooth: None) -> None:
 
 @pytest.fixture(autouse=True)
 def _no_bluez_history() -> Iterator[None]:
-    """PHACC fakes a Linux adapter list but not its BlueZ history.
+    """pytest-homeassistant fakes a Linux adapter list but not its BlueZ history.
 
     Where dbus-fast is unavailable (macOS dev machines) reading that history crashes
     with ``'NoneType' object is not callable``. An empty history is what CI sees.

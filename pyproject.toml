@@ -39,10 +39,9 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pre-commit>=4.6.2",
-    "pytest-homeassistant-custom-component>=0.13.372",
-    # HA bluetooth -> usb requirements (homeassistant/components/usb/manifest.json)
-    "aiousbwatcher==1.1.2",
-    "serialx==1.11.0",
+    # HA core's own test harness; release tracks Home Assistant, upgrade them together.
+    # The bluetooth extra pins HA's bluetooth/usb/hassio requirements.
+    "pytest-homeassistant[bluetooth]==2026.11.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -74,7 +73,8 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=localtrv --cov-report=term-missing --cov-fail-under=90"
+# -p no:respx: let HA install its httpx alias before respx imports httpx.
+addopts = "-p no:respx --cov=localtrv --cov-report=term-missing --cov-fail-under=90"
 
 [tool.coverage.run]
 branch = true

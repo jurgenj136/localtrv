@@ -14,7 +14,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from custom_components.localtrv.diagnostics import async_get_config_entry_diagnostics
-from pytest_homeassistant_custom_component.common import (  # type: ignore[import-untyped]
+from pytest_homeassistant.common import (  # type: ignore[import-untyped]
     async_fire_time_changed,
 )
 

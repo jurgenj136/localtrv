@@ -20,7 +20,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.json import json_bytes
-from pytest_homeassistant_custom_component.common import (  # type: ignore[import-untyped]
+from pytest_homeassistant.common import (  # type: ignore[import-untyped]
     async_fire_time_changed,
 )
 

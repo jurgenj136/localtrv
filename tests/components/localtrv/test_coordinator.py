@@ -18,7 +18,7 @@ from custom_components.localtrv.entity import (
     eui_hex,
 )
 from homeassistant.config_entries import SOURCE_REAUTH
-from pytest_homeassistant_custom_component.common import (  # type: ignore[import-untyped]
+from pytest_homeassistant.common import (  # type: ignore[import-untyped]
     async_fire_time_changed,
 )
 

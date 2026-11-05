@@ -18,7 +18,7 @@ from custom_components.localtrv.const import (
     SECTION_ADVANCED,
 )
 from homeassistant.data_entry_flow import FlowResultType, InvalidData, section
-from pytest_homeassistant_custom_component.common import (  # type: ignore[import-untyped]
+from pytest_homeassistant.common import (  # type: ignore[import-untyped]
     MockConfigEntry,
 )
 
