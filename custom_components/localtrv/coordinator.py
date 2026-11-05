@@ -6,7 +6,7 @@ Polling and pushes are separate paths:
   option) -> ``_async_update_data`` -> ``bridge.poll()``. The first call (the config entry's
   first refresh) returns ``bridge.snapshot()`` (the cache, or empty) and never polls.
 * Push: bridge ``on_update`` and connection state changes -> ``async_push`` -> ``self.data =
-  snapshot`` + ``async_update_listeners()``. In HA 2026.10.1 ``async_set_updated_data`` calls
+  snapshot`` + ``async_update_listeners()``. In HA 2026.11 ``async_set_updated_data`` calls
   ``_async_unsub_refresh()`` and ``_schedule_refresh()`` (it RESETS the interval), while
   ``async_update_listeners`` only calls the listeners. Valves report every few minutes, so a
   reset per push would starve the poll; the push path therefore never touches the schedule.

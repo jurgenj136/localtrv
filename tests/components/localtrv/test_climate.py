@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from custom_components.localtrv.climate import VicareClimate
 from custom_components.localtrv.const import DOMAIN
 from custom_components.localtrv.entity import eui_hex
 from homeassistant.components.climate.const import (
@@ -100,6 +101,25 @@ async def test_heat_only_with_limits_and_step(hass: HomeAssistant, sim: Sim) -> 
         assert state.attributes[ATTR_TEMPERATURE] == 22.0
         assert state.attributes["hvac_action"] == HVACAction.HEATING  # simulator demand 2
         assert state.attributes["supported_features"] == 1  # TARGET_TEMPERATURE
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "temperature_unit",
+        "current_temperature",
+        "target_temperature",
+        "target_temperature_high",
+        "target_temperature_low",
+    ],
+)
+def test_climate_uses_native_temperature_api(name: str) -> None:
+    """HA 2026.11 deprecates the non-native temperature API (removed in 2027.11). The
+    report fires at class definition, so check the class rather than the log."""
+    for cls in VicareClimate.__mro__:
+        if cls.__module__.startswith("custom_components."):
+            assert name not in vars(cls), f"{cls.__name__}.{name}"
+            assert f"_attr_{name}" not in vars(cls), f"{cls.__name__}._attr_{name}"
 
 
 async def test_limits_from_valve_and_fallback(hass: HomeAssistant, sim: Sim) -> None:

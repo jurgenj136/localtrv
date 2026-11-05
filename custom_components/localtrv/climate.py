@@ -77,7 +77,7 @@ class VicareClimate(VicareValveEntity, ClimateEntity):
     _attr_name = None
     _attr_hvac_mode = HVACMode.HEAT
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = valves.SETPOINT_STEP_C
 
     def __init__(self, coordinator: VicareCoordinator, valve: Valve) -> None:
@@ -98,7 +98,7 @@ class VicareClimate(VicareValveEntity, ClimateEntity):
         return self._limits.max_c
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         state = self.valve_state
         return None if state is None else state.local_temperature_c
 
@@ -112,7 +112,7 @@ class VicareClimate(VicareValveEntity, ClimateEntity):
         return HVACAction.HEATING if active else HVACAction.IDLE
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """The pending request, else the confirmed or polled setpoint, whichever is newer."""
         status = self.coordinator.data.setpoints.get(self.eui)
         if status is not None and status.pending and status.requested_c is not None:
