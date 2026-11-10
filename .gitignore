@@ -40,3 +40,7 @@ CLAUDE.md
 docs/*
 !docs/protocol.md
 !docs/images/
+# Local-only OPTO2 research experiment (not published)
+scripts/__init__.py
+scripts/opto2_probe/
+tests/test_opto2_probe*.py
