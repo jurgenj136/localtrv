@@ -42,6 +42,9 @@ class MeshTopology:
     def valve_by_short(self, short: int) -> SimValve | None:
         return next((v for v, _ in self._valves if v.short == short), None)
 
+    def parent_of(self, short: int) -> int | None:
+        return next((p for v, p in self._valves if v.short == short), None)
+
     def eui_of(self, short: int) -> Eui64 | None:
         if short == COORDINATOR:
             return self._coordinator_eui

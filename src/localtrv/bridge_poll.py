@@ -11,11 +11,21 @@ if any response arrived this cycle, else as busy (never a miss).
 A ``STATIC`` refresh replaces the limits only with limits from an at least as good source
 (``limits`` > ``abs`` > ``default``).
 
-All-silent rejoin backoff: the first rejoin follows ``SILENT_POLLS_REJOIN`` silent polls. If no
-valve answered since the last all-silent rejoin, the next one also waits
-``SILENT_REJOIN_BACKOFF`` x 2^(n-1) after it (1 h, 2 h, 4 h, capped at
-``SILENT_REJOIN_BACKOFF_MAX`` = 6 h), so one dead valve cannot cause a rejoin loop. Any valve
-answering resets the backoff. Valves never expire.
+All-silent rejoin: every known valve silent for ``SILENT_POLLS_REJOIN`` polls in a row.
+
+Partial silence (some valves silent while others answer, READY throughout): a router lost its
+route back to us while the R0 and its own children are fine (live 2026-11-10: after a proxy
+reconnect every coordinator child stayed silent, the R0's child answered, the coordinator kept
+re-discovering a route to us). A valve silent for ``STUCK_POLLS_REFRESH`` consecutive polls of
+the generation -> route refresh (Device_annce + MTORR burst, at most every
+``ROUTE_REFRESH_INTERVAL``); one silent for ``STUCK_POLLS_REJOIN`` after a refresh -> rejoin
+(``valves_silent``). Counts are per generation; a response or report resets the valve's count.
+
+Rejoin backoff (both rules): if none of the valves silent at the last silent rejoin answered
+since, the next one also waits ``SILENT_REJOIN_BACKOFF`` x 2^(n-1) after it (1 h, 2 h, 4 h,
+capped at ``SILENT_REJOIN_BACKOFF_MAX`` = 6 h), so one dead valve cannot cause a rejoin loop.
+One of those valves answering resets the backoff; other valves answering do not. Valves never
+expire.
 """
 
 from __future__ import annotations
@@ -28,9 +38,12 @@ from typing import TYPE_CHECKING, Final, Literal
 from localtrv import valves
 from localtrv.bridge_types import (
     NO_RESPONSE,
+    ROUTE_REFRESH_INTERVAL,
     SILENT_POLLS_REJOIN,
     SILENT_REJOIN_BACKOFF,
     SILENT_REJOIN_BACKOFF_MAX,
+    STUCK_POLLS_REFRESH,
+    STUCK_POLLS_REJOIN,
 )
 from localtrv.bridge_verify import adopt_walk
 from localtrv.zigbee_direct.connection import ConnectionState
@@ -38,6 +51,8 @@ from localtrv.zigbee_direct.discovery import walk_topology
 from localtrv.zigbee_direct.errors import ConnectionLostError, ZclStatusError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from localtrv.bridge_state import BridgeCore
     from localtrv.bridge_types import BridgeSnapshot
     from localtrv.valves import ReadPlan, ReadRequest
@@ -198,17 +213,69 @@ async def poll(core: BridgeCore) -> BridgeSnapshot:
     outcomes = await asyncio.gather(*(poll_valve(core, gen, e, slow=slow) for e in euis))
     if not core.is_current(gen) or "stale" in outcomes:
         return core.snapshot()
+    for eui, outcome in zip(euis, outcomes, strict=True):
+        if outcome == "miss":
+            core.silent_polls[eui] = core.silent_polls.get(eui, 0) + 1
     if euis and all(o == "miss" for o in outcomes):
         core.silent_streak += 1
+        if core.silent_streak >= SILENT_POLLS_REJOIN and _rejoin_allowed(core):
+            _LOGGER.warning("all %d known valves silent: requesting a rejoin", len(euis))
+            _rejoin(core, gen, euis, "all_valves_silent")
     else:
         core.silent_streak = 0
-    if core.silent_streak >= SILENT_POLLS_REJOIN and _rejoin_allowed(core):
-        core.silent_streak = 0
-        core.silent_rejoins += 1
-        core.last_silent_rejoin = core.clock.now()
-        _LOGGER.warning("all %d known valves silent: requesting a rejoin", len(euis))
-        conn.request_rejoin(gen, "all_valves_silent")
+        _escalate_partial(core, gen)
     return core.snapshot()
+
+
+def _escalate_partial(core: BridgeCore, gen: Generation) -> None:
+    """Partial silence (module docstring): route refresh, then rejoin."""
+    stuck = {
+        e: n for e, n in core.silent_polls.items() if n >= STUCK_POLLS_REFRESH and e in core.valves
+    }
+    if not stuck:
+        return
+    if (
+        max(stuck.values()) >= STUCK_POLLS_REJOIN
+        and core.route_refresh_at is not None
+        and _rejoin_allowed(core)
+    ):
+        _LOGGER.warning(
+            "%d of %d valves silent after a route refresh: requesting a rejoin",
+            len(stuck),
+            len(core.valves),
+        )
+        _rejoin(core, gen, stuck, "valves_silent")
+        return
+    now = core.clock.now()
+    last = core.route_refresh_at
+    if last is not None and now - last < ROUTE_REFRESH_INTERVAL:
+        return
+    try:
+        core.connection.spawn(gen, _refresh_routes(gen), name="vicare route refresh")
+    except ConnectionLostError:
+        _LOGGER.debug("generation %d gone: route refresh not started", gen.number)
+        return
+    core.route_refresh_at = now
+    _LOGGER.warning(
+        "%d of %d valves silent while others answer: refreshing routes",
+        len(stuck),
+        len(core.valves),
+    )
+
+
+async def _refresh_routes(gen: Generation) -> None:
+    try:
+        await gen.node.refresh_routes()
+    except ConnectionLostError:
+        _LOGGER.debug("generation %d lost: route refresh ends", gen.number)
+
+
+def _rejoin(core: BridgeCore, gen: Generation, silent: Iterable[Eui64], reason: str) -> None:
+    core.silent_streak = 0
+    core.silent_rejoins += 1
+    core.last_silent_rejoin = core.clock.now()
+    core.rejoin_silent = frozenset(silent)
+    core.connection.request_rejoin(gen, reason)
 
 
 def _rejoin_allowed(core: BridgeCore) -> bool:

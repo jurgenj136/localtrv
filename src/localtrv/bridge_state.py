@@ -160,6 +160,12 @@ class BridgeCore:
         #: All-silent rejoins without any valve answering since, and when the last one was.
         self.silent_rejoins = 0
         self.last_silent_rejoin: float | None = None
+        #: Valves silent when the last silent rejoin was requested; one of them answering
+        #: resets the rejoin backoff (others answering do not: partial silence).
+        self.rejoin_silent: frozenset[Eui64] = frozenset()
+        #: Per generation: consecutive silent polls per valve, and the last route refresh.
+        self.silent_polls: dict[Eui64, int] = {}
+        self.route_refresh_at: float | None = None
         #: Basic-read timeouts per unknown EUI (diagnostic Active_EP/Simple_Desc trigger).
         self.basic_timeouts: dict[Eui64, int] = {}
         #: Per generation: Device_annce senders with an identification scheduled or running
@@ -181,6 +187,8 @@ class BridgeCore:
         """Reset the per-generation bookkeeping for a new READY generation."""
         self.gen = gen
         self.silent_streak = 0
+        self.silent_polls = {}
+        self.route_refresh_at = None
         self.walking = False
         self.annce_seen = set()
         self.annce_short = {}
@@ -350,7 +358,10 @@ class BridgeCore:
 
     def responded(self, eui: Eui64) -> bool:
         """A valve answered: reset its misses; True if anything changed."""
-        self.silent_rejoins = 0
+        self.silent_polls.pop(eui, None)
+        if eui in self.rejoin_silent:
+            self.silent_rejoins = 0
+            self.rejoin_silent = frozenset()
         if self.misses.get(eui) == 0 and self.available.get(eui):
             return False
         if self.misses.get(eui, 0) >= MISSES_UNAVAILABLE:

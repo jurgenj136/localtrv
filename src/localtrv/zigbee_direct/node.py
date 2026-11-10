@@ -205,6 +205,13 @@ class ZigbeeDirectNode:
         self._core.check_ready()
         await self._core.router.send_mtorr()
 
+    async def refresh_routes(self) -> None:
+        """Re-announce our short (Device_annce) and send an MTORR burst, as at the join: lets
+        routers whose route to us went stale learn it again without a new join."""
+        self._core.check_ready()
+        await self._core.router.announce()
+        await self._core.router.send_mtorr_burst()
+
     def on_report(self, cb: Callable[[ReportEvent], None]) -> Unsubscribe:
         return self._core.on_report(cb)
 

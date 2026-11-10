@@ -46,6 +46,8 @@ Behaviours and their knobs
         * ``add_valve_later(valve)`` (Device_annce from a new EUI), ``valve_rejoin(valve,
           new_short)``, ``address_conflict()`` (Network Status 0x0D for the ZVD short),
           ``SimulatedR0.r0_reboot()`` (via ``on_session_reset``).
+        * ``route_loss.schedule(parent)``: from the next session, ``parent``'s children lose
+          their return route to the ZVD (``network_routes``).
 
 Implementation notes
     * Every frame the network sends goes out from a ``clock.call_later`` callback (scripted
@@ -74,6 +76,7 @@ from localtrv.testing.network_aps import (
     is_aps_ack,
 )
 from localtrv.testing.network_link import SimMeshLink, TunnelHost
+from localtrv.testing.network_routes import ReturnRouteLoss
 from localtrv.testing.network_topology import FIRST_BROADCAST, MeshTopology
 from localtrv.zigbee_direct.codec.aps import ZDO_PROFILE_ID, ApsDataFrame
 from localtrv.zigbee_direct.codec.nwk import NwkFrame, NwkFrameType
@@ -177,6 +180,7 @@ class SimNetwork(SimMeshLink):
         self._zvd_eui: Eui64 | None = None
         self._received: list[NwkFrame] = []
         self._rreps: list[RecordedRrep] = []
+        self.route_loss = ReturnRouteLoss()
         self.add_router(SimRouter(eui=zdd_eui, short=self._zdd_short))
 
     # --- topology ---
@@ -220,7 +224,8 @@ class SimNetwork(SimMeshLink):
         """``ValveUplink``: an unsolicited frame from ``valve`` (reports)."""
         if valve not in self.valves:
             raise ValueError(f"{valve!r} is not in this network")
-        self._reply_later(valve.short, aps, delay)
+        if not self._lost_route(valve.short):
+            self._reply_later(valve.short, aps, delay)
 
     # --- TunnelPeer ---
 
@@ -244,6 +249,7 @@ class SimNetwork(SimMeshLink):
         self._mtorr_seen = False
         self._received.clear()
         self.aps.clear()
+        self.route_loss.on_session_reset()
 
     def _on_command(self, frame: NwkFrame, raw: bytes) -> None:
         try:
@@ -340,8 +346,20 @@ class SimNetwork(SimMeshLink):
         src = valve.short
         if self._indirect_dropped(src):
             return
-        for reply in valve.handle_request(aps):
+        replies = valve.handle_request(aps)
+        if self._lost_route(src):
+            return
+        for reply in replies:
             self._reply_later(src, reply.aps, reply.delay)
+
+    def _lost_route(self, src: int) -> bool:
+        """``route_loss``: True (and a Route Request for the ZVD in ``src``'s name, as the
+        parent sends) if ``src``'s parent lost its route to the ZVD."""
+        if not self.route_loss.blocks(self._mesh.parent_of(src)):
+            return False
+        if self._joined is not None:
+            self.emit_route_request(src, route_id=self.route_loss.next_route_id())
+        return True
 
     def _on_broadcast(self, aps: ApsDataFrame) -> None:
         if aps.profile_id != ZDO_PROFILE_ID or aps.cluster_id != ZdoCluster.DEVICE_ANNCE:
@@ -351,6 +369,8 @@ class SimNetwork(SimMeshLink):
         except DecodeError:
             return
         if annce.nwk_addr == self._joined and annce.ieee == self._zvd_eui:
+            if self._annce_seen:
+                self.route_loss.on_reannounce()
             self._annce_seen = True
 
     def _on_router_request(self, short: int, aps: ApsDataFrame) -> None:

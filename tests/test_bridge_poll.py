@@ -102,11 +102,16 @@ async def test_misses_unavailable_then_rewalk_and_recovery(
     assert walked is not None
     assert walked.walked_at is not None
     assert walked.walked_at > r.snap().discovery.last_run  # type: ignore[operator]
-    # A fourth miss does not spawn another walk.
+    # A fourth miss does not spawn another walk; it escalates the partial silence to a rejoin
+    # (the route refresh went out at the second miss).
+    gen = r.conn.current
+    assert gen is not None
+    assert r.core.route_refresh_at is not None
     mark = len(r.inst.network.received)
     await poll(r)
-    await r.clock.advance(30)
     assert zdo_requests(r, ZdoCluster.MGMT_LQI_REQ, mark) == []
+    assert r.conn.stats.last_failure == "rejoin:valves_silent"
+    await ready_again(r, gen.number)
     # Any response resets the misses; the recovery is logged once.
     assert "available again" not in caplog.text
     dead.drop_rate = 0.0

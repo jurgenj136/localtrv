@@ -28,6 +28,13 @@ SILENT_POLLS_REJOIN: Final = 2
 #: ``SILENT_REJOIN_BACKOFF * 2**(n-1)`` after it, capped at ``SILENT_REJOIN_BACKOFF_MAX``.
 SILENT_REJOIN_BACKOFF: Final = 3600.0
 SILENT_REJOIN_BACKOFF_MAX: Final = 21_600.0
+#: Partial silence: some valves silent while others answer in the same READY generation (a
+#: router lost its route back to us). This many consecutive silent polls -> a route refresh
+#: (Device_annce + MTORR burst), at most every ``ROUTE_REFRESH_INTERVAL`` per generation; then
+#: ``STUCK_POLLS_REJOIN`` -> a rejoin, under the same backoff as the all-silent rejoin.
+STUCK_POLLS_REFRESH: Final = 2
+STUCK_POLLS_REJOIN: Final = 4
+ROUTE_REFRESH_INTERVAL: Final = 3600.0
 SETPOINT_ACK_DEADLINE: Final = 60.0
 SETPOINT_TOTAL_DEADLINE: Final = 90.0
 #: Discovery retries after an incomplete topology, an identification timeout or 0 valves.
@@ -137,11 +144,14 @@ __all__ = [
     "IDENTIFY_DIAGNOSTIC_AFTER",
     "MISSES_UNAVAILABLE",
     "NO_RESPONSE",
+    "ROUTE_REFRESH_INTERVAL",
     "SETPOINT_ACK_DEADLINE",
     "SETPOINT_TOTAL_DEADLINE",
     "SILENT_POLLS_REJOIN",
     "SILENT_REJOIN_BACKOFF",
     "SILENT_REJOIN_BACKOFF_MAX",
+    "STUCK_POLLS_REFRESH",
+    "STUCK_POLLS_REJOIN",
     "TOPOLOGY_REFRESH",
     "BridgeSnapshot",
     "DiscoveryStatus",

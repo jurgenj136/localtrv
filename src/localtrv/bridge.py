@@ -22,9 +22,12 @@ Polling
     ``MISSES_UNAVAILABLE`` the valve is unavailable and a topology walk is spawned. Not READY ->
     the cycle is skipped and every known valve counts a miss. Rejoin rule: >= 1 known valve,
     every known valve missed ``SILENT_POLLS_REJOIN`` consecutive polls, READY throughout ->
-    ``connection.request_rejoin(gen, "all_valves_silent")``. Without any valve answering
-    since the last such rejoin, the next one also waits ``SILENT_REJOIN_BACKOFF`` doubling
-    per rejoin (1 h, 2 h, 4 h, cap ``SILENT_REJOIN_BACKOFF_MAX`` 6 h; see ``bridge_poll``).
+    ``connection.request_rejoin(gen, "all_valves_silent")``. Partial silence (some valves
+    silent while others answer): ``STUCK_POLLS_REFRESH`` silent polls -> route refresh
+    (Device_annce + MTORR burst), ``STUCK_POLLS_REJOIN`` -> ``request_rejoin(gen,
+    "valves_silent")``. Without any of the silent valves answering since the last such rejoin,
+    the next one also waits ``SILENT_REJOIN_BACKOFF`` doubling per rejoin (1 h, 2 h, 4 h, cap
+    ``SILENT_REJOIN_BACKOFF_MAX`` 6 h; see ``bridge_poll``).
 
 Setpoints (``set_setpoint``), per valve, in this order
     1. Validate (``KeyError`` unknown valve, ``ValueError`` non-finite) and clamp with
@@ -103,11 +106,14 @@ from localtrv.bridge_types import (
     IDENTIFY_CONCURRENCY,
     IDENTIFY_DIAGNOSTIC_AFTER,
     MISSES_UNAVAILABLE,
+    ROUTE_REFRESH_INTERVAL,
     SETPOINT_ACK_DEADLINE,
     SETPOINT_TOTAL_DEADLINE,
     SILENT_POLLS_REJOIN,
     SILENT_REJOIN_BACKOFF,
     SILENT_REJOIN_BACKOFF_MAX,
+    STUCK_POLLS_REFRESH,
+    STUCK_POLLS_REJOIN,
     TOPOLOGY_REFRESH,
     BridgeSnapshot,
     DiscoveryStatus,
@@ -273,11 +279,14 @@ __all__ = [
     "IDENTIFY_CONCURRENCY",
     "IDENTIFY_DIAGNOSTIC_AFTER",
     "MISSES_UNAVAILABLE",
+    "ROUTE_REFRESH_INTERVAL",
     "SETPOINT_ACK_DEADLINE",
     "SETPOINT_TOTAL_DEADLINE",
     "SILENT_POLLS_REJOIN",
     "SILENT_REJOIN_BACKOFF",
     "SILENT_REJOIN_BACKOFF_MAX",
+    "STUCK_POLLS_REFRESH",
+    "STUCK_POLLS_REJOIN",
     "TOPOLOGY_REFRESH",
     "BridgeCache",
     "BridgeSnapshot",
